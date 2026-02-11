@@ -17,7 +17,14 @@ from PyQt6.QtWidgets import (
 )
 from translations import TRANS  # Импортируем наш новый файл
 from PyQt6.QtCore import Qt, QPoint, QRegularExpression, QRect
-from PyQt6.QtGui import QRegularExpressionValidator, QPainter, QPen, QColor, QFont
+from PyQt6.QtGui import (
+    QRegularExpressionValidator,
+    QPainter,
+    QPen,
+    QColor,
+    QFont,
+    QIntValidator,
+)
 
 
 class CustomCheckBox(QCheckBox):
@@ -227,6 +234,8 @@ class SettingsDialog(QDialog):
         self.prec_risk = QLineEdit(str(parent.settings.get("prec_risk", 2)))
         self.prec_fee = QLineEdit(str(parent.settings.get("prec_fee", 3)))
         self.prec_vol = QLineEdit(str(parent.settings.get("prec_vol", 0)))
+        self.prec_vol.setValidator(QIntValidator(0, 3))
+        self.prec_vol.textChanged.connect(self._clamp_prec_vol_input)
         self.prec_lev = QLineEdit(str(parent.settings.get("prec_lev", 1)))  # ПЛЕЧО
 
         for inp in [
@@ -335,6 +344,31 @@ class SettingsDialog(QDialog):
         self.lbl_fee_taker.setVisible(is_checked)
         self.inp_fee_taker.setVisible(is_checked)
 
+    def _clamp_prec_vol_input(self, value):
+        if not value:
+            return
+
+        try:
+            num = int(value)
+        except ValueError:
+            self.prec_vol.setText("0")
+            return
+
+        if num > 3:
+            self.prec_vol.setText("3")
+
+    def _safe_int(self, text, default, min_val=None, max_val=None):
+        try:
+            num = int(text)
+        except ValueError:
+            num = default
+
+        if min_val is not None:
+            num = max(min_val, num)
+        if max_val is not None:
+            num = min(max_val, num)
+        return num
+
     def save_and_close(self):
         try:
             fee_taker = float(self.inp_fee_taker.text().replace(",", "."))
@@ -349,6 +383,17 @@ class SettingsDialog(QDialog):
         # Сохраняем позицию окна
         current_pos = [self.x(), self.y()]
 
+        prec_dep = self._safe_int(self.prec_dep.text() or "", 2, 0, 6)
+        prec_risk = self._safe_int(self.prec_risk.text() or "", 2, 0, 6)
+        prec_fee = self._safe_int(self.prec_fee.text() or "", 3, 0, 6)
+        prec_vol = self._safe_int(self.prec_vol.text() or "", 0, 0, 3)
+        prec_lev = self._safe_int(self.prec_lev.text() or "", 1, 0, 6)
+
+        self.prec_dep.setText(str(prec_dep))
+        self.prec_risk.setText(str(prec_risk))
+        self.prec_fee.setText(str(prec_fee))
+        self.prec_vol.setText(str(prec_vol))
+        self.prec_lev.setText(str(prec_lev))
         self.parent_window.settings.update(
             {
                 "scale": int(self.cb_scale.currentText()),
@@ -358,11 +403,11 @@ class SettingsDialog(QDialog):
                 "fee_taker": fee_taker,
                 "fee_maker": fee_maker,
                 "fee_percent": fee_val,
-                "prec_dep": int(self.prec_dep.text() or 2),
-                "prec_risk": int(self.prec_risk.text() or 2),
-                "prec_fee": int(self.prec_fee.text() or 3),
-                "prec_vol": int(self.prec_vol.text() or 0),
-                "prec_lev": int(self.prec_lev.text() or 1),
+                "prec_dep": prec_dep,
+                "prec_risk": prec_risk,
+                "prec_fee": prec_fee,
+                "prec_vol": prec_vol,
+                "prec_lev": prec_lev,
                 "settings_pos": current_pos,
                 "lang": "ru" if self.combo_lang.currentIndex() == 0 else "en",
             }

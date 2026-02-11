@@ -103,6 +103,7 @@ class RiskVolumeApp(QMainWindow):
             "last_cascade_count": 1,
             "scalp_cells_count": 4,
             "scalp_multipliers": [100, 50, 25, 10],
+            "cells_reversed": False,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -156,6 +157,9 @@ class RiskVolumeApp(QMainWindow):
             self.rebind_hotkeys()
             self.refresh_labels()
             self.update_calc()
+            # Принудительно обновляем объемы в таблице с новой точностью
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
 
     def init_ui(self):
         self.central_widget = QWidget()
@@ -290,6 +294,7 @@ class RiskVolumeApp(QMainWindow):
 
         self.refresh_labels()
         self.apply_styles()
+        QTimer.singleShot(0, self.finalize_startup_layout)
 
     def init_calculator_tab(self):
         main_layout = QVBoxLayout(self.tab_calculator)
@@ -386,6 +391,13 @@ class RiskVolumeApp(QMainWindow):
 
         # --- НАСТРОЙКА ЯЧЕЕК ---
         cells_header = QHBoxLayout()
+
+        # Кнопка переворота таблицы
+        self.btn_reverse_cells = QPushButton("⇅")
+        self.btn_reverse_cells.setFixedSize(25, 25)
+        self.btn_reverse_cells.setToolTip("Перевернуть порядок ячеек")
+        self.btn_reverse_cells.clicked.connect(self.toggle_cells_order)
+        cells_header.addWidget(self.btn_reverse_cells)
 
         lbl_cells = QLabel("Кол-во:")
         lbl_cells.setStyleSheet("font-size: 8pt;")
@@ -541,6 +553,9 @@ class RiskVolumeApp(QMainWindow):
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_status.setStyleSheet("color: #666; font-size: 7pt;")
         main_layout.addWidget(self.lbl_status)
+
+        # Добавляем растяжение в конец
+        main_layout.addStretch()
 
         # Создаём поля ячеек (всегда 5 строк)
         self.on_cells_changed()
@@ -817,6 +832,7 @@ class RiskVolumeApp(QMainWindow):
                 }}
             """
             )
+            self.update_cells_table_height()
 
         btn_pad = max(5, int(8 * ratio))
         if hasattr(self, "btn_calib_calc"):
@@ -896,25 +912,24 @@ class RiskVolumeApp(QMainWindow):
         """Отправляет объемы ячеек в терминал"""
         points = self.settings.get("points", [])
         cells_count = int(self.lbl_cells_count.text())
-
-        # Читаем проценты из таблицы
-        percentages = []
+        # Читаем объемы из таблицы (как отображаются пользователю)
+        volumes = []
         for i in range(cells_count):
-            item = self.cells_table.item(i, 2)
-            if item:
-                try:
-                    percent = int(item.text() or 0)
-                    percentages.append(percent)
-                except:
-                    percentages.append(0)
+            item = self.cells_table.item(i, 1)
+            if item and item.text():
+                text = item.text().replace(" ", "").replace(",", ".")
+                volumes.append(text)
+            else:
+                volumes.append("0")
+
+        # Если таблица перевернута, переворачиваем и проценты и точки для соответствия
+        is_reversed = self.settings.get("cells_reversed", False)
+        if is_reversed:
+            volumes.reverse()
+            points = list(reversed(points[:cells_count])) + points[cells_count:]
 
         if len(points) < cells_count or self.current_vol <= 0:
             return
-
-        try:
-            min_order = float(self.inp_min_order.text().replace(",", ".") or 6)
-        except:
-            min_order = 6
 
         try:
             old_clip = pyperclip.paste()
@@ -923,10 +938,7 @@ class RiskVolumeApp(QMainWindow):
             time.sleep(0.12)
 
             for i in range(cells_count):
-                # Рассчитываем объем на основе процента и учитываем минимум
-                percent = percentages[i] / 100.0 if i < len(percentages) else 0
-                volume = max(min_order, self.current_vol * percent)
-                vol_to_send = f"{volume:.2f}".replace(",", ".")
+                vol_to_send = volumes[i] if i < len(volumes) else "0"
                 pyperclip.copy(vol_to_send)
                 pyautogui.moveTo(points[i][0], points[i][1], duration=0.04)
                 pyautogui.click()
@@ -1040,6 +1052,50 @@ class RiskVolumeApp(QMainWindow):
             self.settings["scalp_cells_count"] = current
             self.on_cells_changed()
 
+    def toggle_cells_order(self):
+        """Переворачивает порядок ячеек в таблице"""
+        cells_count = int(self.lbl_cells_count.text())
+
+        # Собираем текущие проценты
+        percentages = []
+        for i in range(cells_count):
+            item = self.cells_table.item(i, 2)
+            if item and item.text():
+                try:
+                    percentages.append(int(item.text()))
+                except:
+                    percentages.append(0)
+            else:
+                percentages.append(0)
+
+        # Переворачиваем порядок
+        percentages.reverse()
+
+        # Отключаем сигнал
+        try:
+            self.cells_table.itemChanged.disconnect(self.on_table_item_changed)
+        except:
+            pass
+
+        # Применяем перевернутые значения
+        for i in range(cells_count):
+            item = self.cells_table.item(i, 2)
+            if item:
+                item.setText(str(percentages[i]))
+
+        # Включаем сигнал обратно
+        self.cells_table.itemChanged.connect(self.on_table_item_changed)
+
+        # Переключаем флаг
+        self.settings["cells_reversed"] = not self.settings.get("cells_reversed", False)
+
+        # Обновляем подписи ячеек
+        self.update_cells_labels()
+
+        # Обновляем расчеты и сохраняем
+        self.update_cell_volumes()
+        self.save_cell_settings()
+
     def on_cells_changed(self):
         """Обновляет поля ячеек при изменении количества (таблица всегда 5 строк)"""
         cells_count = int(self.lbl_cells_count.text())
@@ -1090,13 +1146,11 @@ class RiskVolumeApp(QMainWindow):
                 percent_item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.cells_table.setItem(i, 2, percent_item)
 
-        # Фиксированная высота таблицы (всегда 5 строк)
-        header_height = self.cells_table.horizontalHeader().height()
-        row_height = (
-            self.cells_table.rowHeight(0) if self.cells_table.rowCount() > 0 else 30
-        )
-        total_height = header_height + (row_height * 5) + 2
-        self.cells_table.setFixedHeight(total_height)
+        # Обновляем подписи ячеек с учетом порядка
+        self.update_cells_labels()
+
+        # Обновляем высоту таблицы, чтобы всегда были видны 5 строк
+        self.update_cells_table_height()
 
         # Переприменяем текущий тип распределения
         preset_index = self.cb_distribution.currentIndex()
@@ -1117,6 +1171,63 @@ class RiskVolumeApp(QMainWindow):
         self.save_cell_settings()
         self._update_status_text()
 
+    def update_cells_labels(self):
+        if not hasattr(self, "cells_table"):
+            return
+
+        cells_count = int(self.lbl_cells_count.text())
+        is_reversed = self.settings.get("cells_reversed", False)
+
+        active_labels = list(range(1, cells_count + 1))
+        if is_reversed:
+            active_labels.reverse()
+
+        for i in range(5):
+            label_item = self.cells_table.item(i, 0)
+            if not label_item:
+                continue
+
+            if i < cells_count:
+                label_item.setText(f"Ячейка {active_labels[i]}")
+            else:
+                label_item.setText(f"Ячейка {i + 1}")
+
+    def update_cells_table_height(self):
+        if not hasattr(self, "cells_table"):
+            return
+
+        # Отключаем скроллбар
+        self.cells_table.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.cells_table.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+
+        # Рассчитываем высоту строки по реальному sizeHint
+        row_height = 0
+        for i in range(self.cells_table.rowCount()):
+            row_height = max(row_height, self.cells_table.sizeHintForRow(i))
+
+        # Fallback, если sizeHint еще не готов
+        if row_height <= 0:
+            scale = self.settings.get("scale", self.base_scale)
+            ratio = scale / self.base_scale if self.base_scale else 1.0
+            row_height = max(20, int(28 * ratio))
+
+        # Фиксируем высоту строк, чтобы 5 строк всегда были видны
+        for i in range(self.cells_table.rowCount()):
+            self.cells_table.setRowHeight(i, row_height)
+
+        header = self.cells_table.horizontalHeader()
+        header_height = max(header.height(), header.sizeHint().height())
+        table_height = header_height + (row_height * 5) + (self.cells_table.frameWidth() * 2)
+        self.cells_table.setFixedHeight(table_height)
+
+        if self.isVisible():
+            self.adjustSize()
+            self.setFixedSize(self.sizeHint())
+
     def on_table_item_clicked(self, item):
         """Обработчик клика по ячейке - снимает фокус с колонок 0 и 1"""
         if item and item.column() in [0, 1]:
@@ -1134,6 +1245,11 @@ class RiskVolumeApp(QMainWindow):
 
             self.update_cell_volumes()
             self.save_cell_settings()
+
+    def finalize_startup_layout(self):
+        self.update_cells_table_height()
+        self.adjustSize()
+        self.setFixedSize(self.sizeHint())
 
     def _apply_preset_values(self, preset_index):
         """Применяет значения выбранного пресета"""
@@ -1257,9 +1373,15 @@ class RiskVolumeApp(QMainWindow):
         except:
             min_order = 6
 
+        # Если таблица перевернута, сохраняем multipliers в обратном порядке для корректного отображения
+        is_reversed = self.settings.get("cells_reversed", False)
+        if is_reversed:
+            multipliers.reverse()
+
         self.settings["scalp_cells_count"] = cells_count
         self.settings["scalp_multipliers"] = multipliers
         self.settings["scalp_min_order"] = min_order
+        self.settings["cells_reversed"] = is_reversed
         self.save_settings()
 
     def is_cursor_over_window(self):
