@@ -9,10 +9,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QPushButton,
     QTabWidget,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QComboBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QStyledItemDelegate,
+    QAbstractItemView,
 )
 from PyQt6.QtCore import Qt, QRegularExpression, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QIcon, QRegularExpressionValidator
@@ -33,6 +36,22 @@ except:
 class HotkeySignaler(QObject):
     toggle_sig = pyqtSignal()
     apply_sig = pyqtSignal()  # Новый сигнал для применения
+
+
+class PercentItemDelegate(QStyledItemDelegate):
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            editor.setFrame(False)
+            editor.setFont(option.font)
+            editor.setContentsMargins(0, 0, 0, 0)
+            editor.setStyleSheet("padding: 0px; margin: 0px;")
+            QTimer.singleShot(0, editor.selectAll)
+        return editor
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
 
 
 class RiskVolumeApp(QMainWindow):
@@ -59,6 +78,7 @@ class RiskVolumeApp(QMainWindow):
 
         self.old_pos = None
         self.current_vol = 0.0
+        self._ghost_input = None
 
         self.init_ui()
         self.rebind_hotkeys()
@@ -288,7 +308,9 @@ class RiskVolumeApp(QMainWindow):
         self.tabs.addTab(self.tab_calculator, "Калькулятор")
 
         self.tab_cascade = CascadeTab(self)
+        self.tab_cascade.installEventFilter(self)
         self.tabs.addTab(self.tab_cascade, "Каскады (Profit Forge)")
+        self.installEventFilter(self)
 
         self.main_layout.addWidget(self.tabs)
 
@@ -319,6 +341,8 @@ class RiskVolumeApp(QMainWindow):
         self.inp_dep.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inp_dep.setFixedHeight(26)
         self.inp_dep.textChanged.connect(self.update_calc)
+        self.inp_dep.returnPressed.connect(self._commit_input)
+        self.inp_dep.installEventFilter(self)
         main_layout.addWidget(self.inp_dep)
 
         self.lbl_hint = QLabel("0")
@@ -343,6 +367,8 @@ class RiskVolumeApp(QMainWindow):
         self.inp_risk.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inp_risk.setFixedHeight(26)
         self.inp_risk.textChanged.connect(self.update_calc)
+        self.inp_risk.returnPressed.connect(self._commit_input)
+        self.inp_risk.installEventFilter(self)
         risk_col.addWidget(self.inp_risk)
         risk_stop_row.addLayout(risk_col)
 
@@ -359,6 +385,8 @@ class RiskVolumeApp(QMainWindow):
         self.inp_stop.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inp_stop.setFixedHeight(26)
         self.inp_stop.textChanged.connect(self.update_calc)
+        self.inp_stop.returnPressed.connect(self._commit_input)
+        self.inp_stop.installEventFilter(self)
         stop_col.addWidget(self.inp_stop)
         risk_stop_row.addLayout(stop_col)
 
@@ -437,6 +465,7 @@ class RiskVolumeApp(QMainWindow):
         self.inp_min_order.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inp_min_order.setStyleSheet("font-size: 8pt; padding: 2px;")
         self.inp_min_order.returnPressed.connect(self.on_min_order_changed)
+        self.inp_min_order.installEventFilter(self)
         cells_header.addWidget(self.inp_min_order)
 
         # Тип распределения (слева, в той же строке)
@@ -457,6 +486,7 @@ class RiskVolumeApp(QMainWindow):
             QComboBox { background: #1A1A1A; color: white; border: 1px solid #333; padding: 3px; border-radius: 4px; font-size: 8pt; }
             """
         )
+        self.cb_distribution.installEventFilter(self)
         cells_header.addWidget(self.cb_distribution)
         cells_header.addStretch()
         main_layout.addLayout(cells_header)
@@ -469,6 +499,10 @@ class RiskVolumeApp(QMainWindow):
         )
         self.cells_table.verticalHeader().setVisible(False)
         self.cells_table.horizontalHeader().setStretchLastSection(True)
+        self.cells_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.DoubleClicked
+        )
         self.cells_table.setStyleSheet(
             """
             QTableWidget { 
@@ -511,12 +545,16 @@ class RiskVolumeApp(QMainWindow):
                 color: white;
                 border: 1px solid #333 !important;
                 border-radius: 4px;
-                padding: 3px;
-                font-size: 9pt;
+                padding: 1px;
+                font-size: 6pt;
+                margin: 0px;
                 selection-background-color: rgba(90, 205, 80, 150);
                 selection-color: white;
             }
         """
+        )
+        self.cells_table.setItemDelegateForColumn(
+            2, PercentItemDelegate(self.cells_table)
         )
         # Устанавливаем пропорции колонок (30%, 35%, 35%)
         self.cells_table.horizontalHeader().setSectionResizeMode(
@@ -659,13 +697,16 @@ class RiskVolumeApp(QMainWindow):
             f"""
             QWidget#Root {{ background: #121212; border: 2px solid #333; border-radius: {int(12*ratio)}px; }}
             QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; }}
+            QLineEdit:focus {{ border: 1px solid #FFFFFF; }}
+            QLineEdit[ghostFocus="true"] {{ border: 1px solid #FFFFFF; }}
             QLabel {{ color: #888; border: none; font-size: {max(6, f_main-2)}pt; }}
             QPushButton#HeadBtn {{ color: #555; border: none; background: transparent; font-size: {f_main}pt; font-weight: bold; }}
             QPushButton#HeadBtn:hover {{ color: #38BE1D; }}
             QPushButton {{ background: #333; color: white; border: 1px solid #444; border-radius: {max(4, int(4*ratio))}px; font-weight: bold; }}
             QPushButton:hover {{ background: #444; border-color: #38BE1D; }}
             QPushButton:pressed {{ background: #38BE1D; color: black; }}
-            QComboBox, QSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; }}
+            QComboBox, QSpinBox, QDoubleSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; }}
+            QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid #FFFFFF; }}
             QComboBox::drop-down {{ border: none; }}
             QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #888; width: 0; height: 0; margin-right: 5px; }}
             QComboBox QAbstractItemView {{ background: #1A1A1A; color: white; selection-background-color: #38BE1D; selection-color: black; border: 1px solid #333; }}
@@ -718,52 +759,6 @@ class RiskVolumeApp(QMainWindow):
             self.inp_stop.setFixedHeight(input_height)
         if hasattr(self, "lbl_vol"):
             self.lbl_vol.setFixedHeight(max(24, int(36 * ratio)))
-
-        if hasattr(self, "btn_cells_minus"):
-            size = max(18, int(25 * ratio))
-            self.btn_cells_minus.setFixedSize(size, size)
-        if hasattr(self, "btn_cells_plus"):
-            size = max(18, int(25 * ratio))
-            self.btn_cells_plus.setFixedSize(size, size)
-        if hasattr(self, "lbl_cells_count"):
-            self.lbl_cells_count.setFixedWidth(max(14, int(20 * ratio)))
-        if hasattr(self, "inp_min_order"):
-            self.inp_min_order.setFixedWidth(max(36, int(50 * ratio)))
-            self.inp_min_order.setFixedHeight(max(16, int(22 * ratio)))
-        if hasattr(self, "calc_layout"):
-            self.calc_layout.setContentsMargins(
-                int(5 * ratio), int(5 * ratio), int(5 * ratio), int(5 * ratio)
-            )
-            self.calc_layout.setSpacing(int(6 * ratio))
-
-        if hasattr(self, "lbl_dep_title"):
-            self.lbl_dep_title.setStyleSheet(
-                f"color: #888; font-size: {f_small}pt; font-weight: bold;"
-            )
-        if hasattr(self, "lbl_risk_title"):
-            self.lbl_risk_title.setStyleSheet(
-                f"color: #888; font-size: {f_small}pt; font-weight: bold;"
-            )
-        if hasattr(self, "lbl_stop_title"):
-            self.lbl_stop_title.setStyleSheet(
-                f"color: #888; font-size: {f_small}pt; font-weight: bold;"
-            )
-        if hasattr(self, "lbl_hint"):
-            self.lbl_hint.setStyleSheet(
-                f"color: #666; font-size: {max(6, int(7*ratio))}pt;"
-            )
-        if hasattr(self, "lbl_info"):
-            self.lbl_info.setStyleSheet(
-                f"color: #888; font-size: {max(6, int(8*ratio))}pt; line-height: 1.2;"
-            )
-        if hasattr(self, "lbl_vol_title"):
-            self.lbl_vol_title.setStyleSheet(
-                f"color: #888; font-size: {max(8, int(11*ratio))}pt; font-weight: bold; margin-top: 2px;"
-            )
-        if hasattr(self, "lbl_status"):
-            self.lbl_status.setStyleSheet(
-                f"color: #666; font-size: {max(6, int(7*ratio))}pt;"
-            )
 
         if hasattr(self, "cb_distribution"):
             self.cb_distribution.setStyleSheet(
@@ -1156,13 +1151,19 @@ class RiskVolumeApp(QMainWindow):
         preset_index = self.cb_distribution.currentIndex()
         self._apply_preset_values(preset_index)
 
-        # Загружаем сохраненные значения процентов из системы
-        saved_multipliers = self.settings.get("scalp_multipliers", [100, 50, 25, 10, 0])
-        for i in range(cells_count):
-            if i < len(saved_multipliers) and saved_multipliers[i] > 0:
-                percent_item = self.cells_table.item(i, 2)
-                if percent_item:
-                    percent_item.setText(str(saved_multipliers[i]))
+        # Загружаем сохраненные значения процентов только для режима "Вручную"
+        if preset_index == 4:
+            saved_multipliers = self.settings.get(
+                "scalp_multipliers", [100, 50, 25, 10, 0]
+            )
+            is_reversed = self.settings.get("cells_reversed", False)
+            if is_reversed:
+                saved_multipliers = list(reversed(saved_multipliers))
+            for i in range(cells_count):
+                if i < len(saved_multipliers) and saved_multipliers[i] > 0:
+                    percent_item = self.cells_table.item(i, 2)
+                    if percent_item:
+                        percent_item.setText(str(saved_multipliers[i]))
 
         # Подключаем сигнал изменения
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
@@ -1221,7 +1222,9 @@ class RiskVolumeApp(QMainWindow):
 
         header = self.cells_table.horizontalHeader()
         header_height = max(header.height(), header.sizeHint().height())
-        table_height = header_height + (row_height * 5) + (self.cells_table.frameWidth() * 2)
+        table_height = (
+            header_height + (row_height * 5) + (self.cells_table.frameWidth() * 2)
+        )
         self.cells_table.setFixedHeight(table_height)
 
         if self.isVisible():
@@ -1230,6 +1233,7 @@ class RiskVolumeApp(QMainWindow):
 
     def on_table_item_clicked(self, item):
         """Обработчик клика по ячейке - снимает фокус с колонок 0 и 1"""
+        self._clear_ghost_focus()
         if item and item.column() in [0, 1]:
             # Если кликнули на колонку 0 или 1, сразу снимаем выделение
             self.cells_table.clearSelection()
@@ -1283,6 +1287,10 @@ class RiskVolumeApp(QMainWindow):
             values = [40, 20, 15, 15, 10][:cells_count]
         elif preset == "pyramid":
             values = [50, 25, 15, 7, 3][:cells_count]
+
+        is_reversed = self.settings.get("cells_reversed", False)
+        if is_reversed:
+            values.reverse()
 
         # Применяем значения
         for i in range(cells_count):
@@ -1349,8 +1357,27 @@ class RiskVolumeApp(QMainWindow):
     def on_min_order_changed(self):
         """Вызывается при нажатии Enter в поле минимального ордера"""
         self.update_cell_volumes()
+        self.inp_min_order.deselect()
         self.inp_min_order.clearFocus()
         self.save_settings()
+
+    def _commit_input(self):
+        sender = self.sender()
+        if isinstance(sender, QLineEdit):
+            self._clear_ghost_focus()
+            sender.deselect()
+            sender.clearFocus()
+
+    def _clear_ghost_focus(self, except_obj=None):
+        ghost = self._ghost_input
+        if ghost and ghost is not except_obj:
+            ghost.setProperty("ghostFocus", "false")
+            ghost.style().polish(ghost)
+            ghost.update()
+            ghost.setProperty("click_count", 0)
+            ghost.setProperty("last_click_ms", 0)
+            ghost.setProperty("await_third_click", False)
+            self._ghost_input = None
 
     def save_cell_settings(self):
         """Сохраняет настройки ячеек"""
@@ -1397,9 +1424,10 @@ class RiskVolumeApp(QMainWindow):
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton:
             pos = e.globalPosition().toPoint()
+            self._clear_ghost_focus()
 
-            # На вкладке калькулятора - разрешаем везде кроме интерактивных элементов
-            if hasattr(self, "tabs") and self.tabs.currentIndex() == 0:
+            # На вкладках калькулятора и каскадов - разрешаем везде кроме интерактивных элементов
+            if hasattr(self, "tabs") and self.tabs.currentIndex() in (0, 1):
                 # Проверяем что клик не попал на интерактивный элемент
                 widget = self.childAt(self.mapFromGlobal(pos))
 
@@ -1410,13 +1438,19 @@ class RiskVolumeApp(QMainWindow):
                     QComboBox,
                     QTableWidget,
                     QSpinBox,
+                    QDoubleSpinBox,
                 )
 
                 if not widget or not isinstance(widget, non_draggable_types):
+                    # Клик в пустое место - очищаем ghost focus
                     self.old_pos = pos
+                else:
+                    self.old_pos = None
             # На других вкладках - только по верхней полосе
             elif pos.y() < 30:
                 self.old_pos = pos
+            else:
+                self.old_pos = None
 
     def mouseMoveEvent(self, e):
         if self.old_pos:
@@ -1424,12 +1458,110 @@ class RiskVolumeApp(QMainWindow):
             self.move(self.x() + delta.x(), self.y() + delta.y())
             self.old_pos = e.globalPosition().toPoint()
 
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.old_pos = None
+
     def eventFilter(self, obj, event):
-        """Перехватывает события мыши на вкладке калькулятора для перетаскивания"""
-        if obj == self.tab_calculator and event.type() == event.Type.MouseButtonPress:
+        """Перехватывает события мыши на вкладках для перетаскивания"""
+        if isinstance(obj, QLineEdit):
+            if event.type() == event.Type.MouseButtonPress:
+                now_ms = int(time.time() * 1000)
+                last_ms = obj.property("last_click_ms") or 0
+                click_count = obj.property("click_count") or 0
+                await_third = obj.property("await_third_click") or False
+
+                if await_third and now_ms - last_ms <= 650:
+                    obj.setProperty("await_third_click", False)
+                    obj.setProperty("click_count", 0)
+                    self._clear_ghost_focus()
+                    obj.setFocus()
+                    obj.deselect()
+                    QTimer.singleShot(
+                        0, lambda o=obj: o.setCursorPosition(len(o.text()))
+                    )
+                    return True
+
+                if now_ms - last_ms <= 450:
+                    click_count += 1
+                else:
+                    click_count = 1
+                obj.setProperty("last_click_ms", now_ms)
+                obj.setProperty("click_count", click_count)
+
+                if click_count == 1 and not obj.hasFocus():
+                    self._clear_ghost_focus()
+                    obj.setProperty("ghostFocus", "true")
+                    self._ghost_input = obj
+                    obj.style().polish(obj)
+                    obj.update()
+                    QTimer.singleShot(0, obj.clearFocus)
+                    return True
+                if click_count == 1 and obj.hasFocus():
+                    self._clear_ghost_focus()
+                    obj.setProperty("ghostFocus", "true")
+                    self._ghost_input = obj
+                    obj.style().polish(obj)
+                    obj.update()
+                    QTimer.singleShot(0, lambda: (obj.clearFocus(), obj.deselect()))
+                    return True
+                if click_count == 2:
+                    self._clear_ghost_focus()
+                    obj.setProperty("await_third_click", True)
+                    obj.setProperty("last_click_ms", now_ms)
+                    obj.setFocus()
+                    QTimer.singleShot(0, obj.selectAll)
+                    return True
+            elif event.type() == event.Type.MouseButtonDblClick:
+                self._clear_ghost_focus()
+                obj.setProperty("await_third_click", True)
+                obj.setProperty("last_click_ms", int(time.time() * 1000))
+                obj.setProperty("click_count", 2)
+                obj.setFocus()
+                QTimer.singleShot(0, obj.selectAll)
+            elif event.type() == event.Type.KeyPress:
+                if event.key() in (
+                    Qt.Key.Key_Escape,
+                    Qt.Key.Key_Return,
+                    Qt.Key.Key_Enter,
+                ):
+                    self._clear_ghost_focus()
+                    obj.deselect()
+                    obj.clearFocus()
+                    return True
+        if event.type() == event.Type.WindowDeactivate:
+            self._clear_ghost_focus()
+        if isinstance(obj, QComboBox):
+            if event.type() == event.Type.KeyPress:
+                if event.key() in (
+                    Qt.Key.Key_Escape,
+                    Qt.Key.Key_Return,
+                    Qt.Key.Key_Enter,
+                ):
+                    obj.hidePopup()
+                    obj.clearFocus()
+                    return True
+        if (
+            hasattr(self, "tab_calculator")
+            and hasattr(self, "tab_cascade")
+            and obj in (self.tab_calculator, self.tab_cascade)
+            and event.type() == event.Type.MouseButtonPress
+        ):
+            self._clear_ghost_focus()
             if event.button() == Qt.MouseButton.LeftButton:
-                self.old_pos = event.globalPosition().toPoint()
-                return True
+                local_pos = event.position().toPoint()
+                widget = obj.childAt(local_pos)
+                non_draggable_types = (
+                    QLineEdit,
+                    QPushButton,
+                    QComboBox,
+                    QTableWidget,
+                    QSpinBox,
+                    QDoubleSpinBox,
+                )
+                if not widget or not isinstance(widget, non_draggable_types):
+                    self.old_pos = event.globalPosition().toPoint()
+                    return True
         return super().eventFilter(obj, event)
 
     def closeEvent(self, event):
