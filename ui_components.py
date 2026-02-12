@@ -120,6 +120,18 @@ class HotkeyEdit(QLineEdit):
 
 
 class SettingsDialog(QDialog):
+    def show_about_dialog(self):
+        from about_dialog import AboutDialog
+
+        dlg = AboutDialog(self)
+        dlg.exec()
+
+    def show_donate_dialog(self):
+        from donate_dialog import DonateDialog
+
+        dlg = DonateDialog(self)
+        dlg.exec()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
@@ -174,6 +186,16 @@ class SettingsDialog(QDialog):
         )
 
         layout = QVBoxLayout(self)
+
+        # --- КНОПКИ ---
+        extra_btns = QHBoxLayout()
+        self.btn_about = QPushButton("\U0001f4a1 О программе")
+        self.btn_about.clicked.connect(self.show_about_dialog)
+        self.btn_donate = QPushButton("\U0001f497 Поддержать")
+        self.btn_donate.clicked.connect(self.show_donate_dialog)
+        extra_btns.addWidget(self.btn_about)
+        extra_btns.addWidget(self.btn_donate)
+        layout.addLayout(extra_btns)
 
         # Масштаб и язык
         scale_row = QHBoxLayout()
