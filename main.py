@@ -14,17 +14,24 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QSpinBox,
     QDoubleSpinBox,
-    QStyledItemDelegate,
     QAbstractItemView,
 )
-from PyQt6.QtCore import Qt, QRegularExpression, QTimer, pyqtSignal, QObject
+from PyQt6.QtCore import (
+    Qt,
+    QRegularExpression,
+    QTimer,
+    pyqtSignal,
+    QObject,
+    QSharedMemory,
+)
 from PyQt6.QtGui import QIcon, QRegularExpressionValidator
 
 from config import *
-from ui_components import SettingsDialog
+from settings_dialog import SettingsDialog
 from logic import calculate_risk_data, get_info_html
 from translations import TRANS
 from cascade_tab import CascadeTab
+from calculator_tab import init_calculator_tab
 
 try:
     myappid = "introvert.scalp.v1"
@@ -36,22 +43,6 @@ except:
 class HotkeySignaler(QObject):
     toggle_sig = pyqtSignal()
     apply_sig = pyqtSignal()  # Новый сигнал для применения
-
-
-class PercentItemDelegate(QStyledItemDelegate):
-    def createEditor(self, parent, option, index):
-        editor = super().createEditor(parent, option, index)
-        if isinstance(editor, QLineEdit):
-            editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            editor.setFrame(False)
-            editor.setFont(option.font)
-            editor.setContentsMargins(0, 0, 0, 0)
-            editor.setStyleSheet("padding: 0px; margin: 0px;")
-            QTimer.singleShot(0, editor.selectAll)
-        return editor
-
-    def updateEditorGeometry(self, editor, option, index):
-        editor.setGeometry(option.rect)
 
 
 class RiskVolumeApp(QMainWindow):
@@ -83,6 +74,11 @@ class RiskVolumeApp(QMainWindow):
         self.init_ui()
         self.rebind_hotkeys()
         self.update_calc()
+
+        # Сохраняем настройки при закрытии приложения любым способом
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self._on_app_about_to_quit)
 
         # Восстанавливаем позицию окна
         pos = self.settings.get("window_pos", None)
@@ -280,6 +276,25 @@ class RiskVolumeApp(QMainWindow):
         """
         )
 
+        # Красный крестик при наведении
+        self.btn_close.setStyleSheet(
+            """
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 4px;
+                color: #38BE1D;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                color: #ff3333;
+            }
+            QPushButton:pressed {
+                background: rgba(255, 51, 51, 0.3);
+            }
+        """
+        )
+
         header.addWidget(self.lbl_logo_small)
         header.addWidget(title)
         header.addStretch()
@@ -319,287 +334,7 @@ class RiskVolumeApp(QMainWindow):
         QTimer.singleShot(0, self.finalize_startup_layout)
 
     def init_calculator_tab(self):
-        main_layout = QVBoxLayout(self.tab_calculator)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(6)
-        self.calc_layout = main_layout
-        v_reg = QRegularExpressionValidator(QRegularExpression(r"[0-9]*[.,]?[0-9]*"))
-
-        # --- ДЕПОЗИТ (ВВЕРХУ НА ВСЮ ШИРИНУ) ---
-        self.lbl_dep_title = QLabel("...")
-        self.lbl_dep_title.setStyleSheet(
-            "color: #888; font-size: 8pt; font-weight: bold;"
-        )
-        main_layout.addWidget(self.lbl_dep_title)
-
-        # Депозит без форматирования при загрузке
-        dep_val = self.settings.get("deposit", 1000)
-        self.inp_dep = QLineEdit(
-            str(int(dep_val) if dep_val == int(dep_val) else dep_val).replace(".", ",")
-        )
-        self.inp_dep.setValidator(v_reg)
-        self.inp_dep.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.inp_dep.setFixedHeight(26)
-        self.inp_dep.textChanged.connect(self.update_calc)
-        self.inp_dep.returnPressed.connect(self._commit_input)
-        self.inp_dep.installEventFilter(self)
-        main_layout.addWidget(self.inp_dep)
-
-        self.lbl_hint = QLabel("0")
-        self.lbl_hint.setStyleSheet("color: #666; font-size: 7pt;")
-        self.lbl_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        main_layout.addWidget(self.lbl_hint)
-
-        # --- РИСК И СТОП В ОДНОЙ СТРОКЕ ---
-        risk_stop_row = QHBoxLayout()
-        risk_stop_row.setSpacing(8)
-
-        # Риск
-        risk_col = QVBoxLayout()
-        risk_col.setSpacing(2)
-        self.lbl_risk_title = QLabel("...")
-        self.lbl_risk_title.setStyleSheet(
-            "color: #888; font-size: 8pt; font-weight: bold;"
-        )
-        risk_col.addWidget(self.lbl_risk_title)
-        self.inp_risk = QLineEdit(str(self.settings.get("risk", 1)))
-        self.inp_risk.setValidator(v_reg)
-        self.inp_risk.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.inp_risk.setFixedHeight(26)
-        self.inp_risk.textChanged.connect(self.update_calc)
-        self.inp_risk.returnPressed.connect(self._commit_input)
-        self.inp_risk.installEventFilter(self)
-        risk_col.addWidget(self.inp_risk)
-        risk_stop_row.addLayout(risk_col)
-
-        # Стоп
-        stop_col = QVBoxLayout()
-        stop_col.setSpacing(2)
-        self.lbl_stop_title = QLabel("...")
-        self.lbl_stop_title.setStyleSheet(
-            "color: #888; font-size: 8pt; font-weight: bold;"
-        )
-        stop_col.addWidget(self.lbl_stop_title)
-        self.inp_stop = QLineEdit(str(self.settings.get("stop", 1)))
-        self.inp_stop.setValidator(v_reg)
-        self.inp_stop.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.inp_stop.setFixedHeight(26)
-        self.inp_stop.textChanged.connect(self.update_calc)
-        self.inp_stop.returnPressed.connect(self._commit_input)
-        self.inp_stop.installEventFilter(self)
-        stop_col.addWidget(self.inp_stop)
-        risk_stop_row.addLayout(stop_col)
-
-        main_layout.addLayout(risk_stop_row)
-
-        # --- ИНФОРМАЦИЯ (Риск сделки, Комиссия, Плечо) ---
-        self.lbl_info = QLabel("")
-        self.lbl_info.setStyleSheet("color: #888; font-size: 8pt; line-height: 1.2;")
-        self.lbl_info.setWordWrap(True)
-        self.lbl_info.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-        )
-        main_layout.addWidget(self.lbl_info)
-
-        # --- ОБЪЁМ (ПОСЛЕ ИНФОРМАЦИИ) ---
-        self.lbl_vol_title = QLabel("...")
-        self.lbl_vol_title.setStyleSheet(
-            "color: #888; font-size: 11pt; font-weight: bold; margin-top: 2px;"
-        )
-        main_layout.addWidget(self.lbl_vol_title)
-
-        self.lbl_vol = QLabel("0")
-        self.lbl_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_vol.setStyleSheet(
-            "color: #FF9F0A; font-size: 11pt; font-weight: bold; border: 1px solid #333; "
-            "border-radius: 4px; padding: 4px; background: #1A1A1A;"
-        )
-        self.lbl_vol.setFixedHeight(36)
-        main_layout.addWidget(self.lbl_vol)
-
-        # --- НАСТРОЙКА ЯЧЕЕК ---
-        cells_header = QHBoxLayout()
-
-        # Кнопка переворота таблицы
-        self.btn_reverse_cells = QPushButton("⇅")
-        self.btn_reverse_cells.setFixedSize(25, 25)
-        self.btn_reverse_cells.setToolTip("Перевернуть порядок ячеек")
-        self.btn_reverse_cells.clicked.connect(self.toggle_cells_order)
-        cells_header.addWidget(self.btn_reverse_cells)
-
-        lbl_cells = QLabel("Кол-во:")
-        lbl_cells.setStyleSheet("font-size: 8pt;")
-        cells_header.addWidget(lbl_cells)
-
-        # Кнопка уменьшить
-        self.btn_cells_minus = QPushButton("-")
-        self.btn_cells_minus.setFixedSize(25, 25)
-        self.btn_cells_minus.clicked.connect(self.decrease_cells)
-        cells_header.addWidget(self.btn_cells_minus)
-
-        # Отображение количества (с возможностью прокрутки колесиком)
-        self.lbl_cells_count = QLabel(str(self.settings.get("scalp_cells_count", 4)))
-        self.lbl_cells_count.setStyleSheet(
-            "color: white; font-weight: bold; font-size: 8pt;"
-        )
-        self.lbl_cells_count.setFixedWidth(20)
-        self.lbl_cells_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # Включаем захват колесика мыши
-        self.lbl_cells_count.installEventFilter(self)
-        cells_header.addWidget(self.lbl_cells_count)
-
-        # Кнопка увеличить
-        self.btn_cells_plus = QPushButton("+")
-        self.btn_cells_plus.setFixedSize(25, 25)
-        self.btn_cells_plus.clicked.connect(self.increase_cells)
-        cells_header.addWidget(self.btn_cells_plus)
-
-        # Минимальный ордер
-        lbl_min_order = QLabel("Мин.ордер:")
-        lbl_min_order.setStyleSheet("font-size: 8pt;")
-        cells_header.addWidget(lbl_min_order)
-        self.inp_min_order = QLineEdit(str(self.settings.get("scalp_min_order", 6)))
-        self.inp_min_order.setValidator(v_reg)
-        self.inp_min_order.setFixedWidth(50)
-        self.inp_min_order.setFixedHeight(22)
-        self.inp_min_order.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.inp_min_order.setStyleSheet("font-size: 8pt; padding: 2px;")
-        self.inp_min_order.returnPressed.connect(self.on_min_order_changed)
-        self.inp_min_order.installEventFilter(self)
-        cells_header.addWidget(self.inp_min_order)
-
-        # Тип распределения (слева, в той же строке)
-        lbl_type = QLabel("Тип:")
-        lbl_type.setStyleSheet("font-size: 8pt;")
-        cells_header.addWidget(lbl_type)
-        self.cb_distribution = QComboBox()
-        self.cb_distribution.addItems(
-            ["Равномерно", "Убывающая", "Скальперская", "Пирамида", "Вручную"]
-        )
-        saved_type = self.settings.get("scalp_distribution_type", 0)
-        if saved_type >= 5:
-            saved_type = 0  # Защита от устаревших значений
-        self.cb_distribution.setCurrentIndex(saved_type)
-        self.cb_distribution.currentIndexChanged.connect(self.apply_distribution_preset)
-        self.cb_distribution.setStyleSheet(
-            """
-            QComboBox { background: #1A1A1A; color: white; border: 1px solid #333; padding: 3px; border-radius: 4px; font-size: 8pt; }
-            """
-        )
-        self.cb_distribution.installEventFilter(self)
-        cells_header.addWidget(self.cb_distribution)
-        cells_header.addStretch()
-        main_layout.addLayout(cells_header)
-
-        # Таблица на всю ширину (3 колонки, всегда 5 строк)
-        self.cells_table = QTableWidget()
-        self.cells_table.setColumnCount(3)
-        self.cells_table.setHorizontalHeaderLabels(
-            ["Ячейки:", "Объемы:", "% от общего объёма"]
-        )
-        self.cells_table.verticalHeader().setVisible(False)
-        self.cells_table.horizontalHeader().setStretchLastSection(True)
-        self.cells_table.setEditTriggers(
-            QAbstractItemView.EditTrigger.SelectedClicked
-            | QAbstractItemView.EditTrigger.DoubleClicked
-        )
-        self.cells_table.setStyleSheet(
-            """
-            QTableWidget { 
-                background: #1A1A1A; 
-                gridline-color: #333; 
-                color: white; 
-                border: 1px solid #333;
-                border-radius: 4px;
-                show-decoration-selected: 0;
-            }
-            QHeaderView::section { 
-                background: #252525; 
-                color: #888; 
-                border: 1px solid #333;
-                padding: 4px;
-                font-size: 8pt;
-            }
-            QTableWidget::item {
-                padding: 5px;
-                border: none;
-                color: white;
-                background: #1A1A1A;
-                outline: none;
-                font-size: 6pt;
-            }
-            QTableWidget::item:focus {
-                border: none;
-                outline: none;
-            }
-            QTableWidget::item:selected {
-                background: #1A1A1A;
-                border: none;
-            }
-            QTableWidget::item:disabled {
-                color: #555;
-                background: #0F0F0F;
-            }
-            QLineEdit {
-                background: #1A1A1A !important;
-                color: white;
-                border: 1px solid #333 !important;
-                border-radius: 4px;
-                padding: 1px;
-                font-size: 6pt;
-                margin: 0px;
-                selection-background-color: rgba(90, 205, 80, 150);
-                selection-color: white;
-            }
-        """
-        )
-        self.cells_table.setItemDelegateForColumn(
-            2, PercentItemDelegate(self.cells_table)
-        )
-        # Устанавливаем пропорции колонок (30%, 35%, 35%)
-        self.cells_table.horizontalHeader().setSectionResizeMode(
-            0, self.cells_table.horizontalHeader().ResizeMode.Stretch
-        )
-        self.cells_table.horizontalHeader().setSectionResizeMode(
-            1, self.cells_table.horizontalHeader().ResizeMode.Stretch
-        )
-        self.cells_table.horizontalHeader().setSectionResizeMode(
-            2, self.cells_table.horizontalHeader().ResizeMode.Stretch
-        )
-        # Обработчик для предотвращения выделения колонок 0 и 1
-        self.cells_table.itemClicked.connect(self.on_table_item_clicked)
-        main_layout.addWidget(self.cells_table)
-
-        # --- КНОПКИ (КАЛИБРОВКА И ВЫСТАВИТЬ) ---
-        h_btn = QHBoxLayout()
-        self.btn_calib_calc = QPushButton("КАЛИБРОВКА")
-        self.btn_calib_calc.setStyleSheet(
-            "background: #333; color: white; padding: 8px;"
-        )
-        self.btn_calib_calc.clicked.connect(self.start_calibration_calc)
-        self.btn_submit = QPushButton("ВЫСТАВИТЬ")
-        self.btn_submit.setStyleSheet(
-            "background: #38BE1D; color: black; font-weight: bold; padding: 8px;"
-        )
-        self.btn_submit.clicked.connect(self.send_volume_to_terminal)
-        h_btn.addWidget(self.btn_calib_calc)
-        h_btn.addWidget(self.btn_submit)
-        main_layout.addLayout(h_btn)
-
-        # --- СТАТУС (ВНИЗУ) ---
-        self.lbl_status = QLabel("")
-        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet("color: #666; font-size: 7pt;")
-        main_layout.addWidget(self.lbl_status)
-
-        # Добавляем растяжение в конец
-        main_layout.addStretch()
-
-        # Создаём поля ячеек (всегда 5 строк)
-        self.on_cells_changed()
-        self.update_calibration_status()
-        # Вызываем один раз при инициализации для показа статуса
-        QTimer.singleShot(100, self._update_status_text)
+        init_calculator_tab(self)
 
     def refresh_labels(self):
         lang = self.settings.get("lang", "ru")
@@ -1152,7 +887,7 @@ class RiskVolumeApp(QMainWindow):
         self._apply_preset_values(preset_index)
 
         # Загружаем сохраненные значения процентов только для режима "Вручную"
-        if preset_index == 4:
+        if preset_index == 2:
             saved_multipliers = self.settings.get(
                 "scalp_multipliers", [100, 50, 25, 10, 0]
             )
@@ -1259,14 +994,12 @@ class RiskVolumeApp(QMainWindow):
         """Применяет значения выбранного пресета"""
         cells_count = int(self.lbl_cells_count.text())
 
-        if preset_index == 4:  # Вручную
+        if preset_index == 2:  # Вручную
             return
 
         presets = {
             0: "equal",  # Равномерно
             1: "decreasing",  # Убывающая: 100, 75, 50, 25, 10
-            2: "scalper",  # Скальперская: 40, 20, 15, 15, 10
-            3: "pyramid",  # Пирамида: 50, 25, 15, 7, 3
         }
 
         preset = presets.get(preset_index, "equal")
@@ -1283,10 +1016,6 @@ class RiskVolumeApp(QMainWindow):
                 values.append(value)
         elif preset == "decreasing":
             values = [100, 75, 50, 25, 10][:cells_count]
-        elif preset == "scalper":
-            values = [40, 20, 15, 15, 10][:cells_count]
-        elif preset == "pyramid":
-            values = [50, 25, 15, 7, 3][:cells_count]
 
         is_reversed = self.settings.get("cells_reversed", False)
         if is_reversed:
@@ -1570,8 +1299,25 @@ class RiskVolumeApp(QMainWindow):
         self.save_settings()
         event.accept()
 
+    def _on_app_about_to_quit(self):
+        """Сохраняет настройки при завершении приложения"""
+        try:
+            self.settings["window_pos"] = [self.x(), self.y()]
+            self.save_settings()
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
+    # Защита от множественного запуска
+    shared_memory = QSharedMemory("RiskVolume_single_instance_v1")
+    if not shared_memory.create(1):
+        # Пытаемся очистить "зависший" сегмент и выходим, если уже запущено
+        if shared_memory.attach():
+            shared_memory.detach()
+        if not shared_memory.create(1):
+            sys.exit(0)
+
     app = QApplication(sys.argv)
     win = RiskVolumeApp()
     win.show()

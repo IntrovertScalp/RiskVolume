@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QFrame,
+    QWidget,
 )
 from PyQt6.QtCore import Qt, QUrl, QSettings
 from PyQt6.QtGui import QDesktopServices, QFont
@@ -20,7 +21,7 @@ class AboutDialog(QDialog):
             "RU": {
                 "title": "О программе",
                 "version": "Версия 1.0",
-                "description": "Бесплатный таймер с оповещениями для трейдеров.\nУведомляет о закрытии свечей на выбранных таймфреймах\nс голосовыми оповещениями и визуальными часами.",
+                "description": "Это калькулятор для расчёта объёма входа в сделку в зависимости от желаемого процентного стоп-лосса. Помогает быстро рассчитать размер позиции с возможностью автоматического переноса полученных значений в ячейки объёмов в стакан терминала.",
                 "developer": "Разработчик:",
                 "youtube_btn": "🎥 YouTube",
             },
@@ -56,7 +57,7 @@ class AboutDialog(QDialog):
         self.setWindowTitle(self.t["title"])
 
         # Размер окна зависит от масштаба интерфейса
-        base_w, base_h = 420, 360
+        base_w, base_h = 420, 480
         self.setFixedSize(s(base_w), s(base_h))
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -72,11 +73,11 @@ class AboutDialog(QDialog):
             }}
         """
         )
-        main_container.setGeometry(0, 0, s(420), s(360))
+        main_container.setGeometry(0, 0, s(420), s(480))
 
         layout = QVBoxLayout(main_container)
         layout.setContentsMargins(s(25), s(15), s(25), s(20))
-        layout.setSpacing(s(15))
+        layout.setSpacing(s(8))
 
         # Заголовок с кнопкой закрытия
         header_layout = QHBoxLayout()
@@ -99,7 +100,7 @@ class AboutDialog(QDialog):
             }}
             QPushButton:hover {{
                 background-color: transparent;
-                color: {config.COLORS['accent']};
+                color: #ff4d4d;
             }}
         """
         )
@@ -124,12 +125,13 @@ class AboutDialog(QDialog):
         logo_label.setStyleSheet("background: transparent; border: none;")
         title_layout.addWidget(logo_label)
 
-        title = QLabel("TF-Alerter")
+        title = QLabel("RiskVolume")
         title.setStyleSheet(
             f"""
-            color: #1e90ff;
+            color: #38BE1D;
             font-size: {s(22)}px;
             font-weight: bold;
+            font-style: italic;
             border: none;
         """
         )
@@ -146,12 +148,11 @@ class AboutDialog(QDialog):
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(version)
 
-        layout.addSpacing(10)
+        # небольшое разделение между версией и описанием
+        layout.addSpacing(4)
 
         # Краткое описание программы
-        description = QLabel(
-            "RiskVolume — это быстрый калькулятор объёма и риска для трейдера.\nПомогает мгновенно рассчитать размер позиции, риск и тейк-профит по заданным параметрам."
-        )
+        description = QLabel(self.t["description"])
         description.setStyleSheet(
             f"""
             color: {config.COLORS['text']};
@@ -164,15 +165,23 @@ class AboutDialog(QDialog):
         description.setWordWrap(True)
         layout.addWidget(description)
 
-        layout.addSpacing(10)
+        # убираем лишние отступы перед блоком разработчика
+        # (ранее использовался отрицательный отступ)
 
-        # Разработчик
+        # Разработчик (в контейнере с нулевыми отступами, чтобы убрать пустое пространство)
+        dev_container = QWidget()
+        dev_container.setStyleSheet("background: transparent;")
+        dev_layout = QHBoxLayout(dev_container)
+        dev_layout.setContentsMargins(0, 0, 0, 0)
+        dev_layout.setSpacing(s(8))
+        dev_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         dev_label = QLabel(self.t["developer"])
         dev_label.setStyleSheet(
             f"color: #888; font-size: {s(11)}px; border: none; background: transparent;"
         )
         dev_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(dev_label)
+        dev_layout.addWidget(dev_label)
 
         dev_name = QLabel(config.AUTHOR_NAME)
         dev_name.setStyleSheet(
@@ -185,9 +194,11 @@ class AboutDialog(QDialog):
         """
         )
         dev_name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(dev_name)
+        dev_layout.addWidget(dev_name)
 
-        layout.addSpacing(5)
+        layout.addWidget(dev_container)
+
+        layout.addSpacing(6)
 
         # Кнопка YouTube
         youtube_btn = QPushButton(self.t["youtube_btn"])

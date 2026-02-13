@@ -17,6 +17,7 @@ import io
 import os
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
+
 HAS_QRCODE = True
 
 # Словарь с данными криптовалют (символ и цвет)
@@ -152,8 +153,8 @@ class ClickableQRLabel(QLabel):
                 font-weight: bold;
             }}
             QPushButton:hover {{
-                color: #1e90ff;
-            }}
+                background-color: transparent;
+                color: #ff3333;
         """
         )
         header_layout.addWidget(close_btn)
@@ -351,20 +352,33 @@ class DonateDialog(QDialog):
             },
         }
 
-            # --- Получаем масштаб интерфейса из parent_window.settings, если есть ---
-            scale = None
-            if parent is not None and hasattr(parent, "parent_window") and hasattr(parent.parent_window, "settings"):
-                scale = parent.parent_window.settings.get("scale")
-            if not scale:
-                scale = settings.value("interface_scale_text", "100%")
-            try:
-                value = int(str(scale).replace("%", ""))
-                factor = value / 100.0
-            except Exception:
-                factor = 1.0
-            self._scale_factor = factor
+        # --- Получаем масштаб интерфейса из parent_window.settings, если есть ---
+        scale = None
+        if (
+            parent is not None
+            and hasattr(parent, "parent_window")
+            and hasattr(parent.parent_window, "settings")
+        ):
+            scale = parent.parent_window.settings.get("scale")
+        if not scale:
+            settings = QSettings("MyTradeTools", "TF-Alerter")
+            scale = settings.value("interface_scale_text", "100%")
+        try:
+            value = int(str(scale).replace("%", ""))
+            factor = value / 100.0
+        except Exception:
+            factor = 1.0
+        self._scale_factor = min(factor, 1.2)
 
-            self.setFixedSize(self._s(base_w), self._s(base_h))
+        # Определяем язык и получаем переводы
+        settings_qsett = QSettings("MyTradeTools", "TF-Alerter")
+        current_lang = settings_qsett.value("language", "RU")
+        self.t = self.translations.get(current_lang, self.translations["RU"])
+
+        # Базовые размеры диалога
+        base_w = 480
+        base_h = 460
+        self.setFixedSize(self._s(base_w), self._s(base_h))
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -379,11 +393,11 @@ class DonateDialog(QDialog):
             }}
         """
         )
-        main_container.setGeometry(0, 0, self._s(580), self._s(600))
+        main_container.setGeometry(0, 0, self._s(base_w), self._s(base_h))
 
         layout = QVBoxLayout(main_container)
-        layout.setContentsMargins(self._s(20), self._s(6), self._s(20), self._s(12))
-        layout.setSpacing(self._s(8))
+        layout.setContentsMargins(self._s(14), self._s(6), self._s(14), self._s(10))
+        layout.setSpacing(self._s(6))
 
         # Заголовок с кнопкой закрытия
         header_layout = QHBoxLayout()
@@ -420,7 +434,9 @@ class DonateDialog(QDialog):
         title_layout.setSpacing(self._s(10))
         title_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        heart_label = QLabel("<span style='font-size:{}px; color:#e81123;'>♥️</span>".format(self._s(20)))
+        heart_label = QLabel(
+            "<span style='font-size:{}px; color:#e81123;'>♥️</span>".format(self._s(20))
+        )
         heart_label.setStyleSheet("background: transparent; border: none;")
         title_layout.addWidget(heart_label)
 
@@ -439,7 +455,9 @@ class DonateDialog(QDialog):
         layout.addLayout(title_layout)
 
         # --- Краткое описание с эмодзи ---
-        desc = QLabel("Программа бесплатная и всегда будет такой!\nЕсли она вам помогает — любая поддержка очень мотивирует 😊🙏\nСпасибо!")
+        desc = QLabel(
+            "Программа бесплатная и всегда будет такой!\nЕсли она вам помогает — любая поддержка очень мотивирует 😊🙏\nСпасибо!"
+        )
         desc.setStyleSheet(
             f"color: {config.COLORS['text']}; font-size: {self._s(11)}px; border: none; background: transparent;"
         )
@@ -538,8 +556,8 @@ class DonateDialog(QDialog):
         )
 
         layout = QVBoxLayout(frame)
-        layout.setSpacing(self._s(8))
-        layout.setContentsMargins(self._s(10), self._s(10), self._s(10), self._s(10))
+        layout.setSpacing(self._s(6))
+        layout.setContentsMargins(self._s(8), self._s(8), self._s(8), self._s(8))
 
         # Название криптовалюты
         title_layout = QHBoxLayout()
@@ -562,20 +580,20 @@ class DonateDialog(QDialog):
 
         # Контейнер для QR и адреса
         content_layout = QHBoxLayout()
-        content_layout.setSpacing(self._s(10))
+        content_layout.setSpacing(self._s(6))
 
         # QR код
         if HAS_QRCODE:
             qr_pixmap = self._generate_qr(data["address"], name)
             if qr_pixmap:
                 # Добавляем небольшой отступ слева
-                content_layout.addSpacing(self._s(8))
+                content_layout.addSpacing(self._s(4))
 
                 qr_label = ClickableQRLabel(
                     qr_pixmap, data["address"], name, self._scale_factor, self
                 )
                 qr_label.setPixmap(qr_pixmap)
-                qr_label.setFixedSize(self._s(100), self._s(100))
+                qr_label.setFixedSize(self._s(80), self._s(80))
                 content_layout.addWidget(qr_label)
 
         # Адрес и кнопка
@@ -593,6 +611,7 @@ class DonateDialog(QDialog):
         """
         )
         address_label.setWordWrap(True)
+        address_label.setMinimumWidth(0)
         addr_layout.addWidget(address_label)
 
         # Кнопка копирования
@@ -624,7 +643,7 @@ class DonateDialog(QDialog):
         content_layout.addLayout(addr_layout, 1)
 
         # Добавляем небольшой отступ справа
-        content_layout.addSpacing(self._s(8))
+        content_layout.addSpacing(self._s(4))
 
         layout.addLayout(content_layout)
 

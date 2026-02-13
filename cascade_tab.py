@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QGridLayout,
     QFrame,
+    QAbstractSpinBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 
@@ -213,6 +214,35 @@ class CascadeTab(QWidget):
         self.main = main_window
         self.init_ui()
 
+    def _wrap_spinbox(self, spinbox):
+        wrap = QFrame()
+        wrap.setObjectName("SpinWrap")
+        wrap_layout = QHBoxLayout(wrap)
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrap_layout.setSpacing(0)
+
+        left_btn = QPushButton("-")
+        right_btn = QPushButton("+")
+        left_btn.setObjectName("SpinStepBtn")
+        right_btn.setObjectName("SpinStepBtn")
+
+        left_btn.clicked.connect(spinbox.stepDown)
+        right_btn.clicked.connect(spinbox.stepUp)
+
+        wrap_layout.addWidget(left_btn)
+        wrap_layout.addWidget(spinbox)
+        wrap_layout.addWidget(right_btn)
+
+        # Сохраняем ссылки для масштабирования
+        if spinbox is getattr(self, "sb_count", None):
+            self.sb_count_left, self.sb_count_right = left_btn, right_btn
+        elif spinbox is getattr(self, "sb_min", None):
+            self.sb_min_left, self.sb_min_right = left_btn, right_btn
+        elif spinbox is getattr(self, "sb_dist", None):
+            self.sb_dist_left, self.sb_dist_right = left_btn, right_btn
+
+        return wrap
+
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -245,9 +275,29 @@ class CascadeTab(QWidget):
             }
             QPushButton.percBtn:hover { border: 1px solid #555; }
             
-            QComboBox, QSpinBox, QDoubleSpinBox {
-                background: #1A1A1A; color: white; border: 1px solid #333; padding: 3px;
+            QComboBox {
+                background: #1A1A1A; color: white; border: 1px solid #333; padding: 2px;
                 min-width: 60px; /* Чтобы текст не резался */
+            }
+            QFrame#SpinWrap {
+                background: #1A1A1A;
+                border: 1px solid #333;
+                border-radius: 4px;
+            }
+            QSpinBox#spinInner, QDoubleSpinBox#spinInner {
+                background: transparent; color: white; border: none; padding: 2px;
+            }
+            QPushButton#SpinStepBtn {
+                background: #2a2a2a;
+                color: #cfcfcf;
+                border: 1px solid #333;
+                border-radius: 3px;
+                padding: 0px;
+                font-weight: bold;
+                font-size: 9pt;
+            }
+            QPushButton#SpinStepBtn:hover {
+                background: #3a3a3a;
             }
         """
         )
@@ -292,14 +342,20 @@ class CascadeTab(QWidget):
         self.sb_count = QSpinBox()
         self.sb_count.setRange(2, 20)
         self.sb_count.setValue(5)
-        grid.addWidget(self.sb_count, 0, 1)
+        self.sb_count.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sb_count.setObjectName("spinInner")
+        self.sb_count_wrap = self._wrap_spinbox(self.sb_count)
+        grid.addWidget(self.sb_count_wrap, 0, 1)
 
         l2 = QLabel("Мин.ордер ($):")
         grid.addWidget(l2, 0, 2)
         self.sb_min = QDoubleSpinBox()
         self.sb_min.setRange(1, 1000)
         self.sb_min.setValue(6)
-        grid.addWidget(self.sb_min, 0, 3)
+        self.sb_min.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sb_min.setObjectName("spinInner")
+        self.sb_min_wrap = self._wrap_spinbox(self.sb_min)
+        grid.addWidget(self.sb_min_wrap, 0, 3)
 
         l3 = QLabel("Тип:")
         grid.addWidget(l3, 1, 0)
@@ -308,7 +364,7 @@ class CascadeTab(QWidget):
         self.cb_type.addItems(
             ["Равномерно", "Матрешка x1.2", "Матрешка x1.5", "Агрессивно x2"]
         )
-        self.cb_type.setMinimumWidth(100)  # Принудительно расширяем
+        self.cb_type.setMinimumWidth(70)  # Более компактная ширина
         grid.addWidget(self.cb_type, 1, 1)
 
         l4 = QLabel("Шаг (%):")
@@ -317,7 +373,10 @@ class CascadeTab(QWidget):
         self.sb_dist.setRange(0.01, 10.0)
         self.sb_dist.setValue(0.1)
         self.sb_dist.setSingleStep(0.05)
-        grid.addWidget(self.sb_dist, 1, 3)
+        self.sb_dist.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sb_dist.setObjectName("spinInner")
+        self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
+        grid.addWidget(self.sb_dist_wrap, 1, 3)
 
         # События
         self.sb_count.valueChanged.connect(self.recalc_table)
@@ -339,9 +398,11 @@ class CascadeTab(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(28)
         self.table.setRowCount(0)
         self.table.setFixedHeight(120)
-        # Уменьшим шрифт внутри таблицы
+        # Базовый стиль таблицы (точные размеры выставятся в apply_scale)
         self.table.setStyleSheet(
-            "font-size: 9pt; selection-background-color: #38BE1D; selection-color: black;"
+            "QTableWidget::item { font-size: 6pt; padding: 0px 2px; }"
+            "QHeaderView::section { font-size: 8pt; padding: 2px; }"
+            "selection-background-color: #38BE1D; selection-color: black;"
         )
         layout.addWidget(self.table)
 
@@ -368,7 +429,7 @@ class CascadeTab(QWidget):
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_status.setWordWrap(True)  # <-- ВАЖНО: Текст будет переноситься
         self.lbl_status.setStyleSheet(
-            "color: #666; font-size: 8pt; margin-bottom: 5px;"
+            "color: #666; font-size: 7pt; margin-bottom: 5px;"
         )
         layout.addWidget(self.lbl_status)
 
@@ -380,27 +441,56 @@ class CascadeTab(QWidget):
         Подгоняет размеры элементов под текущий масштаб интерфейса (settings['scale']),
         чтобы на вкладке каскадов ничего не вылезало за рамки и текст не резался.
         """
-        sc = self.main.settings.get("scale", 100) / 100.0
+        scale = self.main.settings.get("scale", 100)
+        base_scale = getattr(self.main, "base_scale", 150)
+        ratio = scale / float(base_scale)
+        sc = scale / 100.0
 
-        # Кнопка типов: шире + авто-подбор по содержимому
-        self.cb_type.setMinimumWidth(int(130 * sc))
+        # Кнопка типов: компактная ширина и синхронно с "Кол-во"
+        compact_w = max(60, int(70 * sc))
+        self.cb_type.setMinimumWidth(compact_w)
         self.cb_type.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.sb_count_wrap.setFixedWidth(compact_w)
+        self.sb_min_wrap.setFixedWidth(compact_w)
+        self.sb_dist_wrap.setFixedWidth(compact_w)
+
+        btn_w = max(10, int(11 * sc))
+        btn_h = max(9, int(9 * sc))
+        input_w = max(26, compact_w - (btn_w * 2) - 6)
+        field_h = max(14, int(14 * sc))
+        for spin, left_btn, right_btn in (
+            (self.sb_count, self.sb_count_left, self.sb_count_right),
+            (self.sb_min, self.sb_min_left, self.sb_min_right),
+            (self.sb_dist, self.sb_dist_left, self.sb_dist_right),
+        ):
+            spin.setFixedWidth(input_w)
+            spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spin.setFixedHeight(field_h)
+            left_btn.setFixedSize(btn_w, btn_h)
+            right_btn.setFixedSize(btn_w, btn_h)
+        self.sb_count_wrap.setFixedHeight(field_h)
+        self.sb_min_wrap.setFixedHeight(field_h)
+        self.sb_dist_wrap.setFixedHeight(field_h)
 
         # Итоговый объем каскада
         self.lbl_total_vol.setStyleSheet(
-            f"color: #FF9F0A; font-weight: bold; font-size: {int(11 * sc)}pt; margin-top: 5px;"
+            "color: #FF9F0A; font-weight: bold; font-size: 11pt; margin-top: 5px;"
         )
 
         # Таблица ордеров
-        self.table.verticalHeader().setDefaultSectionSize(int(28 * sc))
-        self.table.setFixedHeight(int(120 * sc))
+        self.table.verticalHeader().setDefaultSectionSize(int(14 * sc))
+        self.table.setFixedHeight(int(80 * sc))
+        item_font = max(6, int(6 * ratio))
+        header_font = max(6, int(8 * ratio))
         self.table.setStyleSheet(
-            f"font-size: {int(9 * sc)}pt; selection-background-color: #38BE1D; selection-color: black;"
+            f"QTableWidget::item {{ font-size: {item_font}pt; padding: 0px 1px; margin: 0px; }}"
+            f"QHeaderView::section {{ font-size: {header_font}pt; padding: 1px; }}"
+            "selection-background-color: #38BE1D; selection-color: black;"
         )
 
         # Строка статуса внизу
         self.lbl_status.setStyleSheet(
-            f"color: #666; font-size: {int(8 * sc)}pt; margin-bottom: 5px;"
+            "color: #666; font-size: 7pt; margin-bottom: 5px;"
         )
 
     def on_perc_click(self):
@@ -468,8 +558,13 @@ class CascadeTab(QWidget):
 
         for i, vol in enumerate(final_volumes):
             dist = i * dist_step
-            self.table.setItem(i, 0, QTableWidgetItem(f"{vol:.2f}"))
-            self.table.setItem(i, 1, QTableWidgetItem(f"{dist:.2f}"))
+            vol_item = QTableWidgetItem(f"{vol:.2f}")
+            vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 0, vol_item)
+
+            dist_item = QTableWidgetItem(f"{dist:.2f}")
+            dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.table.setItem(i, 1, dist_item)
             self.calculated_orders.append(
                 {"vol": round(vol, 2), "dist": round(dist, 2)}
             )
