@@ -540,35 +540,73 @@ class CascadeTab(QWidget):
         dist_step = self.sb_dist.value()
         mult = self.get_multiplier()
 
-        # Вычисляем максимально возможное количество ячеек
-        max_possible = int(total_vol / min_size) if total_vol > 0 else 0
-        if max_possible < 1:
-            max_possible = 1
-
-        # Обновляем подсказку
-        self.lbl_count_hint.setText(f"Макс: {max_possible} ячеек")
-        if count > max_possible:
-            self.lbl_count_hint.setStyleSheet(
-                "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
-            )
-        else:
-            self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
-
         if total_vol <= 0:
             self.table.setRowCount(0)
             self.calculated_orders = []
             return
 
+        # Вычисляем максимально возможное количество ячеек
+        if mult == 1.0:
+            # Равномерное распределение: все ячейки = total_vol / count
+            max_possible = int(total_vol / min_size)
+        else:
+            # Матрешка: геометрическая прогрессия
+            # Сумма геометрической прогрессии: S = min_size * (mult^n - 1) / (mult - 1)
+            # Ограничение: S <= total_vol
+            # Находим максимальный n такой, что S(n) <= total_vol
+            max_possible = 1
+            while True:
+                geo_sum = min_size * (mult ** max_possible - 1) / (mult - 1)
+                if geo_sum > total_vol:
+                    break
+                max_possible += 1
+            max_possible = max(1, max_possible - 1)
+        
+        if max_possible < 1:
+            max_possible = 1
+        
+        # Устанавливаем максимум для SpinBox
+        self.sb_count.blockSignals(True)
+        self.sb_count.setMaximum(max_possible)
+        if count > max_possible:
+            self.sb_count.setValue(max_possible)
+        self.sb_count.blockSignals(False)
+
         # === РАВНОМЕРНОЕ РАСПРЕДЕЛЕНИЕ ===
         if mult == 1.0:
-            # Просто делим поровну, без группировки
+            # Используем введенное кол-во, делим поровну
             vol_per_cell = total_vol / count
             final_volumes = [vol_per_cell for _ in range(count)]
+
+            # Подсказка для равномерного
+            self.lbl_count_hint.setText(f"Макс: {max_possible} ячеек")
+            if count > max_possible:
+                self.lbl_count_hint.setStyleSheet(
+                    "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+                )
+            else:
+                self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+
         else:
-            # === МАТРЕШКА (веса) ===
-            weights = [mult**i for i in range(count)]
-            total_weight = sum(weights)
-            final_volumes = [(w / total_weight) * total_vol for w in weights]
+            # === МАТРЕШКА/АГРЕССИВНО (экспоненциальное распределение) ===
+            # Используем введенное kол-во ячеек
+            # volume[0] = min_size
+            # volume[i] = volume[0] * (mult ** i)
+            # Последняя ячейка = остаток до total_vol
+
+            final_volumes = []
+            for i in range(count):
+                final_volumes.append(min_size * (mult**i))
+
+            # Вычисляем сумму всех кроме последней
+            sum_without_last = sum(final_volumes[:-1]) if count > 1 else 0
+
+            # Последняя ячейка = остаток
+            final_volumes[-1] = total_vol - sum_without_last
+
+            # Подсказка показывает, что используется введенное кол-во
+            self.lbl_count_hint.setText(f"Матрешка x{mult}")
+            self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
 
         # Заполнение таблицы
         self.table.setRowCount(len(final_volumes))
