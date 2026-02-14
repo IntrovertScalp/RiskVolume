@@ -70,6 +70,7 @@ class RiskVolumeApp(QMainWindow):
         self.old_pos = None
         self.current_vol = 0.0
         self._ghost_input = None
+        self.calc_calibration_active = False
 
         self.init_ui()
         self.rebind_hotkeys()
@@ -621,8 +622,10 @@ class RiskVolumeApp(QMainWindow):
         keyboard.add_hotkey(
             self.settings.get("hk_show", "f1"), self.signaler.toggle_sig.emit
         )
-        # F2 - Точки (работает всегда)
-        keyboard.add_hotkey(self.settings.get("hk_coords", "f2"), self.capture_coords)
+        # F2 - Калибровка (в зависимости от активной вкладки)
+        keyboard.add_hotkey(
+            self.settings.get("hk_coords", "f2"), self.handle_hotkey_calibration
+        )
         # F3 - ОТПРАВИТЬ - ОТКЛЮЧЕНО, теперь только через кнопку
         # keyboard.add_hotkey(
         #     self.settings.get("hk_send", "f3"), self.signaler.apply_sig.emit
@@ -656,8 +659,39 @@ class RiskVolumeApp(QMainWindow):
         finally:
             self.apply_running = False
 
+    def handle_hotkey_calibration(self):
+        if not hasattr(self, "tabs"):
+            return
+
+        current_idx = self.tabs.currentIndex()
+        if current_idx == 1 and hasattr(self, "tab_cascade"):
+            self.tab_cascade.handle_calibration_hotkey()
+            return
+
+        self.capture_coords()
+
+    def _cancel_active_calibration(self):
+        if hasattr(self, "tab_cascade") and self.tab_cascade.cancel_calibration():
+            return True
+
+        if getattr(self, "calc_calibration_active", False):
+            self.settings["points"] = []
+            self.save_settings()
+            self.calc_calibration_active = False
+            hk_coords = self.settings.get("hk_coords", "f2").upper()
+            self.lbl_status.setText(
+                f"Калибровка сброшена. Нажми {hk_coords}, чтобы начать заново"
+            )
+            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return True
+
+        return False
+
     # Обработка нажатия Enter на клавиатуре (когда фокус в программе)
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self._cancel_active_calibration():
+            event.accept()
+            return
         super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
@@ -727,6 +761,7 @@ class RiskVolumeApp(QMainWindow):
         cells_count = int(self.lbl_cells_count.text())
         hk_coords = self.settings.get("hk_coords", "f2").upper()
 
+        self.calc_calibration_active = True
         self.settings["points"] = []
         self.save_settings()
 
@@ -752,6 +787,10 @@ class RiskVolumeApp(QMainWindow):
 
     def capture_coords(self):
         """Захватывает координаты ячеек (ровно столько, сколько нужно)"""
+        if not getattr(self, "calc_calibration_active", False):
+            self.start_calibration_calc()
+            return
+
         cells_count = int(self.lbl_cells_count.text())
         points = self.settings.get("points", [])
 
@@ -767,6 +806,10 @@ class RiskVolumeApp(QMainWindow):
         x, y = pyautogui.position()
         self.settings["points"].append([x, y])
         self.save_settings()
+
+        if len(self.settings.get("points", [])) >= cells_count:
+            self.calc_calibration_active = False
+
         self.update_calibration_status()
 
     def update_calibration_status(self):
@@ -782,10 +825,13 @@ class RiskVolumeApp(QMainWindow):
         hk_coords = self.settings.get("hk_coords", "f2").upper()
 
         if points_count == 0:
-            self.lbl_status.setText(
-                f"⚠ Нужна калибровка ({hk_coords} для захвата точек)"
-            )
-            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            if self.calc_calibration_active:
+                self.lbl_status.setText(
+                    f"⚠ Калибровка активна: нажимай {hk_coords} на полях объема"
+                )
+                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            else:
+                self.lbl_status.setText("")
         elif points_count < cells_count:
             self.lbl_status.setText(
                 f"⚡ Захвачено {points_count} из {cells_count} ячеек"
@@ -1226,6 +1272,10 @@ class RiskVolumeApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         """Перехватывает события мыши на вкладках для перетаскивания"""
+        if event.type() == event.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            if self._cancel_active_calibration():
+                return True
+
         if isinstance(obj, QLineEdit):
             if event.type() == event.Type.MouseButtonPress:
                 now_ms = int(time.time() * 1000)

@@ -212,6 +212,8 @@ class CascadeTab(QWidget):
     def __init__(self, main_window):
         super().__init__()
         self.main = main_window
+        self.calib_active = False
+        self.calib_step = 0
         self.init_ui()
 
     def _wrap_spinbox(self, spinbox):
@@ -403,12 +405,12 @@ class CascadeTab(QWidget):
         self.sb_min.valueChanged.connect(self.recalc_table)
         self.cb_type.currentIndexChanged.connect(self.recalc_table)
         self.sb_dist.valueChanged.connect(self.recalc_table)
-        
+
         # Реал-тайм обновление при вводе текста в спинбоксы
         # Подключаемся к встроенному QLineEdit для обновления при каждом символе
         self.sb_min.lineEdit().textChanged.connect(self.on_min_text_changed)
         self.sb_dist.lineEdit().textChanged.connect(self.on_dist_text_changed)
-        
+
         # Обновляем подсказку когда меняется процент
         self.group_btns[0].clicked.connect(self.recalc_table)
         self.group_btns[1].clicked.connect(self.recalc_table)
@@ -583,13 +585,13 @@ class CascadeTab(QWidget):
             self.table.setRowCount(0)
             self.calculated_orders = []
             return
-        
+
         # Проверяем: изменился ли тип
         current_type_index = self.cb_type.currentIndex()
-        type_changed = (current_type_index != self._last_type_index)
-        
+        type_changed = current_type_index != self._last_type_index
+
         # Проверяем: был ли count на максимуме перед изменением типа
-        user_was_at_max = (count == self._last_max_possible)
+        user_was_at_max = count == self._last_max_possible
 
         # Вычисляем максимально возможное количество ячеек
         if mult == 1.0:
@@ -614,16 +616,16 @@ class CascadeTab(QWidget):
         # Устанавливаем максимум для SpinBox
         self.sb_count.blockSignals(True)
         self.sb_count.setMaximum(max_possible)
-        
+
         # Если тип изменился или пользователь был на максимуме, ставим новый максимум
         if type_changed or user_was_at_max:
             self.sb_count.setValue(max_possible)
         elif count > max_possible:
             # Если count > max_possible, принудительно ограничиваем
             self.sb_count.setValue(max_possible)
-        
+
         self.sb_count.blockSignals(False)
-        
+
         # Запоминаем текущий максимум и тип для следующего вызова
         self._last_max_possible = max_possible
         self._last_type_index = current_type_index
@@ -699,8 +701,39 @@ class CascadeTab(QWidget):
             f"1. Наведи на ШЕСТЕРЕНКУ настроек -> нажми {hotkey_display}"
         )
         self.lbl_status.setStyleSheet("color: cyan;")
+        self.calib_active = True
         self.calib_step = 1
-        keyboard.add_hotkey(self.calib_hotkey, self.next_calib_step)
+
+    def handle_calibration_hotkey(self):
+        if not self.calib_active:
+            self.start_calibration()
+            return
+        self.next_calib_step()
+
+    def cancel_calibration(self):
+        if not self.calib_active:
+            return False
+
+        self.main.settings["cas_p_gear"] = None
+        self.main.settings["cas_p_book"] = None
+        self.main.settings["cas_p_scrollbar"] = None
+        self.main.settings["cas_p_vol1"] = None
+        self.main.settings["cas_p_dist1"] = None
+        self.main.settings["cas_p_vol2"] = None
+        self.main.settings["cas_p_plus"] = None
+        self.main.settings["cas_p_x"] = None
+        self.main.save_settings()
+
+        self.calib_active = False
+        self.calib_step = 0
+        hotkey_display = (
+            self.main.settings.get("hk_coords", "f2").upper().replace("+", " + ")
+        )
+        self.lbl_status.setText(
+            f"Калибровка сброшена. Нажми {hotkey_display}, чтобы начать заново"
+        )
+        self.lbl_status.setStyleSheet("color: #FF9F0A;")
+        return True
 
     def next_calib_step(self):
         x, y = pyautogui.position()
@@ -752,7 +785,9 @@ class CascadeTab(QWidget):
             self.lbl_status.setText("✓ Калибровка завершена! Настройки сохранены.")
             self.lbl_status.setStyleSheet("color: #38BE1D;")
             self.main.save_settings()
-            keyboard.remove_hotkey(self.calib_hotkey)
+            self.calib_active = False
+            self.calib_step = 0
+            return
 
         self.calib_step += 1
 
