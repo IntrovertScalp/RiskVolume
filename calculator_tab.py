@@ -161,8 +161,21 @@ def init_calculator_tab(app):
     lbl_min_order = QLabel("Мин.ордер:")
     lbl_min_order.setStyleSheet("font-size: 8pt;")
     cells_header.addWidget(lbl_min_order)
-    app.inp_min_order = QLineEdit(str(app.settings.get("scalp_min_order", 6)))
-    app.inp_min_order.setValidator(v_reg)
+    min_order_prec = int(app.settings.get("prec_min_order", 2))
+    min_order_val = float(app.settings.get("scalp_min_order", 6))
+    app.inp_min_order = QLineEdit(
+        f"{min_order_val:.{min_order_prec}f}".replace(".", ",")
+    )
+    if min_order_prec == 0:
+        app.inp_min_order.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
+        )
+    else:
+        app.inp_min_order.setValidator(
+            QRegularExpressionValidator(
+                QRegularExpression(rf"[0-9]*([.,][0-9]{{0,{min_order_prec}}})?")
+            )
+        )
     app.inp_min_order.setFixedWidth(50)
     app.inp_min_order.setFixedHeight(22)
     app.inp_min_order.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -269,19 +282,13 @@ def init_calculator_tab(app):
     app.cells_table.itemClicked.connect(app.on_table_item_clicked)
     main_layout.addWidget(app.cells_table)
 
-    # --- КНОПКИ (КАЛИБРОВКА И ВЫСТАВИТЬ) ---
-    h_btn = QHBoxLayout()
-    app.btn_calib_calc = QPushButton("КАЛИБРОВКА")
-    app.btn_calib_calc.setStyleSheet("background: #333; color: white; padding: 8px;")
-    app.btn_calib_calc.clicked.connect(app.start_calibration_calc)
+    # --- КНОПКА ВЫСТАВИТЬ ---
     app.btn_submit = QPushButton("ВЫСТАВИТЬ")
     app.btn_submit.setStyleSheet(
         "background: #38BE1D; color: black; font-weight: bold; padding: 8px;"
     )
     app.btn_submit.clicked.connect(app.send_volume_to_terminal)
-    h_btn.addWidget(app.btn_calib_calc)
-    h_btn.addWidget(app.btn_submit)
-    main_layout.addLayout(h_btn)
+    main_layout.addWidget(app.btn_submit)
 
     # --- СТАТУС (ВНИЗУ) ---
     app.lbl_status = QLabel("")

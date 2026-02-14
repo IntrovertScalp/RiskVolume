@@ -340,8 +340,10 @@ class CascadeTab(QWidget):
         l1 = QLabel("Кол-во:")
         grid.addWidget(l1, 0, 0)
         self.sb_count = QSpinBox()
-        self.sb_count.setRange(2, 20)
+        self.sb_count.setRange(2, 50)
         self.sb_count.setValue(5)
+        self._last_max_possible = 50  # Отслеживаем предыдущий максимум
+        self._last_type_index = -1  # Отслеживаем смену типа
         self.sb_count.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_count.setObjectName("spinInner")
         self.sb_count_wrap = self._wrap_spinbox(self.sb_count)
@@ -351,7 +353,14 @@ class CascadeTab(QWidget):
         grid.addWidget(l2, 0, 2)
         self.sb_min = QDoubleSpinBox()
         self.sb_min.setRange(1, 1000)
-        self.sb_min.setValue(6)
+        min_order_prec = int(self.main.settings.get("prec_min_order", 2))
+        if min_order_prec < 0:
+            min_order_prec = 0
+        if min_order_prec > 6:
+            min_order_prec = 6
+        self.sb_min.setDecimals(min_order_prec)
+        self.sb_min.setSingleStep(1 if min_order_prec == 0 else 10 ** (-min_order_prec))
+        self.sb_min.setValue(float(self.main.settings.get("scalp_min_order", 6)))
         self.sb_min.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_min.setObjectName("spinInner")
         self.sb_min_wrap = self._wrap_spinbox(self.sb_min)
@@ -384,11 +393,22 @@ class CascadeTab(QWidget):
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
         grid.addWidget(self.sb_dist_wrap, 2, 3)
 
+        # Используем тот же eventFilter, что и в калькуляторе (из main.py)
+        self.sb_count.lineEdit().installEventFilter(self.main)
+        self.sb_min.lineEdit().installEventFilter(self.main)
+        self.sb_dist.lineEdit().installEventFilter(self.main)
+
         # События
         self.sb_count.valueChanged.connect(self.recalc_table)
         self.sb_min.valueChanged.connect(self.recalc_table)
         self.cb_type.currentIndexChanged.connect(self.recalc_table)
         self.sb_dist.valueChanged.connect(self.recalc_table)
+        
+        # Реал-тайм обновление при вводе текста в спинбоксы
+        # Подключаемся к встроенному QLineEdit для обновления при каждом символе
+        self.sb_min.lineEdit().textChanged.connect(self.on_min_text_changed)
+        self.sb_dist.lineEdit().textChanged.connect(self.on_dist_text_changed)
+        
         # Обновляем подсказку когда меняется процент
         self.group_btns[0].clicked.connect(self.recalc_table)
         self.group_btns[1].clicked.connect(self.recalc_table)
@@ -417,23 +437,13 @@ class CascadeTab(QWidget):
         )
         layout.addWidget(self.table)
 
-        # --- БЛОК 4: Кнопки ---
-        h_btn = QHBoxLayout()
-        self.btn_calib = QPushButton("КАЛИБРОВКА")
-        self.btn_calib.setStyleSheet(
-            "background: #333; color: white; padding: 8px; border: 1px solid #555;"
-        )
-        self.btn_calib.clicked.connect(self.start_calibration)
-
+        # --- БЛОК 4: Кнопка выставления ---
         self.btn_apply = QPushButton("ВЫСТАВИТЬ")
         self.btn_apply.setStyleSheet(
             "background: #38BE1D; color: black; font-weight: bold; padding: 8px; font-size: 10pt;"
         )
         self.btn_apply.clicked.connect(self.run_automation)
-
-        h_btn.addWidget(self.btn_calib)
-        h_btn.addWidget(self.btn_apply)
-        layout.addLayout(h_btn)
+        layout.addWidget(self.btn_apply)
 
         # Статус (с переносом текста)
         self.lbl_status = QLabel("Нужна калибровка (7 шагов)")
@@ -504,6 +514,19 @@ class CascadeTab(QWidget):
             "color: #666; font-size: 7pt; margin-bottom: 5px;"
         )
 
+    def apply_min_order_precision(self, decimals):
+        if decimals < 0:
+            decimals = 0
+        if decimals > 6:
+            decimals = 6
+
+        self.sb_min.blockSignals(True)
+        self.sb_min.setDecimals(decimals)
+        self.sb_min.setSingleStep(1 if decimals == 0 else 10 ** (-decimals))
+        self.sb_min.setValue(round(self.sb_min.value(), decimals))
+        self.sb_min.blockSignals(False)
+        self.recalc_table()
+
     def on_perc_click(self):
         sender = self.sender()
         for btn in self.group_btns:
@@ -516,6 +539,22 @@ class CascadeTab(QWidget):
             if btn.isChecked():
                 return float(btn.text().replace("%", "")) / 100.0
         return 1.0
+
+    def on_min_text_changed(self, text):
+        """Реал-тайм обновление при изменении текста в 'Мин. ордер'"""
+        try:
+            float(text)  # Проверяем, что это валидное число
+            self.recalc_table()
+        except ValueError:
+            pass  # Ждем, пока пользователь доведет ввод до валидного числа
+
+    def on_dist_text_changed(self, text):
+        """Реал-тайм обновление при изменении текста в 'Шаг'"""
+        try:
+            float(text)  # Проверяем, что это валидное число
+            self.recalc_table()
+        except ValueError:
+            pass  # Ждем, пока пользователь доведет ввод до валидного числа
 
     def get_multiplier(self):
         idx = self.cb_type.currentIndex()
@@ -544,6 +583,13 @@ class CascadeTab(QWidget):
             self.table.setRowCount(0)
             self.calculated_orders = []
             return
+        
+        # Проверяем: изменился ли тип
+        current_type_index = self.cb_type.currentIndex()
+        type_changed = (current_type_index != self._last_type_index)
+        
+        # Проверяем: был ли count на максимуме перед изменением типа
+        user_was_at_max = (count == self._last_max_possible)
 
         # Вычисляем максимально возможное количество ячеек
         if mult == 1.0:
@@ -556,21 +602,31 @@ class CascadeTab(QWidget):
             # Находим максимальный n такой, что S(n) <= total_vol
             max_possible = 1
             while True:
-                geo_sum = min_size * (mult ** max_possible - 1) / (mult - 1)
+                geo_sum = min_size * (mult**max_possible - 1) / (mult - 1)
                 if geo_sum > total_vol:
                     break
                 max_possible += 1
             max_possible = max(1, max_possible - 1)
-        
+
         if max_possible < 1:
             max_possible = 1
-        
+
         # Устанавливаем максимум для SpinBox
         self.sb_count.blockSignals(True)
         self.sb_count.setMaximum(max_possible)
-        if count > max_possible:
+        
+        # Если тип изменился или пользователь был на максимуме, ставим новый максимум
+        if type_changed or user_was_at_max:
             self.sb_count.setValue(max_possible)
+        elif count > max_possible:
+            # Если count > max_possible, принудительно ограничиваем
+            self.sb_count.setValue(max_possible)
+        
         self.sb_count.blockSignals(False)
+        
+        # Запоминаем текущий максимум и тип для следующего вызова
+        self._last_max_possible = max_possible
+        self._last_type_index = current_type_index
 
         # === РАВНОМЕРНОЕ РАСПРЕДЕЛЕНИЕ ===
         if mult == 1.0:
@@ -589,24 +645,28 @@ class CascadeTab(QWidget):
 
         else:
             # === МАТРЕШКА/АГРЕССИВНО (экспоненциальное распределение) ===
-            # Используем введенное kол-во ячеек
-            # volume[0] = min_size
-            # volume[i] = volume[0] * (mult ** i)
-            # Последняя ячейка = остаток до total_vol
+            # Геометрическая прогрессия с масштабированием
+            # volume[i] = scale * min_size * mult^i
+            # где scale подбирается так, чтобы сумма = total_vol
 
-            final_volumes = []
-            for i in range(count):
-                final_volumes.append(min_size * (mult**i))
+            # Вычисляем сумму идеальной геометрической прогрессии
+            # S = min_size * (mult^count - 1) / (mult - 1)
+            geo_sum = min_size * (mult**count - 1) / (mult - 1)
 
-            # Вычисляем сумму всех кроме последней
-            sum_without_last = sum(final_volumes[:-1]) if count > 1 else 0
+            # Вычисляем коэффициент масштабирования
+            scale = total_vol / geo_sum if geo_sum > 0 else 1.0
 
-            # Последняя ячейка = остаток
-            final_volumes[-1] = total_vol - sum_without_last
+            # Генерируем масштабированный ряд
+            final_volumes = [scale * min_size * (mult**i) for i in range(count)]
 
-            # Подсказка показывает, что используется введенное кол-во
-            self.lbl_count_hint.setText(f"Матрешка x{mult}")
-            self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+            # Подсказка для матрешки с максимумом
+            self.lbl_count_hint.setText(f"Макс: {max_possible} ячеек")
+            if count > max_possible:
+                self.lbl_count_hint.setStyleSheet(
+                    "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+                )
+            else:
+                self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
 
         # Заполнение таблицы
         self.table.setRowCount(len(final_volumes))

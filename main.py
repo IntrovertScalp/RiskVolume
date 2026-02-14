@@ -101,6 +101,7 @@ class RiskVolumeApp(QMainWindow):
             "prec_fee": 3,
             "prec_vol": 0,
             "prec_lev": 1,
+            "prec_min_order": 2,
             "fee_percent": 0.1,
             "fee_taker": 0.05,
             "fee_maker": 0.05,
@@ -171,6 +172,7 @@ class RiskVolumeApp(QMainWindow):
         if SettingsDialog(self).exec():
             self.apply_styles()
             self.rebind_hotkeys()
+            self.apply_min_order_precision()
             self.refresh_labels()
             self.update_calc()
             # Принудительно обновляем объемы в таблице с новой точностью
@@ -329,6 +331,7 @@ class RiskVolumeApp(QMainWindow):
 
         self.main_layout.addWidget(self.tabs)
 
+        self.apply_min_order_precision()
         self.refresh_labels()
         self.apply_styles()
         QTimer.singleShot(0, self.finalize_startup_layout)
@@ -347,6 +350,36 @@ class RiskVolumeApp(QMainWindow):
         self.tabs.setTabText(1, t.get("tab_casc", "Каскады"))
 
     # Метод format_deposit_input удален - депозит не форматируется автоматически
+
+    def apply_min_order_precision(self):
+        prec_min_order = int(self.settings.get("prec_min_order", 2))
+        if prec_min_order < 0:
+            prec_min_order = 0
+        if prec_min_order > 6:
+            prec_min_order = 6
+
+        if hasattr(self, "inp_min_order"):
+            if prec_min_order == 0:
+                rx = r"[0-9]*"
+            else:
+                rx = rf"[0-9]*([.,][0-9]{{0,{prec_min_order}}})?"
+            self.inp_min_order.setValidator(
+                QRegularExpressionValidator(QRegularExpression(rx))
+            )
+
+            try:
+                current_val = float(self.inp_min_order.text().replace(",", ".") or 0)
+            except Exception:
+                current_val = float(self.settings.get("scalp_min_order", 6))
+
+            self.inp_min_order.setText(
+                f"{current_val:.{prec_min_order}f}".replace(".", ",")
+            )
+
+        if hasattr(self, "tab_cascade") and hasattr(
+            self.tab_cascade, "apply_min_order_precision"
+        ):
+            self.tab_cascade.apply_min_order_precision(prec_min_order)
 
     def update_calc(self):
         try:
