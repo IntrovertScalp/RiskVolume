@@ -108,6 +108,7 @@ class RiskVolumeApp(QMainWindow):
             "fee_maker": 0.05,
             "use_fee": True,
             "cas_p_gear": None,
+            "cas_p_left_scrollbar": None,
             "cas_p_book": None,
             "cas_p_scrollbar": None,
             "cas_p_vol1": None,
@@ -118,10 +119,16 @@ class RiskVolumeApp(QMainWindow):
             "cas_p_btn_add": None,
             "cas_p_btn_del": None,
             "cas_p_combo_vol": None,
+            "cas_use_custom_vol": False,
+            "cas_custom_total_vol": 100.0,
+            "cas_range_width": 0.0,
+            "cas_manual_k": 2.0,
             "last_cascade_count": 1,
             "scalp_cells_count": 4,
             "scalp_multipliers": [100, 50, 25, 10],
             "cells_reversed": False,
+            "pos_current_vol": "0",
+            "pos_stop": "0",
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -427,10 +434,70 @@ class RiskVolumeApp(QMainWindow):
             if hasattr(self, "tab_cascade"):
                 self.tab_cascade.recalc_table()
 
+            self.update_position_adjustment_info()
+
             self.settings.update({"deposit": d, "risk": r, "stop": s})
             self.save_settings()
         except Exception as e:
             print(f"Error: {e}")
+
+    def update_position_adjustment_info(self):
+        if not hasattr(self, "lbl_pos_adjust"):
+            return
+
+        p_vol = self.settings.get("prec_vol", 0)
+
+        try:
+            pos_vol = float(self.inp_pos_vol.text().replace(",", ".") or 0)
+        except Exception:
+            pos_vol = 0.0
+
+        try:
+            pos_stop = float(self.inp_pos_stop.text().replace(",", ".") or 0)
+        except Exception:
+            pos_stop = 0.0
+
+        try:
+            d = float(self.inp_dep.text().replace(",", ".") or 0)
+            r = float(self.inp_risk.text().replace(",", ".") or 0)
+        except Exception:
+            self.lbl_pos_adjust.setText("Добор/сокращение: —")
+            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            return
+
+        if pos_stop <= 0:
+            self.lbl_pos_adjust.setText("Добор/сокращение: укажи Стоп % > 0")
+            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            return
+
+        fee_taker = self.settings.get("fee_taker", 0.05)
+        fee_maker = self.settings.get("fee_maker", 0.05)
+        use_fee = self.settings.get("use_fee", True)
+        f_perc = (fee_taker + fee_maker) if use_fee else 0.0
+
+        try:
+            _, max_vol_at_stop, _, _ = calculate_risk_data(d, r, pos_stop, f_perc)
+        except Exception:
+            self.lbl_pos_adjust.setText("Добор/сокращение: ошибка расчета")
+            self.lbl_pos_adjust.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return
+
+        delta = max_vol_at_stop - pos_vol
+        if delta > 0:
+            msg = f"Можно добрать: {delta:,.{p_vol}f}".replace(",", " ").replace(
+                ".", ","
+            )
+            self.lbl_pos_adjust.setText(msg)
+            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+        elif delta < 0:
+            msg = f"Нужно сократить: {abs(delta):,.{p_vol}f}".replace(",", " ").replace(
+                ".", ","
+            )
+            self.lbl_pos_adjust.setText(msg)
+            self.lbl_pos_adjust.setStyleSheet("color: #FF6B6B; font-size: 7pt;")
+        else:
+            self.lbl_pos_adjust.setText("Позиция в лимите риска")
+            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 7pt;")
 
     def format_with_abbreviations(self, value, precision):
         """Форматирует число с одним сокращением"""

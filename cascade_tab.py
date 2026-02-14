@@ -39,6 +39,7 @@ class CascadeWorker(QThread):
     def run(self):
         # Достаем координаты
         c_gear = self.settings.get("cas_p_gear")  # Шестеренка
+        c_left_scrollbar = self.settings.get("cas_p_left_scrollbar")  # Левый ползунок
         c_book = self.settings.get("cas_p_book")  # Пункт меню Книга заявок
         c_scrollbar = self.settings.get("cas_p_scrollbar")  # Ползунок скроллбара
         c_vol1 = self.settings.get("cas_p_vol1")
@@ -50,6 +51,7 @@ class CascadeWorker(QThread):
         # Отладка - выводим координаты
         print(f"[CASCADE] Координаты:")
         print(f"  Шестеренка (c_gear): {c_gear}")
+        print(f"  Левый ползунок (c_left_scrollbar): {c_left_scrollbar}")
         print(f"  Книга заявок (c_book): {c_book}")
         print(f"  Объем 1 (c_vol1): {c_vol1}")
         print(f"  Дистанция 1 (c_dist1): {c_dist1}")
@@ -59,7 +61,16 @@ class CascadeWorker(QThread):
         print(f"  Заявок для выставления: {len(self.orders)}")
 
         # Если не все точки заданы - стоп
-        if not (c_gear and c_book and c_vol1 and c_dist1 and c_vol2 and c_plus and c_x):
+        if not (
+            c_gear
+            and c_left_scrollbar
+            and c_book
+            and c_vol1
+            and c_dist1
+            and c_vol2
+            and c_plus
+            and c_x
+        ):
             return
 
         row_height = c_vol2[1] - c_vol1[1]
@@ -83,14 +94,30 @@ class CascadeWorker(QThread):
             pyautogui.click()
             time.sleep(0.15)
 
-            # 2. Выбираем пункт "Книга заявок"
+            # 2. В левой части тянем ползунок резко вниз
+            if self._cancelled:
+                return
+            left_scrollbar_x = c_left_scrollbar[0]
+            left_scrollbar_y_start = c_left_scrollbar[1]
+            left_scrollbar_y_end = left_scrollbar_y_start + 700
+
+            pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_start)
+            time.sleep(0.1)
+            pyautogui.mouseDown(button="left")
+            time.sleep(0.05)
+            pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_end, duration=0.4)
+            time.sleep(0.05)
+            pyautogui.mouseUp(button="left")
+            time.sleep(0.2)
+
+            # 3. Выбираем пункт "Книга заявок"
             if self._cancelled:
                 return
             pyautogui.moveTo(c_book[0], c_book[1])
             pyautogui.click()
             time.sleep(0.15)
 
-            # 3. Перетаскиваем ползунок вниз (если координата скроллбара задана)
+            # 4. Перетаскиваем правый ползунок вниз
             if self._cancelled:
                 return
             if c_scrollbar:
@@ -118,11 +145,11 @@ class CascadeWorker(QThread):
                 pyautogui.press("pagedown")
                 time.sleep(0.03)
 
-            # 4. Очистка (удаляем старые строки каскада)
+            # 5. Очистка (удаляем старые строки каскада)
             if self._cancelled:
                 return
             print(
-                f"[CASCADE] Шаг 4: Нажимаю на крестик (X) для удаления заявок. Координаты: {c_x}"
+                f"[CASCADE] Шаг 5: Нажимаю на крестик (X) для удаления заявок. Координаты: {c_x}"
             )
             pyautogui.moveTo(c_x[0], c_x[1])
             for i in range(12):  # С запасом
@@ -132,11 +159,11 @@ class CascadeWorker(QThread):
                 pyautogui.click()
                 time.sleep(0.02)
 
-            # 5. Создаем нужное количество строк
+            # 6. Создаем нужное количество строк
             if self._cancelled:
                 return
             print(
-                f"[CASCADE] Шаг 5: Нажимаю на плюсик (+) для добавления заявок. Координаты: {c_plus}. Количество для добавления: {len(self.orders) - 1}"
+                f"[CASCADE] Шаг 6: Нажимаю на плюсик (+) для добавления заявок. Координаты: {c_plus}. Количество для добавления: {len(self.orders) - 1}"
             )
             pyautogui.moveTo(c_plus[0], c_plus[1])
             for i in range(len(self.orders) - 1):
@@ -146,9 +173,9 @@ class CascadeWorker(QThread):
                 pyautogui.click()
                 time.sleep(0.03)
 
-            # 6. Заполняем значения
+            # 7. Заполняем значения
             print(
-                f"[CASCADE] Шаг 6: Заполняю объёмы и дистанции. Высота строки: {row_height}"
+                f"[CASCADE] Шаг 7: Заполняю объёмы и дистанции. Высота строки: {row_height}"
             )
             for i, order in enumerate(self.orders):
                 if self._cancelled:
@@ -242,6 +269,12 @@ class CascadeTab(QWidget):
             self.sb_min_left, self.sb_min_right = left_btn, right_btn
         elif spinbox is getattr(self, "sb_dist", None):
             self.sb_dist_left, self.sb_dist_right = left_btn, right_btn
+        elif spinbox is getattr(self, "sb_range_width", None):
+            self.sb_range_left, self.sb_range_right = left_btn, right_btn
+        elif spinbox is getattr(self, "sb_manual_k", None):
+            self.sb_manual_k_left, self.sb_manual_k_right = left_btn, right_btn
+        elif spinbox is getattr(self, "sb_custom_total", None):
+            self.sb_custom_total_left, self.sb_custom_total_right = left_btn, right_btn
 
         return wrap
 
@@ -321,6 +354,39 @@ class CascadeTab(QWidget):
 
         self.group_btns[3].setChecked(True)  # 100% по умолчанию
 
+        h_source = QHBoxLayout()
+        self.btn_use_custom_vol = QPushButton("Свой объём")
+        self.btn_use_custom_vol.setCheckable(True)
+        self.btn_use_custom_vol.setProperty("class", "percBtn")
+        self.btn_use_custom_vol.setObjectName("percBtn")
+        self.btn_use_custom_vol.setChecked(
+            bool(self.main.settings.get("cas_use_custom_vol", False))
+        )
+        self.btn_use_custom_vol.toggled.connect(self.on_volume_source_changed)
+
+        lbl_custom_base = QLabel("База $:")
+        self.sb_custom_total = QDoubleSpinBox()
+        self.sb_custom_total.setRange(0.01, 1000000000.0)
+        self.sb_custom_total.setDecimals(2)
+        self.sb_custom_total.setSingleStep(1.0)
+        self.sb_custom_total.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sb_custom_total.setObjectName("spinInner")
+        self.sb_custom_total.setValue(
+            float(self.main.settings.get("cas_custom_total_vol", 0.01) or 0.01)
+        )
+        self.sb_custom_total_wrap = self._wrap_spinbox(self.sb_custom_total)
+        self.sb_custom_total.valueChanged.connect(self.on_custom_vol_value_changed)
+        self.sb_custom_total.lineEdit().editingFinished.connect(
+            self.save_custom_vol_setting
+        )
+
+        h_source.addWidget(self.btn_use_custom_vol)
+        h_source.addWidget(lbl_custom_base)
+        h_source.addWidget(self.sb_custom_total_wrap)
+        h_source.addStretch()
+
+        self.set_custom_vol_enabled(self.btn_use_custom_vol.isChecked())
+
         self.lbl_total_vol = QLabel("Итого в каскад: 0 $")
         self.lbl_total_vol.setStyleSheet(
             "color: #FF9F0A; font-weight: bold; font-size: 11pt; margin-top: 5px;"
@@ -328,6 +394,7 @@ class CascadeTab(QWidget):
         self.lbl_total_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         l_vol.addLayout(h_perc)
+        l_vol.addLayout(h_source)
         l_vol.addWidget(self.lbl_total_vol)
         gb_vol.setLayout(l_vol)
         layout.addWidget(gb_vol)
@@ -379,13 +446,33 @@ class CascadeTab(QWidget):
         self.cb_type = QComboBox()
         # Сократим названия, чтобы влазили
         self.cb_type.addItems(
-            ["Равномерно", "Матрешка x1.2", "Матрешка x1.5", "Агрессивно x2"]
+            [
+                "Равномерно",
+                "Матрешка x1.2",
+                "Матрешка x1.5",
+                "Агрессивно x2",
+                "Ручной k",
+            ]
         )
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
         grid.addWidget(self.cb_type, 2, 1)
 
+        self.lbl_manual_k = QLabel("k (ручной):")
+        grid.addWidget(self.lbl_manual_k, 2, 2)
+        self.sb_manual_k = QDoubleSpinBox()
+        self.sb_manual_k.setRange(1.1, 3.0)
+        self.sb_manual_k.setDecimals(2)
+        self.sb_manual_k.setSingleStep(0.1)
+        self.sb_manual_k.setValue(
+            float(self.main.settings.get("cas_manual_k", 2.0) or 2.0)
+        )
+        self.sb_manual_k.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sb_manual_k.setObjectName("spinInner")
+        self.sb_manual_k_wrap = self._wrap_spinbox(self.sb_manual_k)
+        grid.addWidget(self.sb_manual_k_wrap, 2, 3)
+
         l4 = QLabel("Шаг (%):")
-        grid.addWidget(l4, 2, 2)
+        grid.addWidget(l4, 3, 2)
         self.sb_dist = QDoubleSpinBox()
         self.sb_dist.setRange(0.01, 10.0)
         self.sb_dist.setValue(0.1)
@@ -393,23 +480,44 @@ class CascadeTab(QWidget):
         self.sb_dist.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_dist.setObjectName("spinInner")
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
-        grid.addWidget(self.sb_dist_wrap, 2, 3)
+        grid.addWidget(self.sb_dist_wrap, 3, 3)
+
+        l5 = QLabel("Ширина диапазона (%):")
+        grid.addWidget(l5, 3, 0)
+        self.sb_range_width = QDoubleSpinBox()
+        self.sb_range_width.setRange(0.0, 100.0)
+        self.sb_range_width.setDecimals(2)
+        self.sb_range_width.setSingleStep(0.1)
+        self.sb_range_width.setValue(
+            float(self.main.settings.get("cas_range_width", 0.0) or 0.0)
+        )
+        self.sb_range_width.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.sb_range_width.setObjectName("spinInner")
+        self.sb_range_wrap = self._wrap_spinbox(self.sb_range_width)
+        grid.addWidget(self.sb_range_wrap, 3, 1)
 
         # Используем тот же eventFilter, что и в калькуляторе (из main.py)
         self.sb_count.lineEdit().installEventFilter(self.main)
         self.sb_min.lineEdit().installEventFilter(self.main)
         self.sb_dist.lineEdit().installEventFilter(self.main)
+        self.sb_range_width.lineEdit().installEventFilter(self.main)
+        self.sb_manual_k.lineEdit().installEventFilter(self.main)
+        self.sb_custom_total.lineEdit().installEventFilter(self.main)
 
         # События
         self.sb_count.valueChanged.connect(self.recalc_table)
         self.sb_min.valueChanged.connect(self.recalc_table)
-        self.cb_type.currentIndexChanged.connect(self.recalc_table)
+        self.cb_type.currentIndexChanged.connect(self.on_type_changed)
         self.sb_dist.valueChanged.connect(self.recalc_table)
+        self.sb_range_width.valueChanged.connect(self.on_range_width_changed)
+        self.sb_manual_k.valueChanged.connect(self.recalc_table)
 
         # Реал-тайм обновление при вводе текста в спинбоксы
         # Подключаемся к встроенному QLineEdit для обновления при каждом символе
         self.sb_min.lineEdit().textChanged.connect(self.on_min_text_changed)
         self.sb_dist.lineEdit().textChanged.connect(self.on_dist_text_changed)
+        self.sb_range_width.lineEdit().textChanged.connect(self.on_range_text_changed)
+        self.sb_manual_k.lineEdit().textChanged.connect(self.on_manual_k_text_changed)
 
         # Обновляем подсказку когда меняется процент
         self.group_btns[0].clicked.connect(self.recalc_table)
@@ -448,7 +556,7 @@ class CascadeTab(QWidget):
         layout.addWidget(self.btn_apply)
 
         # Статус (с переносом текста)
-        self.lbl_status = QLabel("Нужна калибровка (7 шагов)")
+        self.lbl_status = QLabel("Нужна калибровка (9 шагов)")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_status.setWordWrap(True)  # <-- ВАЖНО: Текст будет переноситься
         self.lbl_status.setStyleSheet(
@@ -458,6 +566,7 @@ class CascadeTab(QWidget):
 
         # Применяем масштабирование под текущий размер интерфейса
         self.apply_scale()
+        self.on_type_changed(self.cb_type.currentIndex())
 
     def apply_scale(self):
         """
@@ -476,6 +585,8 @@ class CascadeTab(QWidget):
         self.sb_count_wrap.setFixedWidth(compact_w)
         self.sb_min_wrap.setFixedWidth(compact_w)
         self.sb_dist_wrap.setFixedWidth(compact_w)
+        self.sb_range_wrap.setFixedWidth(compact_w)
+        self.sb_manual_k_wrap.setFixedWidth(compact_w)
 
         btn_w = max(10, int(11 * sc))
         btn_h = max(9, int(9 * sc))
@@ -485,6 +596,13 @@ class CascadeTab(QWidget):
             (self.sb_count, self.sb_count_left, self.sb_count_right),
             (self.sb_min, self.sb_min_left, self.sb_min_right),
             (self.sb_dist, self.sb_dist_left, self.sb_dist_right),
+            (self.sb_range_width, self.sb_range_left, self.sb_range_right),
+            (self.sb_manual_k, self.sb_manual_k_left, self.sb_manual_k_right),
+            (
+                self.sb_custom_total,
+                self.sb_custom_total_left,
+                self.sb_custom_total_right,
+            ),
         ):
             spin.setFixedWidth(input_w)
             spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -494,6 +612,9 @@ class CascadeTab(QWidget):
         self.sb_count_wrap.setFixedHeight(field_h)
         self.sb_min_wrap.setFixedHeight(field_h)
         self.sb_dist_wrap.setFixedHeight(field_h)
+        self.sb_range_wrap.setFixedHeight(field_h)
+        self.sb_manual_k_wrap.setFixedHeight(field_h)
+        self.sb_custom_total_wrap.setFixedHeight(field_h)
 
         # Итоговый объем каскада
         self.lbl_total_vol.setStyleSheet(
@@ -542,6 +663,25 @@ class CascadeTab(QWidget):
                 return float(btn.text().replace("%", "")) / 100.0
         return 1.0
 
+    def set_custom_vol_enabled(self, enabled):
+        self.sb_custom_total.setEnabled(enabled)
+        self.sb_custom_total_wrap.setEnabled(enabled)
+
+    def on_volume_source_changed(self, checked):
+        self.set_custom_vol_enabled(checked)
+        self.main.settings["cas_use_custom_vol"] = bool(checked)
+        self.main.save_settings()
+        self.recalc_table()
+
+    def on_custom_vol_value_changed(self, value):
+        self.main.settings["cas_custom_total_vol"] = float(value)
+        if self.btn_use_custom_vol.isChecked():
+            self.recalc_table()
+
+    def save_custom_vol_setting(self):
+        self.main.settings["cas_custom_total_vol"] = float(self.sb_custom_total.value())
+        self.main.save_settings()
+
     def on_min_text_changed(self, text):
         """Реал-тайм обновление при изменении текста в 'Мин. ордер'"""
         try:
@@ -558,6 +698,93 @@ class CascadeTab(QWidget):
         except ValueError:
             pass  # Ждем, пока пользователь доведет ввод до валидного числа
 
+    def on_range_text_changed(self, text):
+        try:
+            float(text)
+            self.on_range_width_changed(self.sb_range_width.value())
+        except ValueError:
+            pass
+
+    def on_manual_k_text_changed(self, text):
+        try:
+            float(text)
+            self.recalc_table()
+        except ValueError:
+            pass
+
+    def on_type_changed(self, index):
+        is_manual = index == 4
+        self.sb_manual_k_wrap.setEnabled(is_manual)
+        self.sb_manual_k_wrap.setVisible(is_manual)
+        self.lbl_manual_k.setVisible(is_manual)
+        self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
+        self.main.save_settings()
+        self.recalc_table()
+
+    def on_range_width_changed(self, value):
+        self.main.settings["cas_range_width"] = float(value)
+        if value <= 0:
+            return
+        self.auto_configure_by_range()
+
+    def get_base_volume(self):
+        if (
+            getattr(self, "btn_use_custom_vol", None)
+            and self.btn_use_custom_vol.isChecked()
+        ):
+            return self.sb_custom_total.value()
+        return getattr(self.main, "current_vol", 0)
+
+    def calculate_max_possible(self, total_vol, min_size, mult):
+        if mult == 1.0:
+            max_possible = int(total_vol / min_size)
+        else:
+            max_possible = 1
+            while True:
+                geo_sum = min_size * (mult**max_possible - 1) / (mult - 1)
+                if geo_sum > total_vol:
+                    break
+                max_possible += 1
+            max_possible = max(1, max_possible - 1)
+        return max(1, max_possible)
+
+    def auto_configure_by_range(self):
+        range_width = self.sb_range_width.value()
+        if range_width <= 0:
+            return
+
+        if self.cb_type.currentIndex() == 0:
+            self.cb_type.blockSignals(True)
+            self.cb_type.setCurrentIndex(1)
+            self.cb_type.blockSignals(False)
+
+        mult = self.get_multiplier()
+        min_size = self.sb_min.value()
+        total_vol = self.get_base_volume() * self.get_percent()
+        if total_vol <= 0:
+            return
+
+        max_possible = self.calculate_max_possible(total_vol, min_size, mult)
+        min_step = self.sb_dist.minimum()
+        max_count_by_range = int(range_width / min_step) + 1
+        desired_count = min(max_possible, max_count_by_range)
+        desired_count = max(2, desired_count)
+
+        desired_dist = range_width / (desired_count - 1)
+        desired_dist = max(
+            self.sb_dist.minimum(), min(self.sb_dist.maximum(), desired_dist)
+        )
+
+        self.sb_count.blockSignals(True)
+        self.sb_dist.blockSignals(True)
+        self._last_type_index = self.cb_type.currentIndex()
+        self.sb_count.setValue(desired_count)
+        self.sb_dist.setValue(desired_dist)
+        self.sb_count.blockSignals(False)
+        self.sb_dist.blockSignals(False)
+
+        self.recalc_table()
+
     def get_multiplier(self):
         idx = self.cb_type.currentIndex()
         if idx == 0:
@@ -568,10 +795,61 @@ class CascadeTab(QWidget):
             return 1.5
         if idx == 3:
             return 2.0
+        if idx == 4:
+            self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
+            return float(self.sb_manual_k.value())
         return 1.0
 
+    def _last_order_share(self, multiplier, count):
+        if count <= 1:
+            return 1.0
+        if abs(multiplier - 1.0) < 1e-9:
+            return 1.0 / count
+
+        # Численно устойчивая формула без больших степеней:
+        # share_last = (m-1) / (m - m^{-(n-1)})
+        try:
+            inv_pow = multiplier ** (-(count - 1))
+        except OverflowError:
+            inv_pow = 0.0
+
+        denominator = multiplier - inv_pow
+        if abs(denominator) < 1e-12:
+            return 1.0 / count
+        return (multiplier - 1.0) / denominator
+
+    def _effective_multiplier_with_cap(self, target_multiplier, count, cap_share=0.40):
+        if count <= 1 or target_multiplier <= 1.0:
+            return (
+                max(1.0, target_multiplier),
+                False,
+                False,
+                self._last_order_share(max(1.0, target_multiplier), count),
+            )
+
+        current_share = self._last_order_share(target_multiplier, count)
+        if current_share <= cap_share:
+            return target_multiplier, False, False, current_share
+
+        min_share = self._last_order_share(1.0, count)
+        if min_share > cap_share:
+            return 1.0, True, True, min_share
+
+        low = 1.0
+        high = target_multiplier
+        for _ in range(32):
+            mid = (low + high) / 2.0
+            mid_share = self._last_order_share(mid, count)
+            if mid_share > cap_share:
+                high = mid
+            else:
+                low = mid
+
+        effective = max(1.0, low)
+        return effective, True, False, self._last_order_share(effective, count)
+
     def recalc_table(self):
-        base_vol = getattr(self.main, "current_vol", 0)
+        base_vol = self.get_base_volume()
         total_vol = base_vol * self.get_percent()
 
         self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.1f} $")
@@ -594,24 +872,7 @@ class CascadeTab(QWidget):
         user_was_at_max = count == self._last_max_possible
 
         # Вычисляем максимально возможное количество ячеек
-        if mult == 1.0:
-            # Равномерное распределение: все ячейки = total_vol / count
-            max_possible = int(total_vol / min_size)
-        else:
-            # Матрешка: геометрическая прогрессия
-            # Сумма геометрической прогрессии: S = min_size * (mult^n - 1) / (mult - 1)
-            # Ограничение: S <= total_vol
-            # Находим максимальный n такой, что S(n) <= total_vol
-            max_possible = 1
-            while True:
-                geo_sum = min_size * (mult**max_possible - 1) / (mult - 1)
-                if geo_sum > total_vol:
-                    break
-                max_possible += 1
-            max_possible = max(1, max_possible - 1)
-
-        if max_possible < 1:
-            max_possible = 1
+        max_possible = self.calculate_max_possible(total_vol, min_size, mult)
 
         # Устанавливаем максимум для SpinBox
         self.sb_count.blockSignals(True)
@@ -626,6 +887,14 @@ class CascadeTab(QWidget):
 
         self.sb_count.blockSignals(False)
 
+        count = self.sb_count.value()
+
+        # Авто-лимит риска: последний ордер не должен быть слишком большим
+        effective_mult, capped_by_risk, cap_impossible, last_share = (
+            self._effective_multiplier_with_cap(mult, count, cap_share=0.40)
+        )
+        mult = effective_mult
+
         # Запоминаем текущий максимум и тип для следующего вызова
         self._last_max_possible = max_possible
         self._last_type_index = current_type_index
@@ -637,10 +906,17 @@ class CascadeTab(QWidget):
             final_volumes = [vol_per_cell for _ in range(count)]
 
             # Подсказка для равномерного
-            self.lbl_count_hint.setText(f"Макс: {max_possible} ячеек")
+            hint_text = f"Макс: {max_possible} ячеек"
+            if capped_by_risk:
+                hint_text += f" | лимит 40% (факт {last_share * 100:.1f}%)"
+            self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
                     "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+                )
+            elif cap_impossible:
+                self.lbl_count_hint.setStyleSheet(
+                    "color: #FF9F0A; font-size: 8pt; font-weight: bold;"
                 )
             else:
                 self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
@@ -662,10 +938,17 @@ class CascadeTab(QWidget):
             final_volumes = [scale * min_size * (mult**i) for i in range(count)]
 
             # Подсказка для матрешки с максимумом
-            self.lbl_count_hint.setText(f"Макс: {max_possible} ячеек")
+            hint_text = f"Макс: {max_possible} ячеек"
+            if capped_by_risk:
+                hint_text += f" | лимит 40% (факт {last_share * 100:.1f}%)"
+            self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
                     "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+                )
+            elif cap_impossible:
+                self.lbl_count_hint.setStyleSheet(
+                    "color: #FF9F0A; font-size: 8pt; font-weight: bold;"
                 )
             else:
                 self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
@@ -715,6 +998,7 @@ class CascadeTab(QWidget):
             return False
 
         self.main.settings["cas_p_gear"] = None
+        self.main.settings["cas_p_left_scrollbar"] = None
         self.main.settings["cas_p_book"] = None
         self.main.settings["cas_p_scrollbar"] = None
         self.main.settings["cas_p_vol1"] = None
@@ -741,46 +1025,45 @@ class CascadeTab(QWidget):
 
         if self.calib_step == 1:
             self.main.settings["cas_p_gear"] = [x, y]
-            self.lbl_status.setText(
-                f"2. Наведи на пункт меню 'КНИГА ЗАЯВОК' -> {hotkey_display}"
-            )
+            self.lbl_status.setText(f"2. Наведи на ЛЕВЫЙ ПОЛЗУНОК -> {hotkey_display}")
 
         elif self.calib_step == 2:
-            self.main.settings["cas_p_book"] = [x, y]
-            self.lbl_status.setText(
-                f"3. Наведи на ПОЛЗУНОК СКРОЛЛБАРА (полоса прокрутки внизу) -> {hotkey_display}\n"
-                f"(Это нужно для корректного скроллинга к строкам ордеров)"
-            )
+            self.main.settings["cas_p_left_scrollbar"] = [x, y]
+            self.lbl_status.setText(f"3. Наведи на 'КНИГА ЗАЯВОК' -> {hotkey_display}")
 
         elif self.calib_step == 3:
-            self.main.settings["cas_p_scrollbar"] = [x, y]
-            self.lbl_status.setText(
-                f"4. Наведи на поле ввода ОБЪЕМА первой строки -> {hotkey_display}"
-            )
+            self.main.settings["cas_p_book"] = [x, y]
+            self.lbl_status.setText(f"4. Наведи на ПРАВЫЙ ПОЛЗУНОК -> {hotkey_display}")
 
         elif self.calib_step == 4:
-            self.main.settings["cas_p_vol1"] = [x, y]
+            self.main.settings["cas_p_scrollbar"] = [x, y]
             self.lbl_status.setText(
-                f"5. Наведи на поле ДИСТАНЦИИ (0%) первой строки -> {hotkey_display}"
+                f"5. Наведи на ОБЪЕМ 1-й строки -> {hotkey_display}"
             )
 
         elif self.calib_step == 5:
-            self.main.settings["cas_p_dist1"] = [x, y]
+            self.main.settings["cas_p_vol1"] = [x, y]
             self.lbl_status.setText(
-                f"6. Наведи на поле ОБЪЕМА ВТОРОЙ строки -> {hotkey_display}"
+                f"6. Наведи на ДИСТАНЦИЮ 1-й строки -> {hotkey_display}"
             )
 
         elif self.calib_step == 6:
-            self.main.settings["cas_p_vol2"] = [x, y]
-            self.lbl_status.setText(f"7. Наведи на кнопку ПЛЮС (+) -> {hotkey_display}")
-
-        elif self.calib_step == 7:
-            self.main.settings["cas_p_plus"] = [x, y]
+            self.main.settings["cas_p_dist1"] = [x, y]
             self.lbl_status.setText(
-                f"8. Наведи на кнопку УДАЛИТЬ (X) первой строки -> {hotkey_display}"
+                f"7. Наведи на ОБЪЕМ 2-й строки -> {hotkey_display}"
             )
 
+        elif self.calib_step == 7:
+            self.main.settings["cas_p_vol2"] = [x, y]
+            self.lbl_status.setText(f"8. Наведи на ПЛЮС (+) -> {hotkey_display}")
+
         elif self.calib_step == 8:
+            self.main.settings["cas_p_plus"] = [x, y]
+            self.lbl_status.setText(
+                f"9. Наведи на УДАЛИТЬ (X) 1-й строки -> {hotkey_display}"
+            )
+
+        elif self.calib_step == 9:
             self.main.settings["cas_p_x"] = [x, y]
             self.lbl_status.setText("✓ Калибровка завершена! Настройки сохранены.")
             self.lbl_status.setStyleSheet("color: #38BE1D;")

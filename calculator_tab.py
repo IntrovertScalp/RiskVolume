@@ -120,6 +120,48 @@ def init_calculator_tab(app):
     app.lbl_vol.setFixedHeight(36)
     main_layout.addWidget(app.lbl_vol)
 
+    # --- ДОБОР / СОКРАЩЕНИЕ ПО ТЕКУЩЕЙ ПОЗИЦИИ ---
+    pos_row = QHBoxLayout()
+    pos_row.setSpacing(6)
+
+    lbl_pos_vol = QLabel("В позиции:")
+    lbl_pos_vol.setStyleSheet("font-size: 8pt;")
+    pos_row.addWidget(lbl_pos_vol)
+
+    app.inp_pos_vol = QLineEdit(str(app.settings.get("pos_current_vol", "0")))
+    app.inp_pos_vol.setValidator(v_reg)
+    app.inp_pos_vol.setFixedWidth(60)
+    app.inp_pos_vol.setFixedHeight(22)
+    app.inp_pos_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.inp_pos_vol.setStyleSheet("font-size: 8pt; padding: 2px;")
+    app.inp_pos_vol.returnPressed.connect(app._commit_input)
+    app.inp_pos_vol.installEventFilter(app)
+    app.inp_pos_vol.textChanged.connect(app.update_position_adjustment_info)
+    pos_row.addWidget(app.inp_pos_vol)
+
+    lbl_pos_stop = QLabel("Стоп %:")
+    lbl_pos_stop.setStyleSheet("font-size: 8pt;")
+    pos_row.addWidget(lbl_pos_stop)
+
+    app.inp_pos_stop = QLineEdit(str(app.settings.get("pos_stop", "0")))
+    app.inp_pos_stop.setValidator(v_reg)
+    app.inp_pos_stop.setFixedWidth(50)
+    app.inp_pos_stop.setFixedHeight(22)
+    app.inp_pos_stop.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.inp_pos_stop.setStyleSheet("font-size: 8pt; padding: 2px;")
+    app.inp_pos_stop.returnPressed.connect(app._commit_input)
+    app.inp_pos_stop.installEventFilter(app)
+    app.inp_pos_stop.textChanged.connect(app.update_position_adjustment_info)
+    pos_row.addWidget(app.inp_pos_stop)
+
+    pos_row.addStretch()
+    main_layout.addLayout(pos_row)
+
+    app.lbl_pos_adjust = QLabel("Добор/сокращение: —")
+    app.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+    app.lbl_pos_adjust.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    main_layout.addWidget(app.lbl_pos_adjust)
+
     # --- НАСТРОЙКА ЯЧЕЕК ---
     cells_header = QHBoxLayout()
 
@@ -302,5 +344,6 @@ def init_calculator_tab(app):
     # Создаём поля ячеек (всегда 5 строк)
     app.on_cells_changed()
     app.update_calibration_status()
+    app.update_position_adjustment_info()
     # Вызываем один раз при инициализации для показа статуса
     QTimer.singleShot(100, app._update_status_text)
