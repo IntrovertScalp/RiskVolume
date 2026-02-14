@@ -357,18 +357,24 @@ class CascadeTab(QWidget):
         self.sb_min_wrap = self._wrap_spinbox(self.sb_min)
         grid.addWidget(self.sb_min_wrap, 0, 3)
 
+        # Подсказка под Кол-во (новая строка 1)
+        self.lbl_count_hint = QLabel("Макс: ? ячеек")
+        self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+        self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
+
         l3 = QLabel("Тип:")
-        grid.addWidget(l3, 1, 0)
+        grid.addWidget(l3, 2, 0)
         self.cb_type = QComboBox()
         # Сократим названия, чтобы влазили
         self.cb_type.addItems(
             ["Равномерно", "Матрешка x1.2", "Матрешка x1.5", "Агрессивно x2"]
         )
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
-        grid.addWidget(self.cb_type, 1, 1)
+        grid.addWidget(self.cb_type, 2, 1)
 
         l4 = QLabel("Шаг (%):")
-        grid.addWidget(l4, 1, 2)
+        grid.addWidget(l4, 2, 2)
         self.sb_dist = QDoubleSpinBox()
         self.sb_dist.setRange(0.01, 10.0)
         self.sb_dist.setValue(0.1)
@@ -376,13 +382,18 @@ class CascadeTab(QWidget):
         self.sb_dist.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_dist.setObjectName("spinInner")
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
-        grid.addWidget(self.sb_dist_wrap, 1, 3)
+        grid.addWidget(self.sb_dist_wrap, 2, 3)
 
         # События
         self.sb_count.valueChanged.connect(self.recalc_table)
         self.sb_min.valueChanged.connect(self.recalc_table)
         self.cb_type.currentIndexChanged.connect(self.recalc_table)
         self.sb_dist.valueChanged.connect(self.recalc_table)
+        # Обновляем подсказку когда меняется процент
+        self.group_btns[0].clicked.connect(self.recalc_table)
+        self.group_btns[1].clicked.connect(self.recalc_table)
+        self.group_btns[2].clicked.connect(self.recalc_table)
+        self.group_btns[3].clicked.connect(self.recalc_table)
 
         gb_set.setLayout(grid)
         layout.addWidget(gb_set)
@@ -524,33 +535,40 @@ class CascadeTab(QWidget):
 
         self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.1f} $")
 
-        if total_vol <= 0:
-            self.table.setRowCount(0)
-            return
-
         count = self.sb_count.value()
-        mult = self.get_multiplier()
         min_size = self.sb_min.value()
         dist_step = self.sb_dist.value()
+        mult = self.get_multiplier()
 
-        # Математика
-        weights = [mult**i for i in range(count)]
-        total_weight = sum(weights)
-        raw_volumes = [(w / total_weight) * total_vol for w in weights]
+        # Вычисляем максимально возможное количество ячеек
+        max_possible = int(total_vol / min_size) if total_vol > 0 else 0
+        if max_possible < 1:
+            max_possible = 1
 
-        # Группировка мелочи
-        final_volumes = []
-        temp_vol = 0
-        for v in raw_volumes:
-            temp_vol += v
-            if temp_vol >= min_size:
-                final_volumes.append(temp_vol)
-                temp_vol = 0
-        if temp_vol > 0:
-            if final_volumes:
-                final_volumes[-1] += temp_vol
-            else:
-                final_volumes.append(temp_vol)
+        # Обновляем подсказку
+        self.lbl_count_hint.setText(f"Макс: {max_possible} ячеек")
+        if count > max_possible:
+            self.lbl_count_hint.setStyleSheet(
+                "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+            )
+        else:
+            self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+
+        if total_vol <= 0:
+            self.table.setRowCount(0)
+            self.calculated_orders = []
+            return
+
+        # === РАВНОМЕРНОЕ РАСПРЕДЕЛЕНИЕ ===
+        if mult == 1.0:
+            # Просто делим поровну, без группировки
+            vol_per_cell = total_vol / count
+            final_volumes = [vol_per_cell for _ in range(count)]
+        else:
+            # === МАТРЕШКА (веса) ===
+            weights = [mult**i for i in range(count)]
+            total_weight = sum(weights)
+            final_volumes = [(w / total_weight) * total_vol for w in weights]
 
         # Заполнение таблицы
         self.table.setRowCount(len(final_volumes))
@@ -560,6 +578,11 @@ class CascadeTab(QWidget):
             dist = i * dist_step
             vol_item = QTableWidgetItem(f"{vol:.2f}")
             vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            # Подсвечиваем если < min_size
+            if vol < min_size:
+                vol_item.setForeground(Qt.GlobalColor.red)
+
             self.table.setItem(i, 0, vol_item)
 
             dist_item = QTableWidgetItem(f"{dist:.2f}")
