@@ -4,6 +4,7 @@ import pyautogui
 import keyboard
 import pyperclip
 from PyQt6.QtWidgets import (
+    QApplication,
     QWidget,
     QVBoxLayout,
     QLabel,
@@ -23,7 +24,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
-from PyQt6.QtGui import QRegularExpressionValidator
+from PyQt6.QtGui import QRegularExpressionValidator, QIntValidator
 
 
 class CascadeWorker(QThread):
@@ -315,6 +316,11 @@ class CascadeTab(QWidget):
                 color: black;             /* Черный текст - читается отлично */
                 border: 1px solid #38BE1D;
             }
+            QPushButton.percBtn[dimmed="true"] {
+                background-color: #1b1b1b;
+                color: #555;
+                border: 1px solid #2a2a2a;
+            }
             QPushButton.percBtn:hover { border: 1px solid #555; }
             
             QComboBox {
@@ -337,6 +343,14 @@ class CascadeTab(QWidget):
                 padding: 2px;
                 selection-background-color: rgba(90, 205, 80, 150);
                 selection-color: white;
+            }
+            QLineEdit:focus {
+                border: 1px solid #FFFFFF;
+            }
+            QLineEdit:disabled {
+                background: #0F0F0F;
+                color: #555;
+                border: 1px solid #222;
             }
             QPushButton#SpinStepBtn {
                 background: #2a2a2a;
@@ -461,8 +475,9 @@ class CascadeTab(QWidget):
         l1 = QLabel("Кол-во:")
         grid.addWidget(l1, 0, 0)
         self.sb_count = QSpinBox()
-        self.sb_count.setRange(2, 50)
-        self.sb_count.setValue(5)
+        self.sb_count.setRange(2, 500)
+        saved_count = int(self.main.settings.get("last_cascade_count", 5) or 5)
+        self.sb_count.setValue(max(2, min(500, saved_count)))
         self._last_max_possible = 50  # Отслеживаем предыдущий максимум
         self._last_type_index = -1  # Отслеживаем смену типа
         self.sb_count.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -487,33 +502,40 @@ class CascadeTab(QWidget):
         self.sb_min_wrap = self._wrap_spinbox(self.sb_min)
         grid.addWidget(self.sb_min_wrap, 0, 3)
 
-        # Подсказка под Кол-во (новая строка 1)
-        self.lbl_count_hint = QLabel("Макс: ? ячеек")
-        self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
-        self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
-
         self.btn_max_limit = QPushButton("Лимит")
         self.btn_max_limit.setCheckable(True)
         self.btn_max_limit.setProperty("class", "percBtn")
         self.btn_max_limit.setObjectName("percBtn")
+        self.btn_max_limit.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
         self.btn_max_limit.setChecked(
             bool(self.main.settings.get("cas_max_count_enabled", False))
         )
         self.btn_max_limit.toggled.connect(self.on_max_limit_toggled)
-        grid.addWidget(self.btn_max_limit, 1, 2)
 
         max_limit_val = int(self.main.settings.get("cas_max_count", 0) or 0)
         self.inp_max_limit = QLineEdit(str(max_limit_val) if max_limit_val else "")
-        self.inp_max_limit.setValidator(
-            QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
-        )
+        self.inp_max_limit.setValidator(QIntValidator(0, 500))
+        self.inp_max_limit.setMaxLength(3)
         self.inp_max_limit.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.inp_max_limit.setEnabled(self.btn_max_limit.isChecked())
         self.inp_max_limit.textChanged.connect(self.on_max_limit_text_changed)
         self.inp_max_limit.returnPressed.connect(self.save_max_limit_setting)
         self.inp_max_limit.installEventFilter(self.main)
-        grid.addWidget(self.inp_max_limit, 1, 3)
+
+        limit_row = QHBoxLayout()
+        limit_row.setSpacing(6)
+        limit_row.addWidget(self.btn_max_limit)
+        limit_row.addWidget(self.inp_max_limit)
+        limit_row.addStretch()
+        grid.addLayout(limit_row, 1, 1)
+
+        # Подсказка под Кол-во (новая строка 1)
+        self.lbl_count_hint = QLabel("Макс: ? ячеек")
+        self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+        self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self.lbl_count_hint, 1, 2, 1, 2)
 
         l3 = QLabel("Тип:")
         grid.addWidget(l3, 2, 0)
@@ -528,13 +550,17 @@ class CascadeTab(QWidget):
                 "Ручной k",
             ]
         )
+        saved_type = int(self.main.settings.get("cas_type_index", 0) or 0)
+        if saved_type < 0 or saved_type > 4:
+            saved_type = 0
+        self.cb_type.setCurrentIndex(saved_type)
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
         grid.addWidget(self.cb_type, 2, 1)
 
         self.lbl_manual_k = QLabel("k (ручной):")
         grid.addWidget(self.lbl_manual_k, 2, 2)
         self.sb_manual_k = QDoubleSpinBox()
-        self.sb_manual_k.setRange(1.1, 3.0)
+        self.sb_manual_k.setRange(0.01, 1000.0)
         self.sb_manual_k.setDecimals(2)
         self.sb_manual_k.setSingleStep(0.1)
         self.sb_manual_k.setKeyboardTracking(False)
@@ -545,6 +571,7 @@ class CascadeTab(QWidget):
         self.sb_manual_k.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_manual_k.setObjectName("spinInner")
         self.sb_manual_k.lineEdit().setReadOnly(False)
+        self.sb_manual_k.lineEdit().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.sb_manual_k_wrap = self._wrap_spinbox(self.sb_manual_k)
         grid.addWidget(self.sb_manual_k_wrap, 2, 3)
 
@@ -553,7 +580,11 @@ class CascadeTab(QWidget):
         self.sb_dist = QDoubleSpinBox()
         self.sb_dist.setRange(0.001, 10.0)
         self.sb_dist.setDecimals(2)
-        self.sb_dist.setValue(0.1)
+        saved_dist = float(self.main.settings.get("cas_dist_step", 0.1) or 0.1)
+        saved_dist = max(
+            self.sb_dist.minimum(), min(self.sb_dist.maximum(), saved_dist)
+        )
+        self.sb_dist.setValue(saved_dist)
         self.sb_dist.setSingleStep(0.01)
         self.sb_dist.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_dist.setObjectName("spinInner")
@@ -579,15 +610,14 @@ class CascadeTab(QWidget):
         self.sb_min.lineEdit().installEventFilter(self.main)
         self.sb_dist.lineEdit().installEventFilter(self.main)
         self.sb_range_width.lineEdit().installEventFilter(self.main)
-        self.sb_manual_k.lineEdit().installEventFilter(self.main)
         self.inp_custom_total.installEventFilter(self.main)
         self.inp_max_limit.installEventFilter(self.main)
 
         # События
-        self.sb_count.valueChanged.connect(self.recalc_table)
+        self.sb_count.valueChanged.connect(self.on_count_changed)
         self.sb_min.valueChanged.connect(self.recalc_table)
         self.cb_type.currentIndexChanged.connect(self.on_type_changed)
-        self.sb_dist.valueChanged.connect(self.recalc_table)
+        self.sb_dist.valueChanged.connect(self.on_dist_changed)
         self.sb_range_width.valueChanged.connect(self.on_range_width_changed)
         self.sb_manual_k.valueChanged.connect(self.recalc_table)
 
@@ -650,6 +680,29 @@ class CascadeTab(QWidget):
         self.apply_scale()
         self.on_type_changed(self.cb_type.currentIndex())
 
+    def _clear_input_focus(self):
+        focus_widget = QApplication.focusWidget()
+        if isinstance(focus_widget, QLineEdit):
+            focus_widget.deselect()
+            focus_widget.clearFocus()
+        elif isinstance(focus_widget, QAbstractSpinBox):
+            focus_widget.clearFocus()
+        if hasattr(self.main, "_clear_ghost_focus"):
+            self.main._clear_ghost_focus()
+
+    def mousePressEvent(self, event):
+        clicked = self.childAt(event.position().toPoint())
+        if not isinstance(clicked, (QLineEdit, QAbstractSpinBox)):
+            self._clear_input_focus()
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._clear_input_focus()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def apply_scale(self):
         """
         Подгоняет размеры элементов под текущий масштаб интерфейса (settings['scale']),
@@ -699,6 +752,9 @@ class CascadeTab(QWidget):
         if hasattr(self, "inp_max_limit"):
             self.inp_max_limit.setFixedHeight(field_h)
             self.inp_max_limit.setFixedWidth(max(52, int(60 * sc)))
+        if hasattr(self, "btn_max_limit"):
+            self.btn_max_limit.setFixedHeight(field_h)
+            self.btn_max_limit.setFixedWidth(max(46, int(52 * sc)))
 
         # Итоговый объем каскада
         self.lbl_total_vol.setStyleSheet(
@@ -792,6 +848,12 @@ class CascadeTab(QWidget):
 
     def set_custom_vol_enabled(self, enabled):
         self.inp_custom_total.setEnabled(enabled)
+        if hasattr(self, "lbl_custom_total_hint"):
+            self.lbl_custom_total_hint.setVisible(bool(enabled))
+        if hasattr(self, "btn_use_custom_vol"):
+            self.btn_use_custom_vol.setProperty("dimmed", not enabled)
+            self.btn_use_custom_vol.style().polish(self.btn_use_custom_vol)
+            self.btn_use_custom_vol.update()
 
     def on_volume_source_changed(self, checked):
         self.set_custom_vol_enabled(checked)
@@ -825,7 +887,25 @@ class CascadeTab(QWidget):
     def on_max_limit_text_changed(self, text):
         if not self.btn_max_limit.isChecked():
             return
-        value = self._parse_max_limit_value(text)
+        raw = (text or "").strip()
+        if not raw:
+            value = 0
+        else:
+            try:
+                value = int(raw)
+            except Exception:
+                value = 0
+
+        if value > 500:
+            value = 500
+            self.inp_max_limit.blockSignals(True)
+            self.inp_max_limit.setText("500")
+            self.inp_max_limit.blockSignals(False)
+        elif 0 < value < 2:
+            value = 2
+            self.inp_max_limit.blockSignals(True)
+            self.inp_max_limit.setText("2")
+            self.inp_max_limit.blockSignals(False)
         self.main.settings["cas_max_count"] = int(value)
         self.main.save_settings()
         self.recalc_table()
@@ -834,13 +914,17 @@ class CascadeTab(QWidget):
         value = self._parse_max_limit_value(self.inp_max_limit.text())
         self.main.settings["cas_max_count"] = int(value)
         self.main.save_settings()
+        if value:
+            self.inp_max_limit.setText(str(value))
 
     def _parse_max_limit_value(self, text):
         try:
             value = int((text or "").strip() or 0)
         except Exception:
             value = 0
-        return max(2, value) if value else 0
+        if not value:
+            return 0
+        return min(500, max(2, value))
 
     def _parse_custom_total_value(self, text):
         try:
@@ -865,6 +949,16 @@ class CascadeTab(QWidget):
         except ValueError:
             pass  # Ждем, пока пользователь доведет ввод до валидного числа
 
+    def on_count_changed(self, value):
+        self.main.settings["last_cascade_count"] = int(value)
+        self.main.save_settings()
+        self.recalc_table()
+
+    def on_dist_changed(self, value):
+        self.main.settings["cas_dist_step"] = float(value)
+        self.main.save_settings()
+        self.recalc_table()
+
     def on_range_text_changed(self, text):
         try:
             float(text)
@@ -884,6 +978,7 @@ class CascadeTab(QWidget):
         self.sb_manual_k_wrap.setEnabled(is_manual)
         self.sb_manual_k_wrap.setVisible(is_manual)
         self.lbl_manual_k.setVisible(is_manual)
+        self.main.settings["cas_type_index"] = int(index)
         self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
         self.main.save_settings()
         self.recalc_table()
@@ -1045,6 +1140,7 @@ class CascadeTab(QWidget):
         count = self.sb_count.value()
         min_size = self.sb_min.value()
         dist_step = self.sb_dist.value()
+        range_width = float(self.sb_range_width.value() or 0.0)
         mult = self.get_multiplier()
 
         if total_vol <= 0:
@@ -1062,10 +1158,12 @@ class CascadeTab(QWidget):
         # Вычисляем максимально возможное количество ячеек
         max_possible = self.calculate_max_possible(total_vol, min_size, mult)
 
+        max_possible = min(500, max_possible)
+
         if bool(self.main.settings.get("cas_max_count_enabled", False)):
             limit_val = int(self.main.settings.get("cas_max_count", 0) or 0)
             if limit_val > 0:
-                max_possible = min(max_possible, max(2, limit_val))
+                max_possible = min(max_possible, min(500, max(2, limit_val)))
 
         # Устанавливаем максимум для SpinBox
         self.sb_count.blockSignals(True)
@@ -1083,10 +1181,14 @@ class CascadeTab(QWidget):
         count = self.sb_count.value()
 
         # Авто-лимит риска: последний ордер не должен быть слишком большим
-        effective_mult, capped_by_risk, cap_impossible, last_share = (
-            self._effective_multiplier_with_cap(mult, count, cap_share=0.40)
-        )
-        mult = effective_mult
+        if current_type_index == 4:
+            capped_by_risk = False
+            cap_impossible = False
+        else:
+            effective_mult, capped_by_risk, cap_impossible, _ = (
+                self._effective_multiplier_with_cap(mult, count, cap_share=0.40)
+            )
+            mult = effective_mult
 
         # Запоминаем текущий максимум и тип для следующего вызова
         self._last_max_possible = max_possible
@@ -1100,8 +1202,6 @@ class CascadeTab(QWidget):
 
             # Подсказка для равномерного
             hint_text = f"Макс: {max_possible} ячеек"
-            if capped_by_risk:
-                hint_text += f" | лимит 40% (факт {last_share * 100:.1f}%)"
             self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
@@ -1132,8 +1232,6 @@ class CascadeTab(QWidget):
 
             # Подсказка для матрешки с максимумом
             hint_text = f"Макс: {max_possible} ячеек"
-            if capped_by_risk:
-                hint_text += f" | лимит 40% (факт {last_share * 100:.1f}%)"
             self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
@@ -1152,7 +1250,12 @@ class CascadeTab(QWidget):
 
         dist_prec = max(2, int(self.sb_dist.decimals()))
         for i, vol in enumerate(final_volumes):
-            dist = i * dist_step
+            if range_width > 0 and count > 1:
+                dist = range_width * (i / (count - 1))
+                if i == count - 1:
+                    dist = range_width
+            else:
+                dist = i * dist_step
             vol_item = QTableWidgetItem(f"{vol:.{p_vol}f}")
             vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 

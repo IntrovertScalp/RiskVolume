@@ -233,6 +233,13 @@ def init_calculator_tab(app):
     app.btn_move_adjust_to_cell.setEnabled(False)
     cells_header.addWidget(app.btn_move_adjust_to_cell)
 
+    app.btn_toggle_all_cells = QPushButton("Все")
+    app.btn_toggle_all_cells.setFixedSize(34, 25)
+    app.btn_toggle_all_cells.setToolTip("Вкл/выкл все ячейки")
+    app.btn_toggle_all_cells.setStyleSheet("color: #8E8E8E;")
+    app.btn_toggle_all_cells.clicked.connect(app.toggle_all_transfer_rows)
+    cells_header.addWidget(app.btn_toggle_all_cells)
+
     # Количество ячеек фиксируем на 5, управление теперь только выделением строк
     app.lbl_cells_count = QLabel("5")
     app.lbl_cells_count.hide()

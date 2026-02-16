@@ -60,26 +60,8 @@ class CellsLabelDarkDelegate(QStyledItemDelegate):
                 selected_rows = set()
 
             if index.row() not in selected_rows:
-                bg = QColor("#1A1A1A")
+                bg = QColor("#000000")
                 fg = QColor("#161616")
-                try:
-                    cell = self.app.cells_table.item(index.row(), 1)
-                    if cell:
-                        cell_bg = cell.data(Qt.ItemDataRole.BackgroundRole)
-                        if isinstance(cell_bg, QBrush):
-                            bg = cell_bg.color()
-                except Exception:
-                    pass
-
-                try:
-                    label_cell = self.app.cells_table.item(index.row(), 0)
-                    if label_cell:
-                        cell_fg = label_cell.data(Qt.ItemDataRole.ForegroundRole)
-                        if isinstance(cell_fg, QBrush):
-                            fg = cell_fg.color()
-                except Exception:
-                    pass
-
                 painter.save()
                 painter.fillRect(option.rect, bg)
                 painter.setPen(fg)
@@ -189,6 +171,8 @@ class RiskVolumeApp(QMainWindow):
             "cas_custom_percent": 100.0,
             "cas_max_count_enabled": False,
             "cas_max_count": 0,
+            "cas_type_index": 0,
+            "cas_dist_step": 0.1,
             "cas_range_width": 0.0,
             "cas_manual_k": 2.0,
             "last_cascade_count": 1,
@@ -409,12 +393,18 @@ class RiskVolumeApp(QMainWindow):
         self.tabs.addTab(self.tab_cascade, "Каскады (Profit Forge)")
         self.installEventFilter(self)
 
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
         self.main_layout.addWidget(self.tabs)
 
         self.apply_min_order_precision()
         self.refresh_labels()
         self.apply_styles()
         QTimer.singleShot(0, self.finalize_startup_layout)
+
+    def on_tab_changed(self, index):
+        if index == 1 and hasattr(self, "tab_cascade"):
+            self.tab_cascade.recalc_table()
 
     def init_calculator_tab(self):
         init_calculator_tab(self)
@@ -901,10 +891,7 @@ class RiskVolumeApp(QMainWindow):
                     item.setForeground(fg)
                     item.setData(Qt.ItemDataRole.BackgroundRole, QBrush(bg))
                     item.setData(Qt.ItemDataRole.ForegroundRole, QBrush(fg))
-                    if col == 0:
-                        item.setFlags(default_flags & ~Qt.ItemFlag.ItemIsEditable)
-                    else:
-                        item.setFlags(Qt.ItemFlag.NoItemFlags)
+                    item.setFlags(Qt.ItemFlag.NoItemFlags)
         self.cells_table.blockSignals(prev_block_state)
 
     def _adapt_window_width_to_content(self):
@@ -1071,12 +1058,16 @@ class RiskVolumeApp(QMainWindow):
             value = float(value)
             main = f"{value:,.0f}".replace(",", " ")
 
+            def fmt_abbr(val, div, suffix):
+                short = f"{val / div:.1f}".rstrip("0").rstrip(".")
+                return f"{short}{suffix}"
+
             if abs(value) >= 1_000_000_000:
-                abbr = f"{value / 1_000_000_000:.0f}млрд"
+                abbr = fmt_abbr(value, 1_000_000_000, "млрд")
             elif abs(value) >= 1_000_000:
-                abbr = f"{value / 1_000_000:.0f}млн"
+                abbr = fmt_abbr(value, 1_000_000, "млн")
             elif abs(value) >= 1_000:
-                abbr = f"{value / 1_000:.0f}к"
+                abbr = fmt_abbr(value, 1_000, "к")
             else:
                 return main
 
@@ -1215,8 +1206,8 @@ class RiskVolumeApp(QMainWindow):
                     border: none;
                 }}
                 QTableWidget::item:disabled {{
-                    color: #555;
-                    background: #0F0F0F;
+                    color: #161616;
+                    background: #000000;
                 }}
                 QLineEdit {{
                     background: #1A1A1A !important;
@@ -1857,6 +1848,35 @@ class RiskVolumeApp(QMainWindow):
             self.update_cell_volumes()
             self.save_cell_settings()
             self._adapt_window_width_to_content()
+
+    def toggle_all_transfer_rows(self):
+        if not hasattr(self, "cells_table"):
+            return
+        selected = set(getattr(self, "selected_transfer_rows", set()))
+        if len(selected) >= 5:
+            selected = set()
+        else:
+            selected = set(range(5))
+
+        self.selected_transfer_rows = selected
+        self.settings["selected_cells"] = sorted(selected)
+
+        preset_index = (
+            int(self.cb_distribution.currentIndex())
+            if hasattr(self, "cb_distribution")
+            else 2
+        )
+        if preset_index != 2:
+            try:
+                self.cells_table.itemChanged.disconnect(self.on_table_item_changed)
+            except Exception:
+                pass
+            self._apply_preset_values(preset_index)
+            self.cells_table.itemChanged.connect(self.on_table_item_changed)
+
+        self._update_selected_rows_visuals()
+        self.update_cell_volumes()
+        self.save_cell_settings()
 
     def finalize_startup_layout(self):
         self.update_cells_table_height()
