@@ -310,6 +310,7 @@ def init_calculator_tab(app):
     app.inp_min_order.setFixedHeight(22)
     app.inp_min_order.setAlignment(Qt.AlignmentFlag.AlignCenter)
     app.inp_min_order.setStyleSheet("font-size: 8pt; padding: 2px;")
+    app.inp_min_order.textChanged.connect(app.on_min_order_live_changed)
     app.inp_min_order.returnPressed.connect(app.on_min_order_changed)
     app.inp_min_order.installEventFilter(app)
     cells_header.addWidget(app.inp_min_order)
@@ -337,6 +338,7 @@ def init_calculator_tab(app):
 
     # Таблица на всю ширину (3 колонки, всегда 5 строк)
     app.cells_table = QTableWidget()
+    app.cells_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Remove focus border
     app.cells_table.setColumnCount(3)
     app.cells_table.setHorizontalHeaderLabels(
         ["Ячейки:", "Объемы:", "% от общего объёма"]
@@ -427,8 +429,10 @@ def init_calculator_tab(app):
     main_layout.addWidget(app.lbl_status)
 
     # Создаём поля ячеек (всегда 5 строк)
+    app.on_position_mode_toggled(
+        app.chk_pos_mode.isChecked(), is_startup=True
+    )  # Restore mode state without overriding distribution
     app.on_cells_changed()
-    app.on_position_mode_toggled(app.chk_pos_mode.isChecked())
     app.update_calibration_status()
     app.update_position_adjustment_info()
     # Вызываем один раз при инициализации для показа статуса

@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QCheckBox,
     QFrame,
+    QMessageBox,
 )
 from translations import TRANS  # Импортируем наш новый файл
 from PyQt6.QtCore import Qt, QPoint, QRegularExpression, QRect
@@ -127,10 +128,23 @@ class SettingsDialog(QDialog):
         dlg.exec()
 
     def show_donate_dialog(self):
-        from donate_dialog import DonateDialog
+        try:
+            from donate_dialog import DonateDialog
 
-        dlg = DonateDialog(self)
-        dlg.exec()
+            dlg = DonateDialog(self)
+            dlg.exec()
+        except ModuleNotFoundError as e:
+            QMessageBox.warning(
+                self,
+                "Поддержать",
+                "Не установлен модуль для QR-кода.\nУстановите: pip install qrcode[pil]",
+            )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "Поддержать",
+                f"Не удалось открыть окно поддержки:\n{e}",
+            )
 
     def __init__(self, parent=None):
         super().__init__(parent)

@@ -70,7 +70,9 @@ class RiskVolumeApp(QMainWindow):
         self.old_pos = None
         self.current_vol = 0.0
         self.position_target_volume = 0.0
-        self.table_volume_override = 0.0
+        self.table_volume_override = float(
+            self.settings.get("pos_table_volume_override", 0.0) or 0.0
+        )
         self.position_target_row_active = None
         self._cells_count_before_target_mode = None
         self._ghost_input = None
@@ -80,6 +82,9 @@ class RiskVolumeApp(QMainWindow):
         self._calc_update_timer = QTimer(self)
         self._calc_update_timer.setSingleShot(True)
         self._calc_update_timer.timeout.connect(self.update_calc)
+        self._min_order_live_timer = QTimer(self)
+        self._min_order_live_timer.setSingleShot(True)
+        self._min_order_live_timer.timeout.connect(self._apply_min_order_live)
         self.rebind_hotkeys()
         self.update_calc()
 
@@ -139,6 +144,7 @@ class RiskVolumeApp(QMainWindow):
             "pos_stop": "0",
             "pos_target_cell": 1,
             "pos_mode_enabled": True,
+            "pos_table_volume_override": 0.0,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -694,12 +700,9 @@ class RiskVolumeApp(QMainWindow):
                     else:
                         item.setFlags(Qt.ItemFlag.NoItemFlags)
 
-    def on_position_mode_toggled(self, checked):
+    def on_position_mode_toggled(self, checked, is_startup=False):
         enabled = bool(checked)
         self.settings["pos_mode_enabled"] = enabled
-        if not enabled:
-            self.table_volume_override = 0.0
-        self.save_settings()
 
         pos_controls = []
         for name in (
@@ -711,6 +714,27 @@ class RiskVolumeApp(QMainWindow):
             widget = getattr(self, name, None)
             if widget:
                 pos_controls.append(widget)
+
+        if enabled and not is_startup:
+            # User enabled position mode - switch to manual distribution and apply transfer
+            if hasattr(self, "cb_distribution"):
+                self.cb_distribution.setCurrentIndex(2)  # Manual mode
+            # Automatically apply position adjustment
+            if hasattr(self, "apply_position_adjustment_to_cell"):
+                self.apply_position_adjustment_to_cell()
+        elif not enabled and not is_startup:
+            # User disabled position mode - reset to default distribution
+            self.table_volume_override = 0.0
+            self.settings["pos_table_volume_override"] = 0.0
+            if hasattr(self, "cb_distribution"):
+                self.cb_distribution.setCurrentIndex(0)  # Uniform distribution
+            if (
+                hasattr(self, "position_target_row_active")
+                and self.position_target_row_active is not None
+            ):
+                self._set_position_target_row_mask(None)
+
+        self.save_settings()
 
         for widget in pos_controls:
             widget.setEnabled(enabled)
@@ -746,13 +770,48 @@ class RiskVolumeApp(QMainWindow):
                 else "color: #555; font-size: 8pt;"
             )
 
-        self._set_position_target_row_mask(None)
+        if enabled:
+            if (
+                hasattr(self, "cb_distribution")
+                and int(self.cb_distribution.currentIndex()) == 2
+            ):
+                selected_cell = int(self.settings.get("pos_target_cell", 1) or 1)
+                selected_cell = max(1, min(5, selected_cell))
+                is_reversed = bool(self.settings.get("cells_reversed", False))
+                target_row = 5 - selected_cell if is_reversed else selected_cell - 1
+                self._set_position_target_row_mask(target_row, lock_controls=False)
+            else:
+                self._set_position_target_row_mask(None)
+        else:
+            self._set_position_target_row_mask(None)
         self.update_position_adjustment_info()
 
     def _get_active_rows_for_table(self):
         if self.position_target_row_active is not None:
             row = int(self.position_target_row_active)
             if 0 <= row < 5:
+                if (
+                    hasattr(self, "cb_distribution")
+                    and int(self.cb_distribution.currentIndex()) == 2
+                ):
+                    try:
+                        cells_count = int(
+                            self.settings.get(
+                                "scalp_cells_count", self.lbl_cells_count.text()
+                            )
+                        )
+                    except Exception:
+                        cells_count = int(self.lbl_cells_count.text())
+                    cells_count = max(1, min(5, cells_count))
+
+                    active_rows = [row]
+                    for idx in range(5):
+                        if len(active_rows) >= cells_count:
+                            break
+                        if idx != row:
+                            active_rows.append(idx)
+                    return sorted(active_rows)
+
                 return [row]
 
         try:
@@ -834,6 +893,7 @@ class RiskVolumeApp(QMainWindow):
             return
 
         self.table_volume_override = float(amount)
+        self.settings["pos_table_volume_override"] = float(amount)
 
         preset_index = (
             int(self.cb_distribution.currentIndex())
@@ -1411,12 +1471,6 @@ class RiskVolumeApp(QMainWindow):
         """Увеличивает количество ячеек"""
         current = int(self.lbl_cells_count.text())
         if current < 5:
-            if (
-                hasattr(self, "cb_distribution")
-                and int(self.cb_distribution.currentIndex()) == 2
-                and self.position_target_row_active is not None
-            ):
-                self._set_position_target_row_mask(None, lock_controls=False)
             current += 1
             self.lbl_cells_count.setText(str(current))
             self.settings["scalp_cells_count"] = current
@@ -1427,12 +1481,6 @@ class RiskVolumeApp(QMainWindow):
         """Уменьшает количество ячеек"""
         current = int(self.lbl_cells_count.text())
         if current > 1:
-            if (
-                hasattr(self, "cb_distribution")
-                and int(self.cb_distribution.currentIndex()) == 2
-                and self.position_target_row_active is not None
-            ):
-                self._set_position_target_row_mask(None, lock_controls=False)
             current -= 1
             self.lbl_cells_count.setText(str(current))
             self.settings["scalp_cells_count"] = current
@@ -1446,7 +1494,10 @@ class RiskVolumeApp(QMainWindow):
         ):
             return
 
-        cells_count = int(self.lbl_cells_count.text())
+        active_rows = self._get_active_rows_for_table()
+        if not active_rows:
+            return
+
         total_vol = float(self._get_active_table_total_volume() or 0.0)
         if total_vol <= 0:
             return
@@ -1467,7 +1518,10 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pass
 
-        for i in range(cells_count):
+        for i in active_rows:
+            # Skip the target row that has transferred volume - preserve it as-is
+            if i == self.position_target_row_active:
+                continue
             percent_item = self.cells_table.item(i, 2)
             if not percent_item:
                 continue
@@ -1479,6 +1533,36 @@ class RiskVolumeApp(QMainWindow):
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
         self.update_cell_volumes()
         self.save_cell_settings()
+
+    def _apply_manual_active_row_flags(self):
+        if (
+            not hasattr(self, "cb_distribution")
+            or int(self.cb_distribution.currentIndex()) != 2
+            or self.position_target_row_active is None
+            or not hasattr(self, "cells_table")
+        ):
+            return
+
+        active_rows = set(self._get_active_rows_for_table())
+        default_flags = QTableWidgetItem().flags()
+
+        for i in range(5):
+            for col in range(3):
+                item = self.cells_table.item(i, col)
+                if not item:
+                    continue
+
+                if i in active_rows:
+                    if col in (0, 1):
+                        item.setFlags(
+                            default_flags
+                            & ~Qt.ItemFlag.ItemIsEditable
+                            & ~Qt.ItemFlag.ItemIsSelectable
+                        )
+                    else:
+                        item.setFlags(default_flags)
+                else:
+                    item.setFlags(Qt.ItemFlag.NoItemFlags)
 
     def toggle_cells_order(self):
         """Переворачивает порядок ячеек в таблице"""
@@ -1595,11 +1679,22 @@ class RiskVolumeApp(QMainWindow):
             is_reversed = self.settings.get("cells_reversed", False)
             if is_reversed:
                 saved_multipliers = list(reversed(saved_multipliers))
-            for i in range(cells_count):
+
+            # Use actual active rows (which may include target row beyond cells_count)
+            active_rows = self._get_active_rows_for_table()
+            for i in active_rows:
+                # Skip loading saved value for target row if we have active transfer
+                # - keep it at 100% to preserve transferred volume
+                if i == self.position_target_row_active:
+                    percent_item = self.cells_table.item(i, 2)
+                    if percent_item:
+                        percent_item.setText("100")
+                    continue
                 if i < len(saved_multipliers) and saved_multipliers[i] > 0:
                     percent_item = self.cells_table.item(i, 2)
                     if percent_item:
                         percent_item.setText(str(saved_multipliers[i]))
+            self._apply_manual_active_row_flags()
 
         # Подключаем сигнал изменения
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
@@ -1734,12 +1829,13 @@ class RiskVolumeApp(QMainWindow):
         """Применяет выбранную предустановку распределения"""
         preset_index = self.cb_distribution.currentIndex()
 
+        if preset_index != 2:
+            self.table_volume_override = 0.0
+            self.settings["pos_table_volume_override"] = 0.0
+
         if preset_index == 2 and hasattr(self, "lbl_cells_count"):
-            current_cells_count = int(self.settings.get("scalp_cells_count", 1) or 1)
-            if current_cells_count != 1:
-                self.lbl_cells_count.setText("1")
-                self.settings["scalp_cells_count"] = 1
-                self.on_cells_changed()
+            # In manual mode, preserve the current cell count (don't force to 1)
+            current_cells_count = int(self.lbl_cells_count.text())
 
         if preset_index != 2 and self.position_target_row_active is not None:
             self._set_position_target_row_mask(None)
@@ -1756,20 +1852,24 @@ class RiskVolumeApp(QMainWindow):
         # Включаем сигнал обратно
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
 
-        # Сохраняем выбранный тип
+        # Сохраняем выбранный тип и всё остальное
         self.settings["scalp_distribution_type"] = preset_index
         self.update_cell_volumes()
-        self.save_cell_settings()
+        self.save_cell_settings()  # This calls save_settings() internally
 
     def _get_active_table_total_volume(self):
         override = float(getattr(self, "table_volume_override", 0.0) or 0.0)
+        if override <= 0:
+            override = float(self.settings.get("pos_table_volume_override", 0.0) or 0.0)
+            if override > 0:
+                self.table_volume_override = override
         if override > 0:
             return override
 
         if bool(self.settings.get("pos_mode_enabled", True)):
-            target = float(getattr(self, "position_target_volume", 0.0) or 0.0)
-            if target > 0:
-                return target
+            delta = float(getattr(self, "pos_adjust_delta", 0.0) or 0.0)
+            if delta > 0:
+                return delta
         return float(getattr(self, "current_vol", 0.0) or 0.0)
 
     def update_cell_volumes(self):
@@ -1810,11 +1910,20 @@ class RiskVolumeApp(QMainWindow):
 
     def on_min_order_changed(self):
         """Вызывается при нажатии Enter в поле минимального ордера"""
-        self.update_cell_volumes()
-        self._adapt_window_width_to_content()
+        self._apply_min_order_live()
         self.inp_min_order.deselect()
         self.inp_min_order.clearFocus()
-        self.save_settings()
+
+    def on_min_order_live_changed(self):
+        if hasattr(self, "_min_order_live_timer"):
+            self._min_order_live_timer.start(20)
+        else:
+            self._apply_min_order_live()
+
+    def _apply_min_order_live(self):
+        self.update_cell_volumes()
+        self._adapt_window_width_to_content()
+        self.save_cell_settings()
 
     def _commit_input(self):
         sender = self.sender()
@@ -2029,14 +2138,23 @@ class RiskVolumeApp(QMainWindow):
     def closeEvent(self, event):
         """Сохраняет позицию окна при закрытии"""
         self.settings["window_pos"] = [self.x(), self.y()]
-        self.save_settings()
+        self.settings["pos_table_volume_override"] = float(
+            getattr(self, "table_volume_override", 0.0) or 0.0
+        )
+        try:
+            self.save_cell_settings()
+        except Exception:
+            self.save_settings()
         event.accept()
 
     def _on_app_about_to_quit(self):
         """Сохраняет настройки при завершении приложения"""
         try:
             self.settings["window_pos"] = [self.x(), self.y()]
-            self.save_settings()
+            self.settings["pos_table_volume_override"] = float(
+                getattr(self, "table_volume_override", 0.0) or 0.0
+            )
+            self.save_cell_settings()
         except Exception:
             pass
 

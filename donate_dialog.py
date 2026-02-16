@@ -368,16 +368,16 @@ class DonateDialog(QDialog):
             factor = value / 100.0
         except Exception:
             factor = 1.0
-        self._scale_factor = min(factor, 1.2)
+        self._scale_factor = factor  # Allow full scaling up to app's scale
 
         # Определяем язык и получаем переводы
         settings_qsett = QSettings("MyTradeTools", "TF-Alerter")
         current_lang = settings_qsett.value("language", "RU")
         self.t = self.translations.get(current_lang, self.translations["RU"])
 
-        # Базовые размеры диалога
-        base_w = 480
-        base_h = 460
+        # Базовые размеры диалога (increased for better scaling at large DPI)
+        base_w = 520
+        base_h = 500
         self.setFixedSize(self._s(base_w), self._s(base_h))
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
