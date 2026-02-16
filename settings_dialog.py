@@ -261,12 +261,15 @@ class SettingsDialog(QDialog):
         self.inp_fee_taker.setObjectName("FeeInput")
         self.inp_fee_maker = QLineEdit(str(fee_maker))
         self.inp_fee_maker.setObjectName("FeeInput")
+        self.inp_fee_taker.textChanged.connect(self._preview_fee_change)
+        self.inp_fee_maker.textChanged.connect(self._preview_fee_change)
 
         # Чекбокс для учета комиссии
         self.chk_use_fee = CustomCheckBox()
         use_fee = parent.settings.get("use_fee", True)
         self.chk_use_fee.setChecked(use_fee)
         self.chk_use_fee.stateChanged.connect(self.toggle_fee_fields)
+        self.chk_use_fee.stateChanged.connect(self._preview_fee_change)
 
         # Метки для полей комиссии
         self.lbl_fee_maker = QLabel(t["fee_maker"])
@@ -402,6 +405,25 @@ class SettingsDialog(QDialog):
         self.inp_fee_maker.setVisible(is_checked)
         self.lbl_fee_taker.setVisible(is_checked)
         self.inp_fee_taker.setVisible(is_checked)
+
+    def _preview_fee_change(self):
+        if not self.parent_window:
+            return
+
+        try:
+            fee_taker = float(self.inp_fee_taker.text().replace(",", ".") or 0)
+        except Exception:
+            fee_taker = 0.0
+        try:
+            fee_maker = float(self.inp_fee_maker.text().replace(",", ".") or 0)
+        except Exception:
+            fee_maker = 0.0
+
+        self.parent_window.settings["use_fee"] = self.chk_use_fee.isChecked()
+        self.parent_window.settings["fee_taker"] = fee_taker
+        self.parent_window.settings["fee_maker"] = fee_maker
+        self.parent_window.settings["fee_percent"] = fee_taker + fee_maker
+        self.parent_window.schedule_update_calc()
 
     def _clamp_prec_vol_input(self, value):
         if not value:

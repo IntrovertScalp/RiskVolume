@@ -47,6 +47,6 @@ def get_info_html(
         <b style="color: #FF9F0A; font-size: {font_size}pt;">${smart_format(comm_usd, prec_fee)}</b>
         <span style="color: #666;">  |  </span>
         <span style="color: #888; font-size: {font_size}pt;">{txt_labels['lev']} </span>
-        <b style="color: #FFFFFF; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>
+        <b style="color: #A8A8A8; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>
     </div>
     """

@@ -1,4 +1,4 @@
-import sys, json, os, ctypes, time, keyboard, pyautogui, pyperclip
+﻿import sys, json, os, ctypes, time, keyboard, pyautogui, pyperclip
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -71,10 +71,15 @@ class RiskVolumeApp(QMainWindow):
         self.current_vol = 0.0
         self.position_target_volume = 0.0
         self.table_volume_override = 0.0
+        self.position_target_row_active = None
+        self._cells_count_before_target_mode = None
         self._ghost_input = None
         self.calc_calibration_active = False
 
         self.init_ui()
+        self._calc_update_timer = QTimer(self)
+        self._calc_update_timer.setSingleShot(True)
+        self._calc_update_timer.timeout.connect(self.update_calc)
         self.rebind_hotkeys()
         self.update_calc()
 
@@ -183,12 +188,9 @@ class RiskVolumeApp(QMainWindow):
 
     def open_settings(self):
         if SettingsDialog(self).exec():
-            self.apply_styles()
-            self.rebind_hotkeys()
-            self.apply_min_order_precision()
-            self.refresh_labels()
-            self.update_calc()
-            # Принудительно обновляем объемы в таблице с новой точностью
+            # Настройки уже применяются внутри save_and_close() диалога.
+            # Здесь только мягко синхронизируем расчеты/таблицу.
+            self.schedule_update_calc()
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
 
@@ -414,7 +416,7 @@ class RiskVolumeApp(QMainWindow):
 
             self.current_vol = vol
             # Форматирование депозита с сокращениями
-            hint_text = self.format_with_abbreviations(d, p_dep)
+            hint_text = self.format_hint_no_decimals(d)
             self.lbl_hint.setText(hint_text)
 
             vol_str = f"{vol:,.{p_vol}f}".replace(",", " ").replace(".", ",")
@@ -436,15 +438,26 @@ class RiskVolumeApp(QMainWindow):
                 "border-radius: 4px; padding: 4px; background: #1A1A1A;"
             )
 
-            if hasattr(self, "tab_cascade"):
+            if (
+                hasattr(self, "tab_cascade")
+                and hasattr(self, "tabs")
+                and self.tabs.currentIndex() == 1
+            ):
                 self.tab_cascade.recalc_table()
 
             self.update_position_adjustment_info()
+            self._adapt_window_width_to_content()
 
             self.settings.update({"deposit": d, "risk": r, "stop": s})
             self.save_settings()
         except Exception as e:
             print(f"Error: {e}")
+
+    def schedule_update_calc(self):
+        if hasattr(self, "_calc_update_timer"):
+            self._calc_update_timer.start(40)
+        else:
+            self.update_calc()
 
     def update_position_adjustment_info(self):
         if not hasattr(self, "lbl_pos_adjust"):
@@ -473,6 +486,7 @@ class RiskVolumeApp(QMainWindow):
         self.pos_adjust_action = None
 
         p_vol = self.settings.get("prec_vol", 0)
+        p_risk = self.settings.get("prec_risk", 2)
 
         try:
             pos_vol = float(self.inp_pos_vol.text().replace(",", ".") or 0)
@@ -480,10 +494,7 @@ class RiskVolumeApp(QMainWindow):
             pos_vol = 0.0
 
         if hasattr(self, "lbl_pos_vol_hint"):
-            p_vol_hint = int(self.settings.get("prec_vol", 0))
-            self.lbl_pos_vol_hint.setText(
-                f"Объем в позиции: {self.format_with_abbreviations(pos_vol, p_vol_hint)}"
-            )
+            self.lbl_pos_vol_hint.setText(self.format_hint_no_decimals(pos_vol))
 
         try:
             pos_risk = float(self.inp_pos_risk.text().replace(",", ".") or 0)
@@ -512,7 +523,7 @@ class RiskVolumeApp(QMainWindow):
             return
 
         risk_cash = pos_vol * (pos_risk / 100.0)
-        risk_cash_text = f"{risk_cash:,.2f}".replace(",", " ").replace(".", ",")
+        risk_cash_text = f"{risk_cash:,.{p_risk}f}".replace(",", " ").replace(".", ",")
 
         if pos_stop <= 0:
             self.lbl_pos_adjust.setText("Рекомендация: укажи Стоп % > 0")
@@ -562,7 +573,7 @@ class RiskVolumeApp(QMainWindow):
                     f"Риск сделки в $: {risk_cash_text}   |   Добор: {delta_text}"
                 )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
-            self.lbl_pos_adjust.setText(f"Целевой объем позиции: {target_vol_text}")
+            self.lbl_pos_adjust.setText(f"Целевой объём: {target_vol_text}")
             self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
@@ -575,17 +586,17 @@ class RiskVolumeApp(QMainWindow):
                     f"Риск сделки в $: {risk_cash_text}   |   Сокращение: {delta_text}"
                 )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
-            self.lbl_pos_adjust.setText(f"Целевой объем позиции: {target_vol_text}")
+            self.lbl_pos_adjust.setText(f"Целевой объём: {target_vol_text}")
             self.lbl_pos_adjust.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
         else:
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(
-                    f"Риск сделки в $: {risk_cash_text}   |   Позиция уже в лимите риска"
+                    f"Риск сделки в $: {risk_cash_text}   |   Позиция в лимите риска"
                 )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
-            self.lbl_pos_adjust.setText(f"Целевой объем позиции: {target_vol_text}")
+            self.lbl_pos_adjust.setText(f"Целевой объём: {target_vol_text}")
             self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
@@ -597,6 +608,8 @@ class RiskVolumeApp(QMainWindow):
 
         if hasattr(self, "cells_table"):
             self.update_cell_volumes()
+
+        self._adapt_window_width_to_content()
 
     def select_position_target_cell(self, cell_num):
         if not hasattr(self, "pos_target_cell_buttons"):
@@ -611,7 +624,43 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "cells_table") or not hasattr(self, "lbl_cells_count"):
             return
 
-        cells_count = int(self.lbl_cells_count.text())
+        try:
+            cells_count = int(
+                self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
+            )
+        except Exception:
+            cells_count = int(self.lbl_cells_count.text())
+
+        if target_row is None:
+            self.position_target_row_active = None
+            if (
+                self._cells_count_before_target_mode is not None
+                and hasattr(self, "lbl_cells_count")
+            ):
+                self.lbl_cells_count.setText(str(self._cells_count_before_target_mode))
+            self._cells_count_before_target_mode = None
+            if hasattr(self, "btn_cells_minus"):
+                self.btn_cells_minus.setEnabled(True)
+            if hasattr(self, "btn_cells_plus"):
+                self.btn_cells_plus.setEnabled(True)
+            if hasattr(self, "btn_reverse_cells"):
+                self.btn_reverse_cells.setEnabled(True)
+        else:
+            self.position_target_row_active = int(target_row)
+            if self._cells_count_before_target_mode is None:
+                try:
+                    self._cells_count_before_target_mode = int(self.lbl_cells_count.text())
+                except Exception:
+                    self._cells_count_before_target_mode = cells_count
+            if hasattr(self, "lbl_cells_count"):
+                self.lbl_cells_count.setText("1")
+            if hasattr(self, "btn_cells_minus"):
+                self.btn_cells_minus.setEnabled(False)
+            if hasattr(self, "btn_cells_plus"):
+                self.btn_cells_plus.setEnabled(False)
+            if hasattr(self, "btn_reverse_cells"):
+                self.btn_reverse_cells.setEnabled(False)
+
         default_flags = QTableWidgetItem().flags()
 
         for i in range(cells_count):
@@ -697,6 +746,72 @@ class RiskVolumeApp(QMainWindow):
         self._set_position_target_row_mask(None)
         self.update_position_adjustment_info()
 
+    def _get_active_rows_for_table(self):
+        if self.position_target_row_active is not None:
+            row = int(self.position_target_row_active)
+            if 0 <= row < 5:
+                return [row]
+
+        try:
+            cells_count = int(
+                self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
+            )
+        except Exception:
+            cells_count = int(self.lbl_cells_count.text())
+        cells_count = max(1, min(5, cells_count))
+        return list(range(cells_count))
+
+    def _adapt_window_width_to_content(self):
+        if not self.isVisible():
+            return
+
+        scale = self.settings.get("scale", self.base_scale)
+        ratio = scale / float(self.base_scale)
+        base_w = max(90, int(105 * ratio))
+        max_w = max(220, int(360 * ratio))
+
+        for name in (
+            "inp_dep",
+            "inp_risk",
+            "inp_stop",
+            "inp_pos_vol",
+            "inp_pos_risk",
+            "inp_pos_stop",
+            "inp_min_order",
+        ):
+            widget = getattr(self, name, None)
+            if not widget:
+                continue
+
+            try:
+                text = widget.text() if widget.text() else "0"
+                desired = widget.fontMetrics().horizontalAdvance(text + " 000") + 18
+                widget.setMinimumWidth(max(base_w, min(max_w, desired)))
+            except Exception:
+                pass
+
+        label_base_w = max(140, int(180 * ratio))
+        label_max_w = max(320, int(700 * ratio))
+        for name in (
+            "lbl_status",
+            "lbl_hint",
+            "lbl_pos_vol_hint",
+            "lbl_pos_risk_cash",
+            "lbl_pos_adjust",
+        ):
+            label = getattr(self, name, None)
+            if not label:
+                continue
+            try:
+                text = label.text() if label.text() else ""
+                desired = label.fontMetrics().horizontalAdvance(text) + 22
+                label.setMinimumWidth(max(label_base_w, min(label_max_w, desired)))
+            except Exception:
+                pass
+
+        self.adjustSize()
+        self.setFixedSize(self.sizeHint())
+
     def apply_position_adjustment_to_cell(self):
         if not bool(self.settings.get("pos_mode_enabled", True)):
             self.lbl_status.setText("Режим позиции выключен")
@@ -715,19 +830,13 @@ class RiskVolumeApp(QMainWindow):
             self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             return
 
-        cells_count = (
-            int(self.lbl_cells_count.text()) if hasattr(self, "lbl_cells_count") else 0
-        )
+        cells_count = int(self.settings.get("scalp_cells_count", 0))
         if cells_count <= 0:
             self.lbl_status.setText("Нет активных ячеек")
             self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             return
 
         target_percent = max(0, min(100, round((amount / total_vol) * 100)))
-
-        # Переключаемся в ручной режим и записываем сумму в выбранную ячейку
-        if hasattr(self, "cb_distribution"):
-            self.cb_distribution.setCurrentIndex(2)
 
         self.table_volume_override = float(amount)
 
@@ -785,6 +894,25 @@ class RiskVolumeApp(QMainWindow):
         except:
             return str(value)
 
+    def format_hint_no_decimals(self, value):
+        """Формат подсказок без дробной части и без зависимости от настроек точности."""
+        try:
+            value = float(value)
+            main = f"{value:,.0f}".replace(",", " ")
+
+            if abs(value) >= 1_000_000_000:
+                abbr = f"{value / 1_000_000_000:.0f}млрд"
+            elif abs(value) >= 1_000_000:
+                abbr = f"{value / 1_000_000:.0f}млн"
+            elif abs(value) >= 1_000:
+                abbr = f"{value / 1_000:.0f}к"
+            else:
+                return main
+
+            return f"{main} / {abbr}"
+        except Exception:
+            return "0"
+
     def apply_styles(self):
         scale = self.settings.get("scale", self.base_scale)
         scale = max(80, min(200, int(scale)))
@@ -793,7 +921,7 @@ class RiskVolumeApp(QMainWindow):
         f_main = max(8, int(base_font * ratio))
         input_font = max(8, int(9 * ratio))
         f_small = max(7, int(8.5 * ratio))
-        pad_main = max(4, int(6 * ratio))
+        pad_main = max(2, int(3 * ratio))
         radius_main = max(4, int(6 * ratio))
         self.central_widget.setStyleSheet(
             f"""
@@ -805,7 +933,7 @@ class RiskVolumeApp(QMainWindow):
             QLabel {{ color: #888; border: none; font-size: {max(6, f_main-2)}pt; }}
             QPushButton#HeadBtn {{ color: #555; border: none; background: transparent; font-size: {f_main}pt; font-weight: bold; }}
             QPushButton#HeadBtn:hover {{ color: #38BE1D; }}
-            QPushButton {{ background: #333; color: white; border: 1px solid #444; border-radius: {max(4, int(4*ratio))}px; font-weight: bold; }}
+            QPushButton {{ background: #333; color: #9A9A9A; border: 1px solid #444; border-radius: {max(4, int(4*ratio))}px; font-weight: bold; }}
             QPushButton:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QPushButton:hover {{ background: #444; border-color: #38BE1D; }}
             QPushButton:pressed {{ background: #38BE1D; color: black; }}
@@ -854,7 +982,7 @@ class RiskVolumeApp(QMainWindow):
         for b in [self.btn_set, self.btn_min, self.btn_close]:
             b.setFixedSize(btn_size, btn_size)
 
-        input_height = max(int(24 * ratio), int(11 * ratio + 12))
+        input_height = max(int(28 * ratio), int(12 * ratio + 14))
         if hasattr(self, "inp_dep"):
             self.inp_dep.setFixedHeight(input_height)
         if hasattr(self, "inp_risk"):
@@ -902,7 +1030,7 @@ class RiskVolumeApp(QMainWindow):
                 QTableWidget::item {{
                     padding: {max(3, int(5*ratio))}px;
                     border: none;
-                    color: white;
+                    color: #A8A8A8;
                     background: #1A1A1A;
                     outline: none;
                     font-size: {max(6, int(6*ratio))}pt;
@@ -934,6 +1062,8 @@ class RiskVolumeApp(QMainWindow):
             self.update_cells_table_height()
 
         btn_pad = max(4, int(7 * ratio))
+        pos_toggle_pad_v = max(1, int(2 * ratio))
+        pos_toggle_min_h = max(14, int(16 * ratio))
         if hasattr(self, "btn_calib_calc"):
             self.btn_calib_calc.setStyleSheet(
                 f"background: #333; color: white; padding: {btn_pad}px;"
@@ -944,7 +1074,11 @@ class RiskVolumeApp(QMainWindow):
             )
         if hasattr(self, "chk_pos_mode"):
             self.chk_pos_mode.setStyleSheet(
-                f"QCheckBox#PosModeToggle {{ background: #38BE1D; color: black; font-weight: bold; padding: {btn_pad}px; border-radius: {radius_main}px; }}"
+                (
+                    f"QCheckBox#PosModeToggle {{ color: #9A9A9A; font-size: {f_small}pt; font-weight: bold; padding: {pos_toggle_pad_v}px {btn_pad}px; min-height: {pos_toggle_min_h}px; border-radius: {radius_main}px; background: #2A2A2A; border: 1px solid #3A3A3A; }}"
+                    f"QCheckBox#PosModeToggle:checked {{ background: #38BE1D; color: black; border: 1px solid #38BE1D; }}"
+                    f"QCheckBox#PosModeToggle:unchecked {{ background: #2A2A2A; color: #888; border: 1px solid #3A3A3A; }}"
+                )
             )
 
         self.adjustSize()
@@ -1047,10 +1181,60 @@ class RiskVolumeApp(QMainWindow):
     def send_volume_to_terminal(self):
         """Отправляет объемы ячеек в терминал"""
         points = self.settings.get("points", [])
-        cells_count = int(self.lbl_cells_count.text())
+        active_rows = self._get_active_rows_for_table()
+        cells_count = len(active_rows)
+        is_reversed = self.settings.get("cells_reversed", False)
+
+        if cells_count <= 0:
+            return
+
+        if self.position_target_row_active is not None and cells_count == 1:
+            target_row = active_rows[0]
+            vol_item = self.cells_table.item(target_row, 1)
+            vol_to_send = (
+                vol_item.text().replace(" ", "").replace(",", ".")
+                if vol_item and vol_item.text()
+                else "0"
+            )
+
+            configured_count = int(self.settings.get("scalp_cells_count", 1))
+            point_index = configured_count - 1 - target_row if is_reversed else target_row
+
+            if len(points) <= point_index:
+                self.lbl_status.setText("⚠ Недостаточно калибровочных точек")
+                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                return
+
+            try:
+                old_clip = pyperclip.paste()
+                start_x, start_y = pyautogui.position()
+                self.showMinimized()
+                time.sleep(0.12)
+
+                pyperclip.copy(vol_to_send)
+                pyautogui.moveTo(points[point_index][0], points[point_index][1], duration=0.04)
+                pyautogui.click()
+                time.sleep(0.015)
+                pyautogui.click(clicks=2)
+                time.sleep(0.015)
+                keyboard.press_and_release("ctrl+a")
+                time.sleep(0.015)
+                keyboard.press_and_release("backspace")
+                time.sleep(0.015)
+                keyboard.press_and_release("ctrl+v")
+                time.sleep(0.015)
+                keyboard.press_and_release("enter")
+                time.sleep(0.015)
+
+                pyautogui.moveTo(start_x, start_y)
+                pyperclip.copy(old_clip)
+            except Exception as e:
+                print(f"Error: {e}")
+            return
+
         # Читаем объемы из таблицы (как отображаются пользователю)
         volumes = []
-        for i in range(cells_count):
+        for i in active_rows:
             item = self.cells_table.item(i, 1)
             if item and item.text():
                 text = item.text().replace(" ", "").replace(",", ".")
@@ -1059,7 +1243,6 @@ class RiskVolumeApp(QMainWindow):
                 volumes.append("0")
 
         # Если таблица перевернута, переворачиваем и проценты и точки для соответствия
-        is_reversed = self.settings.get("cells_reversed", False)
         if is_reversed:
             volumes.reverse()
             points = list(reversed(points[:cells_count])) + points[cells_count:]
@@ -1097,12 +1280,22 @@ class RiskVolumeApp(QMainWindow):
 
     def start_calibration_calc(self):
         """Начинает калибровку - очищает точки и показывает инструкции"""
-        cells_count = int(self.lbl_cells_count.text())
+        cells_count = int(
+            self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
+        )
         hk_coords = self.settings.get("hk_coords", "f2").upper()
 
+        points = self.settings.get("points", [])
+        if len(points) >= cells_count:
+            self.calc_calibration_active = False
+            self.lbl_status.setText(
+                f"✓ Калибровка уже есть: {cells_count} ячеек (общая для всех режимов)"
+            )
+            self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+            self.update_calibration_status()
+            return
+
         self.calc_calibration_active = True
-        self.settings["points"] = []
-        self.save_settings()
 
         # Показываем подробную инструкцию
         instruction = f"""Калибровка активирована!
@@ -1127,16 +1320,32 @@ class RiskVolumeApp(QMainWindow):
     def capture_coords(self):
         """Захватывает координаты ячеек (ровно столько, сколько нужно)"""
         if not getattr(self, "calc_calibration_active", False):
+            try:
+                configured = int(
+                    self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
+                )
+            except Exception:
+                configured = int(self.lbl_cells_count.text())
+
+            existing_points = self.settings.get("points", [])
+            if len(existing_points) >= configured:
+                self.settings["points"] = []
+                self.save_settings()
+                self.calc_calibration_active = True
+                hk_coords = self.settings.get("hk_coords", "f2").upper()
+                self.lbl_status.setText(
+                    f"Калибровка сброшена. Нажимай {hk_coords} для нового захвата"
+                )
+                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                return
+
             self.start_calibration_calc()
             return
 
-        cells_count = int(self.lbl_cells_count.text())
+        cells_count = int(
+            self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
+        )
         points = self.settings.get("points", [])
-
-        # Если достаточно точек - очищаем
-        if len(points) >= cells_count:
-            self.settings["points"] = []
-            points = []
 
         # Если уже есть достаточно - не захватываем дальше
         if len(points) >= cells_count:
@@ -1159,7 +1368,9 @@ class RiskVolumeApp(QMainWindow):
 
     def _update_status_text(self):
         """Внутренний метод для обновления текста статуса"""
-        cells_count = int(self.lbl_cells_count.text())
+        cells_count = int(
+            self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
+        )
         points_count = len(self.settings.get("points", []))
         hk_coords = self.settings.get("hk_coords", "f2").upper()
 
@@ -1302,6 +1513,10 @@ class RiskVolumeApp(QMainWindow):
 
         # Переприменяем текущий тип распределения
         preset_index = self.cb_distribution.currentIndex()
+
+        if preset_index != 2 and self.position_target_row_active is not None:
+            self._set_position_target_row_mask(None)
+            self.table_volume_override = 0.0
         self._apply_preset_values(preset_index)
 
         # Загружаем сохраненные значения процентов только для режима "Вручную"
@@ -1402,9 +1617,11 @@ class RiskVolumeApp(QMainWindow):
 
             self.update_cell_volumes()
             self.save_cell_settings()
+            self._adapt_window_width_to_content()
 
     def finalize_startup_layout(self):
         self.update_cells_table_height()
+        self._adapt_window_width_to_content()
         self.adjustSize()
         self.setFixedSize(self.sizeHint())
 
@@ -1449,6 +1666,10 @@ class RiskVolumeApp(QMainWindow):
         """Применяет выбранную предустановку распределения"""
         preset_index = self.cb_distribution.currentIndex()
 
+        if preset_index != 2 and self.position_target_row_active is not None:
+            self._set_position_target_row_mask(None)
+            self.table_volume_override = 0.0
+
         # Отключаем сигнал чтобы не вызывать сохранение много раз
         try:
             self.cells_table.itemChanged.disconnect(self.on_table_item_changed)
@@ -1479,7 +1700,7 @@ class RiskVolumeApp(QMainWindow):
 
     def update_cell_volumes(self):
         """Обновляет объемы в каждой ячейке на основе процентов и минимума"""
-        cells_count = int(self.lbl_cells_count.text())
+        active_rows = set(self._get_active_rows_for_table())
         total_vol = self._get_active_table_total_volume()
         p_vol = self.settings.get(
             "prec_vol", 0
@@ -1494,7 +1715,7 @@ class RiskVolumeApp(QMainWindow):
             volume_item = self.cells_table.item(i, 1)
             percent_item = self.cells_table.item(i, 2)
 
-            if i < cells_count and percent_item:
+            if i in active_rows and percent_item:
                 try:
                     percent = float(percent_item.text() or 0)
                     volume = max(
@@ -1515,6 +1736,7 @@ class RiskVolumeApp(QMainWindow):
     def on_min_order_changed(self):
         """Вызывается при нажатии Enter в поле минимального ордера"""
         self.update_cell_volumes()
+        self._adapt_window_width_to_content()
         self.inp_min_order.deselect()
         self.inp_min_order.clearFocus()
         self.save_settings()
@@ -1539,7 +1761,10 @@ class RiskVolumeApp(QMainWindow):
 
     def save_cell_settings(self):
         """Сохраняет настройки ячеек"""
-        cells_count = int(self.lbl_cells_count.text())
+        if self.position_target_row_active is not None:
+            cells_count = int(self.settings.get("scalp_cells_count", 4))
+        else:
+            cells_count = int(self.lbl_cells_count.text())
         multipliers = []
 
         for i in range(5):  # Сохраняем все 5 значений
@@ -1755,3 +1980,8 @@ if __name__ == "__main__":
     win = RiskVolumeApp()
     win.show()
     sys.exit(app.exec())
+
+
+
+
+

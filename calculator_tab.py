@@ -51,7 +51,7 @@ def init_calculator_tab(app):
     app.inp_dep.setValidator(v_reg)
     app.inp_dep.setAlignment(Qt.AlignmentFlag.AlignCenter)
     app.inp_dep.setFixedHeight(24)
-    app.inp_dep.textChanged.connect(app.update_calc)
+    app.inp_dep.textChanged.connect(app.schedule_update_calc)
     app.inp_dep.returnPressed.connect(app._commit_input)
     app.inp_dep.installEventFilter(app)
     main_layout.addWidget(app.inp_dep)
@@ -75,7 +75,7 @@ def init_calculator_tab(app):
     app.inp_risk.setValidator(v_reg)
     app.inp_risk.setAlignment(Qt.AlignmentFlag.AlignCenter)
     app.inp_risk.setFixedHeight(24)
-    app.inp_risk.textChanged.connect(app.update_calc)
+    app.inp_risk.textChanged.connect(app.schedule_update_calc)
     app.inp_risk.returnPressed.connect(app._commit_input)
     app.inp_risk.installEventFilter(app)
     risk_col.addWidget(app.inp_risk)
@@ -91,7 +91,7 @@ def init_calculator_tab(app):
     app.inp_stop.setValidator(v_reg)
     app.inp_stop.setAlignment(Qt.AlignmentFlag.AlignCenter)
     app.inp_stop.setFixedHeight(24)
-    app.inp_stop.textChanged.connect(app.update_calc)
+    app.inp_stop.textChanged.connect(app.schedule_update_calc)
     app.inp_stop.returnPressed.connect(app._commit_input)
     app.inp_stop.installEventFilter(app)
     stop_col.addWidget(app.inp_stop)
@@ -191,7 +191,7 @@ def init_calculator_tab(app):
     pos_hints_row = QHBoxLayout()
     pos_hints_row.setSpacing(6)
 
-    app.lbl_pos_vol_hint = QLabel("Объем в позиции: 0")
+    app.lbl_pos_vol_hint = QLabel("0")
     app.lbl_pos_vol_hint.setStyleSheet("color: #666; font-size: 8pt;")
     app.lbl_pos_vol_hint.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -216,7 +216,9 @@ def init_calculator_tab(app):
     main_layout.addLayout(pos_hints_row)
 
     app.btn_move_adjust_to_cell = QPushButton("Перенести сумму в выбранную ячейку")
-    app.btn_move_adjust_to_cell.setStyleSheet("font-size: 8pt; padding: 4px;")
+    app.btn_move_adjust_to_cell.setStyleSheet(
+        "font-size: 8pt; padding: 4px; color: #8E8E8E;"
+    )
     app.btn_move_adjust_to_cell.clicked.connect(app.apply_position_adjustment_to_cell)
     app.btn_move_adjust_to_cell.setEnabled(False)
     main_layout.addWidget(app.btn_move_adjust_to_cell)
@@ -232,7 +234,7 @@ def init_calculator_tab(app):
         btn.setCheckable(True)
         btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         btn.setStyleSheet(
-            "QPushButton { font-size: 8pt; padding: 4px; }"
+            "QPushButton { font-size: 8pt; padding: 4px; color: #8E8E8E; }"
             "QPushButton:checked { background: #38BE1D; color: black; border: 1px solid #38BE1D; }"
             "QPushButton:checked:disabled { background: #0F0F0F; color: #555; border: 1px solid #222; }"
         )
@@ -250,6 +252,7 @@ def init_calculator_tab(app):
 
     # Кнопка переворота таблицы
     app.btn_reverse_cells = QPushButton("⇅")
+    app.btn_reverse_cells.setStyleSheet("color: #8E8E8E;")
     app.btn_reverse_cells.setFixedSize(25, 25)
     app.btn_reverse_cells.setToolTip("Перевернуть порядок ячеек")
     app.btn_reverse_cells.clicked.connect(app.toggle_cells_order)
@@ -262,6 +265,7 @@ def init_calculator_tab(app):
     # Кнопка уменьшить
     app.btn_cells_minus = QPushButton("-")
     app.btn_cells_minus.setFixedSize(25, 25)
+    app.btn_cells_minus.setStyleSheet("color: #8E8E8E;")
     app.btn_cells_minus.clicked.connect(app.decrease_cells)
     cells_header.addWidget(app.btn_cells_minus)
 
@@ -279,6 +283,7 @@ def init_calculator_tab(app):
     # Кнопка увеличить
     app.btn_cells_plus = QPushButton("+")
     app.btn_cells_plus.setFixedSize(25, 25)
+    app.btn_cells_plus.setStyleSheet("color: #8E8E8E;")
     app.btn_cells_plus.clicked.connect(app.increase_cells)
     cells_header.addWidget(app.btn_cells_plus)
 

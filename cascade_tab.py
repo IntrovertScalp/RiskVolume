@@ -37,6 +37,12 @@ class CascadeWorker(QThread):
         self._cancelled = False
 
     def run(self):
+        vol_prec = int(self.settings.get("prec_vol", 0))
+        if vol_prec < 0:
+            vol_prec = 0
+        if vol_prec > 6:
+            vol_prec = 6
+
         # Достаем координаты
         c_gear = self.settings.get("cas_p_gear")  # Шестеренка
         c_left_scrollbar = self.settings.get("cas_p_left_scrollbar")  # Левый ползунок
@@ -182,11 +188,11 @@ class CascadeWorker(QThread):
                     return
                 cur_y = c_vol1[1] + (i * row_height)
                 print(
-                    f"[CASCADE]   Заявка {i+1}: объем={order['vol']:.2f}, дистанция={order['dist']:.2f}%, Y={cur_y}"
+                    f"[CASCADE]   Заявка {i+1}: объем={order['vol']:.{vol_prec}f}, дистанция={order['dist']:.2f}%, Y={cur_y}"
                 )
 
                 # --- Объём ---
-                vol_str = f"{order['vol']:.2f}".replace(",", ".")
+                vol_str = f"{order['vol']:.{vol_prec}f}".replace(",", ".")
                 pyperclip.copy(vol_str)
                 print(
                     f"[CASCADE]     Выставляю объем {vol_str} в координаты ({c_vol1[0]}, {cur_y})"
@@ -852,7 +858,19 @@ class CascadeTab(QWidget):
         base_vol = self.get_base_volume()
         total_vol = base_vol * self.get_percent()
 
-        self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.1f} $")
+        p_dep = int(self.main.settings.get("prec_dep", 2))
+        if p_dep < 0:
+            p_dep = 0
+        if p_dep > 6:
+            p_dep = 6
+
+        p_vol = int(self.main.settings.get("prec_vol", 0))
+        if p_vol < 0:
+            p_vol = 0
+        if p_vol > 6:
+            p_vol = 6
+
+        self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.{p_dep}f} $")
 
         count = self.sb_count.value()
         min_size = self.sb_min.value()
@@ -959,7 +977,7 @@ class CascadeTab(QWidget):
 
         for i, vol in enumerate(final_volumes):
             dist = i * dist_step
-            vol_item = QTableWidgetItem(f"{vol:.2f}")
+            vol_item = QTableWidgetItem(f"{vol:.{p_vol}f}")
             vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             # Подсвечиваем если < min_size
@@ -972,7 +990,7 @@ class CascadeTab(QWidget):
             dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 1, dist_item)
             self.calculated_orders.append(
-                {"vol": round(vol, 2), "dist": round(dist, 2)}
+                {"vol": round(vol, p_vol), "dist": round(dist, 2)}
             )
 
     def start_calibration(self):
