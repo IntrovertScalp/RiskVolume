@@ -1,8 +1,5 @@
 # cascade_tab.py
 import time
-import pyautogui
-import keyboard
-import pyperclip
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
@@ -24,7 +21,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
-from PyQt6.QtGui import QRegularExpressionValidator, QIntValidator
+from PyQt6.QtGui import QRegularExpressionValidator
 
 
 class CascadeWorker(QThread):
@@ -41,6 +38,10 @@ class CascadeWorker(QThread):
         self._cancelled = False
 
     def run(self):
+        import pyautogui
+        import keyboard
+        import pyperclip
+
         vol_prec = int(self.settings.get("prec_dep", 2))
         if vol_prec < 0:
             vol_prec = 0
@@ -468,16 +469,16 @@ class CascadeTab(QWidget):
         # --- БЛОК 2: Настройки (Сетка исправлена) ---
         gb_set = QGroupBox("2. Настройки расстановки")
         grid = QGridLayout()
-        grid.setHorizontalSpacing(15)  # Отступ между колонками
+        grid.setHorizontalSpacing(12)  # Отступ между колонками
         grid.setVerticalSpacing(8)
 
         # Используем QLabel с wordWrap, чтобы текст переносился если что
         l1 = QLabel("Кол-во:")
         grid.addWidget(l1, 0, 0)
         self.sb_count = QSpinBox()
-        self.sb_count.setRange(2, 500)
+        self.sb_count.setRange(2, 20)
         saved_count = int(self.main.settings.get("last_cascade_count", 5) or 5)
-        self.sb_count.setValue(max(2, min(500, saved_count)))
+        self.sb_count.setValue(max(2, min(20, saved_count)))
         self._last_max_possible = 50  # Отслеживаем предыдущий максимум
         self._last_type_index = -1  # Отслеживаем смену типа
         self.sb_count.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
@@ -502,43 +503,14 @@ class CascadeTab(QWidget):
         self.sb_min_wrap = self._wrap_spinbox(self.sb_min)
         grid.addWidget(self.sb_min_wrap, 0, 3)
 
-        self.btn_max_limit = QPushButton("Лимит")
-        self.btn_max_limit.setCheckable(True)
-        self.btn_max_limit.setProperty("class", "percBtn")
-        self.btn_max_limit.setObjectName("percBtn")
-        self.btn_max_limit.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
-        )
-        self.btn_max_limit.setChecked(
-            bool(self.main.settings.get("cas_max_count_enabled", False))
-        )
-        self.btn_max_limit.toggled.connect(self.on_max_limit_toggled)
-
-        max_limit_val = int(self.main.settings.get("cas_max_count", 0) or 0)
-        self.inp_max_limit = QLineEdit(str(max_limit_val) if max_limit_val else "")
-        self.inp_max_limit.setValidator(QIntValidator(0, 500))
-        self.inp_max_limit.setMaxLength(3)
-        self.inp_max_limit.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.inp_max_limit.setEnabled(self.btn_max_limit.isChecked())
-        self.inp_max_limit.textChanged.connect(self.on_max_limit_text_changed)
-        self.inp_max_limit.returnPressed.connect(self.save_max_limit_setting)
-        self.inp_max_limit.installEventFilter(self.main)
-
-        limit_row = QHBoxLayout()
-        limit_row.setSpacing(6)
-        limit_row.addWidget(self.btn_max_limit)
-        limit_row.addWidget(self.inp_max_limit)
-        limit_row.addStretch()
-        grid.addLayout(limit_row, 1, 1)
-
         # Подсказка под Кол-во (новая строка 1)
         self.lbl_count_hint = QLabel("Макс: ? ячеек")
         self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
         self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(self.lbl_count_hint, 1, 2, 1, 2)
+        grid.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
 
         l3 = QLabel("Тип:")
-        grid.addWidget(l3, 2, 0)
+        grid.addWidget(l3, 1, 2)
         self.cb_type = QComboBox()
         # Сократим названия, чтобы влазили
         self.cb_type.addItems(
@@ -555,7 +527,7 @@ class CascadeTab(QWidget):
             saved_type = 0
         self.cb_type.setCurrentIndex(saved_type)
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
-        grid.addWidget(self.cb_type, 2, 1)
+        grid.addWidget(self.cb_type, 1, 3)
 
         self.lbl_manual_k = QLabel("k (ручной):")
         grid.addWidget(self.lbl_manual_k, 2, 2)
@@ -611,7 +583,6 @@ class CascadeTab(QWidget):
         self.sb_dist.lineEdit().installEventFilter(self.main)
         self.sb_range_width.lineEdit().installEventFilter(self.main)
         self.inp_custom_total.installEventFilter(self.main)
-        self.inp_max_limit.installEventFilter(self.main)
 
         # События
         self.sb_count.valueChanged.connect(self.on_count_changed)
@@ -878,54 +849,6 @@ class CascadeTab(QWidget):
         if hasattr(self, "lbl_custom_total_hint"):
             self.lbl_custom_total_hint.setText(self.main.format_hint_no_decimals(value))
 
-    def on_max_limit_toggled(self, checked):
-        self.inp_max_limit.setEnabled(bool(checked))
-        self.main.settings["cas_max_count_enabled"] = bool(checked)
-        self.save_max_limit_setting()
-        self.recalc_table()
-
-    def on_max_limit_text_changed(self, text):
-        if not self.btn_max_limit.isChecked():
-            return
-        raw = (text or "").strip()
-        if not raw:
-            value = 0
-        else:
-            try:
-                value = int(raw)
-            except Exception:
-                value = 0
-
-        if value > 500:
-            value = 500
-            self.inp_max_limit.blockSignals(True)
-            self.inp_max_limit.setText("500")
-            self.inp_max_limit.blockSignals(False)
-        elif 0 < value < 2:
-            value = 2
-            self.inp_max_limit.blockSignals(True)
-            self.inp_max_limit.setText("2")
-            self.inp_max_limit.blockSignals(False)
-        self.main.settings["cas_max_count"] = int(value)
-        self.main.save_settings()
-        self.recalc_table()
-
-    def save_max_limit_setting(self):
-        value = self._parse_max_limit_value(self.inp_max_limit.text())
-        self.main.settings["cas_max_count"] = int(value)
-        self.main.save_settings()
-        if value:
-            self.inp_max_limit.setText(str(value))
-
-    def _parse_max_limit_value(self, text):
-        try:
-            value = int((text or "").strip() or 0)
-        except Exception:
-            value = 0
-        if not value:
-            return 0
-        return min(500, max(2, value))
-
     def _parse_custom_total_value(self, text):
         try:
             value = float((text or "").replace(" ", "").replace(",", ".") or 0)
@@ -1027,6 +950,7 @@ class CascadeTab(QWidget):
             return
 
         max_possible = self.calculate_max_possible(total_vol, min_size, mult)
+        max_possible = min(20, max_possible)
         min_step = self.sb_dist.minimum()
         max_count_by_range = int(range_width / min_step) + 1
         desired_count = min(max_possible, max_count_by_range)
@@ -1157,13 +1081,7 @@ class CascadeTab(QWidget):
 
         # Вычисляем максимально возможное количество ячеек
         max_possible = self.calculate_max_possible(total_vol, min_size, mult)
-
-        max_possible = min(500, max_possible)
-
-        if bool(self.main.settings.get("cas_max_count_enabled", False)):
-            limit_val = int(self.main.settings.get("cas_max_count", 0) or 0)
-            if limit_val > 0:
-                max_possible = min(max_possible, min(500, max(2, limit_val)))
+        max_possible = min(20, max_possible)
 
         # Устанавливаем максимум для SpinBox
         self.sb_count.blockSignals(True)
@@ -1301,8 +1219,11 @@ class CascadeTab(QWidget):
         self.main.settings["cas_p_vol1"] = None
         self.main.settings["cas_p_dist1"] = None
         self.main.settings["cas_p_vol2"] = None
-        self.main.settings["cas_p_plus"] = None
-        self.main.settings["cas_p_x"] = None
+        self.main.settings["cas_p_dist2"] = None
+        self.main.settings["cas_p_btn_add"] = None
+        self.main.settings["cas_p_btn_del"] = None
+        self.main.settings["cas_p_combo_vol"] = None
+        self.main.settings["cas_p_close_x"] = None
         self.main.save_settings()
 
         self.calib_active = False
@@ -1317,12 +1238,16 @@ class CascadeTab(QWidget):
         return True
 
     def next_calib_step(self):
+        import pyautogui
+
         x, y = pyautogui.position()
         hotkey_display = self.calib_hotkey.upper().replace("+", " + ")
 
         if self.calib_step == 1:
             self.main.settings["cas_p_gear"] = [x, y]
-            self.lbl_status.setText(f"2. Наведи на ЛЕВЫЙ ПОЛЗУНОК -> {hotkey_display}")
+            self.lbl_status.setText(
+                f"2. Наведи на ЛЕВЫЙ ПОЛЗУНОК -> {hotkey_display} (потяни в самый низ)"
+            )
 
         elif self.calib_step == 2:
             self.main.settings["cas_p_left_scrollbar"] = [x, y]
@@ -1330,12 +1255,14 @@ class CascadeTab(QWidget):
 
         elif self.calib_step == 3:
             self.main.settings["cas_p_book"] = [x, y]
-            self.lbl_status.setText(f"4. Наведи на ПРАВЫЙ ПОЛЗУНОК -> {hotkey_display}")
+            self.lbl_status.setText(
+                f"4. Наведи на ПРАВЫЙ ПОЛЗУНОК -> {hotkey_display} (потяни в самый низ)"
+            )
 
         elif self.calib_step == 4:
             self.main.settings["cas_p_scrollbar"] = [x, y]
             self.lbl_status.setText(
-                f"5. Наведи на ОБЪЕМ 1-й строки -> {hotkey_display}"
+                f"5. Установи 2 ячейки в каскадах, затем наведи на ОБЪЕМ 1-й строки -> {hotkey_display}"
             )
 
         elif self.calib_step == 5:
@@ -1352,17 +1279,39 @@ class CascadeTab(QWidget):
 
         elif self.calib_step == 7:
             self.main.settings["cas_p_vol2"] = [x, y]
-            self.lbl_status.setText(f"8. Наведи на ПЛЮС (+) -> {hotkey_display}")
+            self.lbl_status.setText(
+                f"8. Наведи на ДИСТАНЦИЮ 2-й строки -> {hotkey_display}"
+            )
 
         elif self.calib_step == 8:
-            self.main.settings["cas_p_plus"] = [x, y]
+            self.main.settings["cas_p_dist2"] = [x, y]
             self.lbl_status.setText(
-                f"9. Наведи на УДАЛИТЬ (X) 1-й строки -> {hotkey_display}"
+                f"9. Наведи на ПЛЮС (+) именно второй строки -> {hotkey_display}"
             )
 
         elif self.calib_step == 9:
-            self.main.settings["cas_p_x"] = [x, y]
-            self.lbl_status.setText("✓ Калибровка завершена! Настройки сохранены.")
+            self.main.settings["cas_p_btn_add"] = [x, y]
+            self.lbl_status.setText(
+                f"10. Наведи на МИНУС (-) второй строки -> {hotkey_display}"
+            )
+
+        elif self.calib_step == 10:
+            self.main.settings["cas_p_btn_del"] = [x, y]
+            self.lbl_status.setText(
+                f"11. Наведи на окно выбора торгового объема/свое значение -> {hotkey_display}"
+            )
+
+        elif self.calib_step == 11:
+            self.main.settings["cas_p_combo_vol"] = [x, y]
+            self.lbl_status.setText(
+                f"12. Наведи на крестик закрытия окна настроек -> {hotkey_display}"
+            )
+
+        elif self.calib_step == 12:
+            self.main.settings["cas_p_close_x"] = [x, y]
+            self.lbl_status.setText(
+                "✓ Калибровка завершена! Настройки сохранены. Удали вторую ячейку и оставь только одну."
+            )
             self.lbl_status.setStyleSheet("color: #38BE1D;")
             self.main.save_settings()
             self.calib_active = False
@@ -1375,15 +1324,36 @@ class CascadeTab(QWidget):
         if not hasattr(self, "calculated_orders") or not self.calculated_orders:
             self.recalc_table()
 
+        try:
+            import pyautogui
+
+            self._last_apply_cursor = pyautogui.position()
+        except Exception:
+            self._last_apply_cursor = None
+
         self.lbl_status.setText("Выставляю ордера... Нажми ESC для остановки")
         self.lbl_status.setStyleSheet("color: #FF9F0A;")
         self.worker = CascadeWorker(
             self.main.settings, self.calculated_orders, self.main
         )
-        self.worker.finished.connect(
-            lambda: self.lbl_status.setText("Каскад выставлен!")
-        )
-        self.worker.cancelled.connect(
-            lambda: self.lbl_status.setText("Остановлено пользователем (ESC)")
-        )
+        self.worker.finished.connect(self._on_cascade_finished)
+        self.worker.cancelled.connect(self._on_cascade_cancelled)
         self.worker.start()
+
+    def _restore_cursor_after_apply(self):
+        if not getattr(self, "_last_apply_cursor", None):
+            return
+        try:
+            import pyautogui
+
+            pyautogui.moveTo(self._last_apply_cursor[0], self._last_apply_cursor[1])
+        except Exception:
+            pass
+
+    def _on_cascade_finished(self):
+        self.lbl_status.setText("Каскад выставлен!")
+        self._restore_cursor_after_apply()
+
+    def _on_cascade_cancelled(self):
+        self.lbl_status.setText("Остановлено пользователем (ESC)")
+        self._restore_cursor_after_apply()

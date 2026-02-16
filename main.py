@@ -858,7 +858,7 @@ class RiskVolumeApp(QMainWindow):
                     base_text = item.text() or f"Ячейка {i + 1}"
                     if base_text.startswith("● "):
                         base_text = base_text[2:]
-                    item.setText(f"● {base_text}" if i in selected else base_text)
+                    item.setText(base_text)
 
                 if i in selected:
                     bg = QColor("#3a3a3a")
