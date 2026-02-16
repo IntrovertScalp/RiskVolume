@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QDoubleSpinBox,
+    QLineEdit,
     QComboBox,
     QTableWidget,
     QTableWidgetItem,
@@ -19,8 +20,10 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QFrame,
     QAbstractSpinBox,
+    QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
+from PyQt6.QtGui import QRegularExpressionValidator
 
 
 class CascadeWorker(QThread):
@@ -279,8 +282,6 @@ class CascadeTab(QWidget):
             self.sb_range_left, self.sb_range_right = left_btn, right_btn
         elif spinbox is getattr(self, "sb_manual_k", None):
             self.sb_manual_k_left, self.sb_manual_k_right = left_btn, right_btn
-        elif spinbox is getattr(self, "sb_custom_total", None):
-            self.sb_custom_total_left, self.sb_custom_total_right = left_btn, right_btn
 
         return wrap
 
@@ -328,6 +329,15 @@ class CascadeTab(QWidget):
             QSpinBox#spinInner, QDoubleSpinBox#spinInner {
                 background: transparent; color: white; border: none; padding: 2px;
             }
+            QLineEdit {
+                background: #1A1A1A;
+                color: white;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 2px;
+                selection-background-color: rgba(90, 205, 80, 150);
+                selection-color: white;
+            }
             QPushButton#SpinStepBtn {
                 background: #2a2a2a;
                 color: #cfcfcf;
@@ -347,6 +357,10 @@ class CascadeTab(QWidget):
         gb_vol = QGroupBox("1. Общий объем каскада")
         l_vol = QVBoxLayout()
 
+        num_validator = QRegularExpressionValidator(
+            QRegularExpression(r"[0-9]*[.,]?[0-9]*")
+        )
+
         h_perc = QHBoxLayout()
         self.group_btns = []
         for text in ["25%", "50%", "75%", "100%"]:
@@ -360,6 +374,34 @@ class CascadeTab(QWidget):
 
         self.group_btns[3].setChecked(True)  # 100% по умолчанию
 
+        self.btn_use_custom_percent = QPushButton("Свой %")
+        self.btn_use_custom_percent.setCheckable(True)
+        self.btn_use_custom_percent.setProperty("class", "percBtn")
+        self.btn_use_custom_percent.setObjectName("percBtn")
+        self.btn_use_custom_percent.setChecked(
+            bool(self.main.settings.get("cas_use_custom_percent", False))
+        )
+        self.btn_use_custom_percent.toggled.connect(self.on_custom_percent_toggled)
+        h_perc.addWidget(self.btn_use_custom_percent)
+
+        custom_percent = float(self.main.settings.get("cas_custom_percent", 100.0))
+        self.inp_custom_percent = QLineEdit(
+            str(int(custom_percent))
+            if custom_percent == int(custom_percent)
+            else str(custom_percent).replace(".", ",")
+        )
+        self.inp_custom_percent.setValidator(num_validator)
+        self.inp_custom_percent.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.inp_custom_percent.setEnabled(self.btn_use_custom_percent.isChecked())
+        self.inp_custom_percent.textChanged.connect(self.on_custom_percent_text_changed)
+        self.inp_custom_percent.returnPressed.connect(self.save_custom_percent_setting)
+        self.inp_custom_percent.installEventFilter(self.main)
+        h_perc.addWidget(self.inp_custom_percent)
+
+        if self.btn_use_custom_percent.isChecked():
+            for btn in self.group_btns:
+                btn.setChecked(False)
+
         h_source = QHBoxLayout()
         self.btn_use_custom_vol = QPushButton("Свой объём")
         self.btn_use_custom_vol.setCheckable(True)
@@ -370,26 +412,20 @@ class CascadeTab(QWidget):
         )
         self.btn_use_custom_vol.toggled.connect(self.on_volume_source_changed)
 
-        lbl_custom_base = QLabel("База $:")
-        self.sb_custom_total = QDoubleSpinBox()
-        self.sb_custom_total.setRange(0.01, 1000000000.0)
-        self.sb_custom_total.setDecimals(2)
-        self.sb_custom_total.setSingleStep(1.0)
-        self.sb_custom_total.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
-        self.sb_custom_total.setObjectName("spinInner")
-        self.sb_custom_total.setValue(
-            float(self.main.settings.get("cas_custom_total_vol", 0.01) or 0.01)
+        custom_total = float(self.main.settings.get("cas_custom_total_vol", 0.01))
+        self.inp_custom_total = QLineEdit(
+            str(int(custom_total))
+            if custom_total == int(custom_total)
+            else str(custom_total).replace(".", ",")
         )
-        self.sb_custom_total_wrap = self._wrap_spinbox(self.sb_custom_total)
-        self.sb_custom_total.valueChanged.connect(self.on_custom_vol_value_changed)
-        self.sb_custom_total.lineEdit().editingFinished.connect(
-            self.save_custom_vol_setting
-        )
+        self.inp_custom_total.setValidator(num_validator)
+        self.inp_custom_total.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.inp_custom_total.textChanged.connect(self.on_custom_vol_text_changed)
+        self.inp_custom_total.returnPressed.connect(self.save_custom_vol_setting)
+        self.inp_custom_total.installEventFilter(self.main)
 
         h_source.addWidget(self.btn_use_custom_vol)
-        h_source.addWidget(lbl_custom_base)
-        h_source.addWidget(self.sb_custom_total_wrap)
-        h_source.addStretch()
+        h_source.addWidget(self.inp_custom_total, 1)
 
         self.set_custom_vol_enabled(self.btn_use_custom_vol.isChecked())
 
@@ -399,9 +435,19 @@ class CascadeTab(QWidget):
         )
         self.lbl_total_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        self.lbl_total_vol_hint = QLabel("0")
+        self.lbl_total_vol_hint.setStyleSheet("color: #666; font-size: 8pt;")
+        self.lbl_total_vol_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.lbl_custom_total_hint = QLabel("0")
+        self.lbl_custom_total_hint.setStyleSheet("color: #666; font-size: 8pt;")
+        self.lbl_custom_total_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         l_vol.addLayout(h_perc)
         l_vol.addLayout(h_source)
+        l_vol.addWidget(self.lbl_custom_total_hint)
         l_vol.addWidget(self.lbl_total_vol)
+        l_vol.addWidget(self.lbl_total_vol_hint)
         gb_vol.setLayout(l_vol)
         layout.addWidget(gb_vol)
 
@@ -447,6 +493,28 @@ class CascadeTab(QWidget):
         self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
 
+        self.btn_max_limit = QPushButton("Лимит")
+        self.btn_max_limit.setCheckable(True)
+        self.btn_max_limit.setProperty("class", "percBtn")
+        self.btn_max_limit.setObjectName("percBtn")
+        self.btn_max_limit.setChecked(
+            bool(self.main.settings.get("cas_max_count_enabled", False))
+        )
+        self.btn_max_limit.toggled.connect(self.on_max_limit_toggled)
+        grid.addWidget(self.btn_max_limit, 1, 2)
+
+        max_limit_val = int(self.main.settings.get("cas_max_count", 0) or 0)
+        self.inp_max_limit = QLineEdit(str(max_limit_val) if max_limit_val else "")
+        self.inp_max_limit.setValidator(
+            QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
+        )
+        self.inp_max_limit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.inp_max_limit.setEnabled(self.btn_max_limit.isChecked())
+        self.inp_max_limit.textChanged.connect(self.on_max_limit_text_changed)
+        self.inp_max_limit.returnPressed.connect(self.save_max_limit_setting)
+        self.inp_max_limit.installEventFilter(self.main)
+        grid.addWidget(self.inp_max_limit, 1, 3)
+
         l3 = QLabel("Тип:")
         grid.addWidget(l3, 2, 0)
         self.cb_type = QComboBox()
@@ -469,20 +537,24 @@ class CascadeTab(QWidget):
         self.sb_manual_k.setRange(1.1, 3.0)
         self.sb_manual_k.setDecimals(2)
         self.sb_manual_k.setSingleStep(0.1)
+        self.sb_manual_k.setKeyboardTracking(False)
+        self.sb_manual_k.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.sb_manual_k.setValue(
             float(self.main.settings.get("cas_manual_k", 2.0) or 2.0)
         )
         self.sb_manual_k.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_manual_k.setObjectName("spinInner")
+        self.sb_manual_k.lineEdit().setReadOnly(False)
         self.sb_manual_k_wrap = self._wrap_spinbox(self.sb_manual_k)
         grid.addWidget(self.sb_manual_k_wrap, 2, 3)
 
         l4 = QLabel("Шаг (%):")
         grid.addWidget(l4, 3, 2)
         self.sb_dist = QDoubleSpinBox()
-        self.sb_dist.setRange(0.01, 10.0)
+        self.sb_dist.setRange(0.001, 10.0)
+        self.sb_dist.setDecimals(2)
         self.sb_dist.setValue(0.1)
-        self.sb_dist.setSingleStep(0.05)
+        self.sb_dist.setSingleStep(0.01)
         self.sb_dist.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_dist.setObjectName("spinInner")
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
@@ -508,7 +580,8 @@ class CascadeTab(QWidget):
         self.sb_dist.lineEdit().installEventFilter(self.main)
         self.sb_range_width.lineEdit().installEventFilter(self.main)
         self.sb_manual_k.lineEdit().installEventFilter(self.main)
-        self.sb_custom_total.lineEdit().installEventFilter(self.main)
+        self.inp_custom_total.installEventFilter(self.main)
+        self.inp_max_limit.installEventFilter(self.main)
 
         # События
         self.sb_count.valueChanged.connect(self.recalc_table)
@@ -544,14 +617,17 @@ class CascadeTab(QWidget):
         # Увеличиваем высоту строк, чтобы шрифт не резался
         self.table.verticalHeader().setDefaultSectionSize(28)
         self.table.setRowCount(0)
-        self.table.setFixedHeight(120)
+        self.table.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.table.setMinimumHeight(120)
         # Базовый стиль таблицы (точные размеры выставятся в apply_scale)
         self.table.setStyleSheet(
             "QTableWidget::item { font-size: 6pt; padding: 0px 2px; }"
             "QHeaderView::section { font-size: 8pt; padding: 2px; }"
             "selection-background-color: #38BE1D; selection-color: black;"
         )
-        layout.addWidget(self.table)
+        layout.addWidget(self.table, 1)
 
         # --- БЛОК 4: Кнопка выставления ---
         self.btn_apply = QPushButton("ВЫСТАВИТЬ")
@@ -604,11 +680,6 @@ class CascadeTab(QWidget):
             (self.sb_dist, self.sb_dist_left, self.sb_dist_right),
             (self.sb_range_width, self.sb_range_left, self.sb_range_right),
             (self.sb_manual_k, self.sb_manual_k_left, self.sb_manual_k_right),
-            (
-                self.sb_custom_total,
-                self.sb_custom_total_left,
-                self.sb_custom_total_right,
-            ),
         ):
             spin.setFixedWidth(input_w)
             spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -620,7 +691,14 @@ class CascadeTab(QWidget):
         self.sb_dist_wrap.setFixedHeight(field_h)
         self.sb_range_wrap.setFixedHeight(field_h)
         self.sb_manual_k_wrap.setFixedHeight(field_h)
-        self.sb_custom_total_wrap.setFixedHeight(field_h)
+        if hasattr(self, "inp_custom_total"):
+            self.inp_custom_total.setFixedHeight(field_h)
+        if hasattr(self, "inp_custom_percent"):
+            self.inp_custom_percent.setFixedHeight(field_h)
+            self.inp_custom_percent.setFixedWidth(max(52, int(60 * sc)))
+        if hasattr(self, "inp_max_limit"):
+            self.inp_max_limit.setFixedHeight(field_h)
+            self.inp_max_limit.setFixedWidth(max(52, int(60 * sc)))
 
         # Итоговый объем каскада
         self.lbl_total_vol.setStyleSheet(
@@ -629,7 +707,7 @@ class CascadeTab(QWidget):
 
         # Таблица ордеров
         self.table.verticalHeader().setDefaultSectionSize(int(14 * sc))
-        self.table.setFixedHeight(int(80 * sc))
+        self.table.setMinimumHeight(int(80 * sc))
         item_font = max(6, int(6 * ratio))
         header_font = max(6, int(8 * ratio))
         self.table.setStyleSheet(
@@ -661,17 +739,59 @@ class CascadeTab(QWidget):
         for btn in self.group_btns:
             btn.setChecked(False)
         sender.setChecked(True)
+        if getattr(self, "btn_use_custom_percent", None):
+            self.btn_use_custom_percent.setChecked(False)
+            self.inp_custom_percent.setEnabled(False)
+            self.main.settings["cas_use_custom_percent"] = False
+            self.main.save_settings()
         self.recalc_table()
 
+    def on_custom_percent_toggled(self, checked):
+        if checked:
+            for btn in self.group_btns:
+                btn.setChecked(False)
+        else:
+            if not any(btn.isChecked() for btn in self.group_btns):
+                self.group_btns[3].setChecked(True)
+        self.inp_custom_percent.setEnabled(bool(checked))
+        self.main.settings["cas_use_custom_percent"] = bool(checked)
+        self.save_custom_percent_setting()
+        self.recalc_table()
+
+    def on_custom_percent_text_changed(self, text):
+        if not self.btn_use_custom_percent.isChecked():
+            return
+        value = self._parse_custom_percent_value(text)
+        self.main.settings["cas_custom_percent"] = float(value)
+        self.main.save_settings()
+        self.recalc_table()
+
+    def save_custom_percent_setting(self):
+        value = self._parse_custom_percent_value(self.inp_custom_percent.text())
+        self.main.settings["cas_custom_percent"] = float(value)
+        self.main.save_settings()
+
     def get_percent(self):
+        if (
+            getattr(self, "btn_use_custom_percent", None)
+            and self.btn_use_custom_percent.isChecked()
+        ):
+            value = self._parse_custom_percent_value(self.inp_custom_percent.text())
+            return max(0.0, min(100.0, value)) / 100.0
         for btn in self.group_btns:
             if btn.isChecked():
                 return float(btn.text().replace("%", "")) / 100.0
         return 1.0
 
+    def _parse_custom_percent_value(self, text):
+        try:
+            value = float((text or "").replace(" ", "").replace(",", ".") or 0)
+        except Exception:
+            value = 0.0
+        return max(0.0, min(100.0, value))
+
     def set_custom_vol_enabled(self, enabled):
-        self.sb_custom_total.setEnabled(enabled)
-        self.sb_custom_total_wrap.setEnabled(enabled)
+        self.inp_custom_total.setEnabled(enabled)
 
     def on_volume_source_changed(self, checked):
         self.set_custom_vol_enabled(checked)
@@ -679,14 +799,55 @@ class CascadeTab(QWidget):
         self.main.save_settings()
         self.recalc_table()
 
-    def on_custom_vol_value_changed(self, value):
+    def on_custom_vol_text_changed(self, text):
+        if not self.btn_use_custom_vol.isChecked():
+            return
+        value = self._parse_custom_total_value(text)
         self.main.settings["cas_custom_total_vol"] = float(value)
-        if self.btn_use_custom_vol.isChecked():
-            self.recalc_table()
+        self.main.save_settings()
+        if hasattr(self, "lbl_custom_total_hint"):
+            self.lbl_custom_total_hint.setText(self.main.format_hint_no_decimals(value))
+        self.recalc_table()
 
     def save_custom_vol_setting(self):
-        self.main.settings["cas_custom_total_vol"] = float(self.sb_custom_total.value())
+        value = self._parse_custom_total_value(self.inp_custom_total.text())
+        self.main.settings["cas_custom_total_vol"] = float(value)
         self.main.save_settings()
+        if hasattr(self, "lbl_custom_total_hint"):
+            self.lbl_custom_total_hint.setText(self.main.format_hint_no_decimals(value))
+
+    def on_max_limit_toggled(self, checked):
+        self.inp_max_limit.setEnabled(bool(checked))
+        self.main.settings["cas_max_count_enabled"] = bool(checked)
+        self.save_max_limit_setting()
+        self.recalc_table()
+
+    def on_max_limit_text_changed(self, text):
+        if not self.btn_max_limit.isChecked():
+            return
+        value = self._parse_max_limit_value(text)
+        self.main.settings["cas_max_count"] = int(value)
+        self.main.save_settings()
+        self.recalc_table()
+
+    def save_max_limit_setting(self):
+        value = self._parse_max_limit_value(self.inp_max_limit.text())
+        self.main.settings["cas_max_count"] = int(value)
+        self.main.save_settings()
+
+    def _parse_max_limit_value(self, text):
+        try:
+            value = int((text or "").strip() or 0)
+        except Exception:
+            value = 0
+        return max(2, value) if value else 0
+
+    def _parse_custom_total_value(self, text):
+        try:
+            value = float((text or "").replace(" ", "").replace(",", ".") or 0)
+        except Exception:
+            value = 0.0
+        return max(0.01, value)
 
     def on_min_text_changed(self, text):
         """Реал-тайм обновление при изменении текста в 'Мин. ордер'"""
@@ -738,7 +899,7 @@ class CascadeTab(QWidget):
             getattr(self, "btn_use_custom_vol", None)
             and self.btn_use_custom_vol.isChecked()
         ):
-            return self.sb_custom_total.value()
+            return self._parse_custom_total_value(self.inp_custom_total.text())
         return getattr(self.main, "current_vol", 0)
 
     def calculate_max_possible(self, total_vol, min_size, mult):
@@ -870,15 +1031,16 @@ class CascadeTab(QWidget):
         if p_vol > 6:
             p_vol = 6
 
-        try:
-            self.sb_custom_total.blockSignals(True)
-            self.sb_custom_total.setDecimals(p_dep)
-            self.sb_custom_total.setSingleStep(1 if p_dep == 0 else 10 ** (-p_dep))
-            self.sb_custom_total.setValue(round(self.sb_custom_total.value(), p_dep))
-        finally:
-            self.sb_custom_total.blockSignals(False)
-
         self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.{p_dep}f} $")
+        if hasattr(self, "lbl_total_vol_hint"):
+            self.lbl_total_vol_hint.setText(
+                self.main.format_hint_no_decimals(total_vol)
+            )
+        if hasattr(self, "lbl_custom_total_hint"):
+            base_hint_val = self._parse_custom_total_value(self.inp_custom_total.text())
+            self.lbl_custom_total_hint.setText(
+                self.main.format_hint_no_decimals(base_hint_val)
+            )
 
         count = self.sb_count.value()
         min_size = self.sb_min.value()
@@ -899,6 +1061,11 @@ class CascadeTab(QWidget):
 
         # Вычисляем максимально возможное количество ячеек
         max_possible = self.calculate_max_possible(total_vol, min_size, mult)
+
+        if bool(self.main.settings.get("cas_max_count_enabled", False)):
+            limit_val = int(self.main.settings.get("cas_max_count", 0) or 0)
+            if limit_val > 0:
+                max_possible = min(max_possible, max(2, limit_val))
 
         # Устанавливаем максимум для SpinBox
         self.sb_count.blockSignals(True)
@@ -983,6 +1150,7 @@ class CascadeTab(QWidget):
         self.table.setRowCount(len(final_volumes))
         self.calculated_orders = []
 
+        dist_prec = max(2, int(self.sb_dist.decimals()))
         for i, vol in enumerate(final_volumes):
             dist = i * dist_step
             vol_item = QTableWidgetItem(f"{vol:.{p_vol}f}")
@@ -994,7 +1162,7 @@ class CascadeTab(QWidget):
 
             self.table.setItem(i, 0, vol_item)
 
-            dist_item = QTableWidgetItem(f"{dist:.2f}")
+            dist_item = QTableWidgetItem(f"{dist:.{dist_prec}f}")
             dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(i, 1, dist_item)
             self.calculated_orders.append(

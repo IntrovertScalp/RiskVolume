@@ -324,7 +324,7 @@ def init_calculator_tab(app):
         }
         QTableWidget::item:disabled {
             color: #777;
-            background: #1A1A1A;
+            background: #000000;
         }
         QLineEdit {
             background: #1A1A1A !important;

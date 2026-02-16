@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
     QAbstractItemView,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 from PyQt6.QtCore import (
     Qt,
@@ -24,7 +26,7 @@ from PyQt6.QtCore import (
     QObject,
     QSharedMemory,
 )
-from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QColor
+from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QColor, QBrush, QPalette
 
 from config import *
 from settings_dialog import SettingsDialog
@@ -43,6 +45,53 @@ except:
 class HotkeySignaler(QObject):
     toggle_sig = pyqtSignal()
     apply_sig = pyqtSignal()  # Новый сигнал для применения
+
+
+class CellsLabelDarkDelegate(QStyledItemDelegate):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+
+    def paint(self, painter, option, index):
+        if index.column() == 0:
+            try:
+                selected_rows = set(self.app._get_active_rows_for_table())
+            except Exception:
+                selected_rows = set()
+
+            if index.row() not in selected_rows:
+                bg = QColor("#1A1A1A")
+                fg = QColor("#161616")
+                try:
+                    cell = self.app.cells_table.item(index.row(), 1)
+                    if cell:
+                        cell_bg = cell.data(Qt.ItemDataRole.BackgroundRole)
+                        if isinstance(cell_bg, QBrush):
+                            bg = cell_bg.color()
+                except Exception:
+                    pass
+
+                try:
+                    label_cell = self.app.cells_table.item(index.row(), 0)
+                    if label_cell:
+                        cell_fg = label_cell.data(Qt.ItemDataRole.ForegroundRole)
+                        if isinstance(cell_fg, QBrush):
+                            fg = cell_fg.color()
+                except Exception:
+                    pass
+
+                painter.save()
+                painter.fillRect(option.rect, bg)
+                painter.setPen(fg)
+                text = index.data(Qt.ItemDataRole.DisplayRole)
+                if text:
+                    painter.drawText(
+                        option.rect, Qt.AlignmentFlag.AlignCenter, str(text)
+                    )
+                painter.restore()
+                return
+
+        super().paint(painter, option, index)
 
 
 class RiskVolumeApp(QMainWindow):
@@ -136,6 +185,10 @@ class RiskVolumeApp(QMainWindow):
             "cas_p_combo_vol": None,
             "cas_use_custom_vol": False,
             "cas_custom_total_vol": 100.0,
+            "cas_use_custom_percent": False,
+            "cas_custom_percent": 100.0,
+            "cas_max_count_enabled": False,
+            "cas_max_count": 0,
             "cas_range_width": 0.0,
             "cas_manual_k": 2.0,
             "last_cascade_count": 1,
@@ -365,6 +418,10 @@ class RiskVolumeApp(QMainWindow):
 
     def init_calculator_tab(self):
         init_calculator_tab(self)
+        if hasattr(self, "cells_table"):
+            self.cells_table.setItemDelegateForColumn(
+                0, CellsLabelDarkDelegate(self, self.cells_table)
+            )
 
     def refresh_labels(self):
         lang = self.settings.get("lang", "ru")
@@ -793,7 +850,14 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "cells_table"):
             return
 
+        prev_block_state = self.cells_table.blockSignals(True)
         selected = set(self._get_active_rows_for_table())
+        preset_index = (
+            int(self.cb_distribution.currentIndex())
+            if hasattr(self, "cb_distribution")
+            else 2
+        )
+        default_flags = QTableWidgetItem().flags()
         for i in range(5):
             for col in range(3):
                 item = self.cells_table.item(i, col)
@@ -807,11 +871,41 @@ class RiskVolumeApp(QMainWindow):
                     item.setText(f"● {base_text}" if i in selected else base_text)
 
                 if i in selected:
-                    item.setBackground(QColor("#2f2f2f"))
-                    item.setForeground(QColor("#ffffff"))
+                    bg = QColor("#3a3a3a")
+                    fg = QColor("#ffffff")
+                    item.setBackground(bg)
+                    item.setForeground(fg)
+                    item.setData(Qt.ItemDataRole.BackgroundRole, QBrush(bg))
+                    item.setData(Qt.ItemDataRole.ForegroundRole, QBrush(fg))
+                    if col == 0:
+                        item.setFlags(default_flags & ~Qt.ItemFlag.ItemIsEditable)
+                    elif col == 1:
+                        item.setFlags(
+                            default_flags
+                            & ~Qt.ItemFlag.ItemIsEditable
+                            & ~Qt.ItemFlag.ItemIsSelectable
+                        )
+                    else:
+                        if preset_index == 2:
+                            item.setFlags(default_flags)
+                        else:
+                            item.setFlags(
+                                default_flags
+                                & ~Qt.ItemFlag.ItemIsEditable
+                                & ~Qt.ItemFlag.ItemIsSelectable
+                            )
                 else:
-                    item.setBackground(QColor("#000000"))
-                    item.setForeground(QColor("#8E8E8E" if col == 0 else "#ffffff"))
+                    bg = QColor("#000000")
+                    fg = QColor("#000000") if col == 0 else QColor("#161616")
+                    item.setBackground(bg)
+                    item.setForeground(fg)
+                    item.setData(Qt.ItemDataRole.BackgroundRole, QBrush(bg))
+                    item.setData(Qt.ItemDataRole.ForegroundRole, QBrush(fg))
+                    if col == 0:
+                        item.setFlags(default_flags & ~Qt.ItemFlag.ItemIsEditable)
+                    else:
+                        item.setFlags(Qt.ItemFlag.NoItemFlags)
+        self.cells_table.blockSignals(prev_block_state)
 
     def _adapt_window_width_to_content(self):
         if not self.isVisible():
@@ -893,21 +987,39 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pass
 
-        for i in range(5):
-            item = self.cells_table.item(i, 2)
-            if item:
-                item.setText("0")
-
         if preset_index == 2:
-            count = len(active_rows)
-            base = int(100 / count)
-            remainder = 100 % count
-            for idx, row in enumerate(active_rows):
-                value = base + (1 if idx < remainder else 0)
+            existing_values = []
+            row_values = {}
+            for row in active_rows:
                 item = self.cells_table.item(row, 2)
                 if item:
-                    item.setText(str(value))
+                    text = (item.text() or "").strip()
+                    value = int(text) if text.isdigit() else 0
+                    existing_values.append(value)
+                    row_values[row] = value
+
+            if sum(existing_values) <= 0:
+                for i in range(5):
+                    item = self.cells_table.item(i, 2)
+                    if item:
+                        item.setText("0")
+                first_row = active_rows[0]
+                first_item = self.cells_table.item(first_row, 2)
+                if first_item:
+                    first_item.setText("100")
+            else:
+                for row in active_rows:
+                    if row_values.get(row, 0) > 0:
+                        continue
+                    item = self.cells_table.item(row, 2)
+                    if item:
+                        item.setText("100")
         else:
+            for i in range(5):
+                item = self.cells_table.item(i, 2)
+                if item:
+                    item.setText("0")
+
             count = len(active_rows)
             values = []
             if preset_index == 0:
@@ -1651,6 +1763,8 @@ class RiskVolumeApp(QMainWindow):
             else:
                 label_item.setText(f"Ячейка {i + 1}")
 
+        self._update_selected_rows_visuals()
+
     def update_cells_table_height(self):
         if not hasattr(self, "cells_table"):
             return
@@ -1729,6 +1843,12 @@ class RiskVolumeApp(QMainWindow):
     def on_table_item_changed(self, item):
         """Вызывается когда изменяется ячейка таблицы"""
         if item.column() == 2:  # Только для колонки с процентами
+            if (
+                hasattr(self, "cb_distribution")
+                and int(self.cb_distribution.currentIndex()) != 2
+            ):
+                return
+
             # Проверяем что введено число
             text = item.text().strip()
             if text and not text.isdigit():
@@ -1747,6 +1867,8 @@ class RiskVolumeApp(QMainWindow):
     def _apply_preset_values(self, preset_index):
         """Применяет значения выбранного пресета"""
         active_rows = self._get_active_rows_for_table()
+        if self.settings.get("cells_reversed", False):
+            active_rows = list(reversed(active_rows))
         cells_count = len(active_rows)
 
         if preset_index == 2:  # Вручную
@@ -1867,6 +1989,7 @@ class RiskVolumeApp(QMainWindow):
             # Сохраняем минимум в настройки
             self.settings["scalp_min_order"] = min_order
         self.cells_table.blockSignals(False)
+        self._update_selected_rows_visuals()
 
     def on_min_order_changed(self):
         """Вызывается при нажатии Enter в поле минимального ордера"""
