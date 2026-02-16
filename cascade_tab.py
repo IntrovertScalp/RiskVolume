@@ -37,7 +37,7 @@ class CascadeWorker(QThread):
         self._cancelled = False
 
     def run(self):
-        vol_prec = int(self.settings.get("prec_vol", 0))
+        vol_prec = int(self.settings.get("prec_dep", 2))
         if vol_prec < 0:
             vol_prec = 0
         if vol_prec > 6:
@@ -864,11 +864,19 @@ class CascadeTab(QWidget):
         if p_dep > 6:
             p_dep = 6
 
-        p_vol = int(self.main.settings.get("prec_vol", 0))
+        p_vol = int(self.main.settings.get("prec_dep", 2))
         if p_vol < 0:
             p_vol = 0
         if p_vol > 6:
             p_vol = 6
+
+        try:
+            self.sb_custom_total.blockSignals(True)
+            self.sb_custom_total.setDecimals(p_dep)
+            self.sb_custom_total.setSingleStep(1 if p_dep == 0 else 10 ** (-p_dep))
+            self.sb_custom_total.setValue(round(self.sb_custom_total.value(), p_dep))
+        finally:
+            self.sb_custom_total.blockSignals(False)
 
         self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.{p_dep}f} $")
 

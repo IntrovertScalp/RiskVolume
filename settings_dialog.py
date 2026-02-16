@@ -279,9 +279,6 @@ class SettingsDialog(QDialog):
         self.prec_dep = QLineEdit(str(parent.settings.get("prec_dep", 2)))
         self.prec_risk = QLineEdit(str(parent.settings.get("prec_risk", 2)))
         self.prec_fee = QLineEdit(str(parent.settings.get("prec_fee", 3)))
-        self.prec_vol = QLineEdit(str(parent.settings.get("prec_vol", 0)))
-        self.prec_vol.setValidator(QIntValidator(0, 3))
-        self.prec_vol.textChanged.connect(self._clamp_prec_vol_input)
         self.prec_lev = QLineEdit(str(parent.settings.get("prec_lev", 1)))  # ПЛЕЧО
         self.prec_min_order = QLineEdit(str(parent.settings.get("prec_min_order", 2)))
 
@@ -289,7 +286,6 @@ class SettingsDialog(QDialog):
             self.prec_dep,
             self.prec_risk,
             self.prec_fee,
-            self.prec_vol,
             self.prec_lev,
             self.prec_min_order,
         ]:
@@ -364,9 +360,6 @@ class SettingsDialog(QDialog):
         grid.addWidget(QLabel(t["prec_lev"]), row, 0)
         grid.addWidget(self.prec_lev, row, 1)
         row += 1
-        grid.addWidget(QLabel(t["prec_vol"]), row, 0)
-        grid.addWidget(self.prec_vol, row, 1)
-        row += 1
         grid.addWidget(QLabel(t["prec_min_order"]), row, 0)
         grid.addWidget(self.prec_min_order, row, 1)
         # --- КОНЕЦ ЗАМЕНЫ БЛОКА GRID ---
@@ -435,8 +428,8 @@ class SettingsDialog(QDialog):
             self.prec_vol.setText("0")
             return
 
-        if num > 3:
-            self.prec_vol.setText("3")
+        if num > 6:
+            self.prec_vol.setText("6")
 
     def _safe_int(self, text, default, min_val=None, max_val=None):
         try:
@@ -467,14 +460,12 @@ class SettingsDialog(QDialog):
         prec_dep = self._safe_int(self.prec_dep.text() or "", 2, 0, 6)
         prec_risk = self._safe_int(self.prec_risk.text() or "", 2, 0, 6)
         prec_fee = self._safe_int(self.prec_fee.text() or "", 3, 0, 6)
-        prec_vol = self._safe_int(self.prec_vol.text() or "", 0, 0, 3)
         prec_lev = self._safe_int(self.prec_lev.text() or "", 1, 0, 6)
         prec_min_order = self._safe_int(self.prec_min_order.text() or "", 2, 0, 6)
 
         self.prec_dep.setText(str(prec_dep))
         self.prec_risk.setText(str(prec_risk))
         self.prec_fee.setText(str(prec_fee))
-        self.prec_vol.setText(str(prec_vol))
         self.prec_lev.setText(str(prec_lev))
         self.prec_min_order.setText(str(prec_min_order))
         self.parent_window.settings.update(
@@ -489,7 +480,6 @@ class SettingsDialog(QDialog):
                 "prec_dep": prec_dep,
                 "prec_risk": prec_risk,
                 "prec_fee": prec_fee,
-                "prec_vol": prec_vol,
                 "prec_lev": prec_lev,
                 "prec_min_order": prec_min_order,
                 "settings_pos": current_pos,
