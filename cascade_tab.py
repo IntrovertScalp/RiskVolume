@@ -44,6 +44,9 @@ class CascadeWorker(QThread):
         import pyperclip
 
         pyautogui.FAILSAFE = False
+        pyautogui.PAUSE = 0.0
+        pyautogui.MINIMUM_DURATION = 0.0
+        pyautogui.MINIMUM_SLEEP = 0.0
 
         vol_prec = int(self.settings.get("prec_dep", 2))
         if vol_prec < 0:
@@ -94,10 +97,16 @@ class CascadeWorker(QThread):
         row_height = c_vol2[1] - c_vol1[1]
         base_y = c_vol1[1]
 
-        delay_click = 0.12
-        delay_short = 0.07
-        delay_long = 0.2
-        drag_duration = 0.6
+        delay_click = 0.06
+        delay_short = 0.06
+        delay_long = 0.18
+        drag_duration = 0.2
+        speed_mul = 0.6
+        min_sleep = 0.01
+        delete_delay = 0.12
+
+        def sleep_fast(sec):
+            time.sleep(max(min_sleep, sec * speed_mul))
 
         # Регистрируем ESC для остановки
         def on_esc():
@@ -124,7 +133,7 @@ class CascadeWorker(QThread):
                 return
             pyautogui.moveTo(c_gear[0], c_gear[1])
             pyautogui.click()
-            time.sleep(delay_long)
+            sleep_fast(delay_long)
 
             # 2. В левой части тянем ползунок резко вниз
             if check_cancel():
@@ -134,22 +143,20 @@ class CascadeWorker(QThread):
             left_scrollbar_y_end = left_scrollbar_y_start + 700
 
             pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_start)
-            time.sleep(delay_short)
+            sleep_fast(delay_short)
             pyautogui.mouseDown(button="left")
-            time.sleep(delay_short)
             pyautogui.moveTo(
                 left_scrollbar_x, left_scrollbar_y_end, duration=drag_duration
             )
-            time.sleep(delay_short)
             pyautogui.mouseUp(button="left")
-            time.sleep(delay_long)
+            sleep_fast(0.01)
 
             # 3. Выбираем пункт "Книга заявок"
             if check_cancel():
                 return
             pyautogui.moveTo(c_book[0], c_book[1])
             pyautogui.click()
-            time.sleep(delay_long)
+            sleep_fast(delay_long)
 
             # 4. Перетаскиваем правый ползунок вниз
             if check_cancel():
@@ -161,13 +168,11 @@ class CascadeWorker(QThread):
 
                 # Перетаскиваем ползунок: нажимаем, тянем, отпускаем
                 pyautogui.moveTo(scrollbar_x, scrollbar_y_start)
-                time.sleep(delay_short)
+                sleep_fast(delay_short)
                 pyautogui.mouseDown(button="left")
-                time.sleep(delay_short)
                 pyautogui.moveTo(scrollbar_x, scrollbar_y_end, duration=drag_duration)
-                time.sleep(delay_short)
                 pyautogui.mouseUp(button="left")
-                time.sleep(delay_long)
+                sleep_fast(0.01)
 
             # 5. Очистка (удаляем старые строки каскада)
             if check_cancel():
@@ -189,7 +194,8 @@ class CascadeWorker(QThread):
                     return
                 print(f"[CASCADE]   Нажатие {i+1}/{del_clicks} на минус/удалить")
                 pyautogui.click()
-                time.sleep(delay_short)
+                sleep_fast(delete_delay)
+            sleep_fast(0.12)
 
             # 6. Создаем нужное количество строк
             if check_cancel():
@@ -204,78 +210,80 @@ class CascadeWorker(QThread):
                 # После прокрутки новая строка ВСЕГДА оказывается на позиции base_y
                 cur_y = base_y
                 print(
-                    f"[CASCADE]   Заявка {i+1}: объем={order['vol']:.{vol_prec}f}, дистанция={order['dist']:.2f}%, Y={cur_y}"
+                    f"[CASCADE]   Заявка {i+1}: объем={order['vol']}, дистанция={order['dist']}%, Y={cur_y}"
                 )
 
                 if i > 0:
                     pyautogui.moveTo(c_plus[0], c_plus[1])
                     pyautogui.click()
-                    time.sleep(delay_long)
+                    sleep_fast(delay_long)
                     # Клик в пустую область слева (вместо ESC)
                     # чтобы снять фокус без закрытия элементов
                     pyautogui.click(c_vol1[0] - 80, base_y)
-                    time.sleep(0.2)
+                    sleep_fast(0.1)
                     # ВСЕГДА 2 раза вниз для прокрутки
                     print(f"[CASCADE]     Нажимаю вниз 2 раза")
                     if check_cancel():
                         return
                     for _ds in range(2):
                         pyautogui.press("down")
-                        time.sleep(0.12)
-                    time.sleep(0.3)
+                        sleep_fast(0.05)
+                    sleep_fast(0.15)
 
                 # --- Комбобокс объема: 6 раз вниз + Enter ---
                 pyautogui.moveTo(c_combo[0], cur_y)
                 pyautogui.click()
-                time.sleep(0.3)
+                sleep_fast(0.2)
                 for _ in range(6):
                     if check_cancel():
                         return
                     pyautogui.press("down")
-                    time.sleep(0.08)
+                    sleep_fast(0.04)
                 pyautogui.press("enter")
-                time.sleep(0.15)
+                sleep_fast(0.12)
 
                 # --- Объём ---
-                vol_str = f"{order['vol']:.{vol_prec}f}".replace(",", ".")
+                vol_str = str(order["vol"]).replace(",", ".")
                 print(
                     f"[CASCADE]     Выставляю объем {vol_str} в координаты ({c_vol1[0]}, {cur_y})"
                 )
                 pyperclip.copy(vol_str)
+                sleep_fast(0.05)
                 pyautogui.moveTo(c_vol1[0], cur_y)
                 pyautogui.click()
-                time.sleep(0.015)
+                sleep_fast(0.05)
                 pyautogui.click(clicks=2)
-                time.sleep(0.015)
+                sleep_fast(0.015)
                 keyboard.press_and_release("ctrl+a")
-                time.sleep(0.015)
+                sleep_fast(0.015)
                 keyboard.press_and_release("backspace")
-                time.sleep(0.015)
+                sleep_fast(0.015)
                 keyboard.press_and_release("ctrl+v")
-                time.sleep(0.015)
+                sleep_fast(0.04)
                 keyboard.press_and_release("enter")
 
                 # --- Дистанция ---
-                dist_str = f"{order['dist']:.2f}".replace(",", ".")
+                dist_str = str(order["dist"]).replace(",", ".")
                 pyperclip.copy(dist_str)
+                sleep_fast(0.03)
                 pyautogui.moveTo(c_dist1[0], cur_y)
                 pyautogui.click()
-                time.sleep(0.015)
+                sleep_fast(0.05)
                 pyautogui.click(clicks=2)
-                time.sleep(0.015)
+                sleep_fast(0.015)
                 keyboard.press_and_release("ctrl+a")
-                time.sleep(0.015)
+                sleep_fast(0.015)
                 keyboard.press_and_release("backspace")
-                time.sleep(0.015)
+                sleep_fast(0.015)
                 keyboard.press_and_release("ctrl+v")
-                time.sleep(0.015)
+                sleep_fast(0.03)
                 keyboard.press_and_release("enter")
 
-                time.sleep(delay_short)
+                sleep_fast(delay_short)
 
             # 7. Закрываем настройки
             if not self._cancelled:
-                time.sleep(0.1)
+                sleep_fast(0.03)
                 if c_close:
                     pyautogui.moveTo(c_close[0], c_close[1])
                     pyautogui.click()
@@ -1439,12 +1447,23 @@ class CascadeTab(QWidget):
         import time as _t
 
         _t.sleep(0.15)
+
+        orders_for_apply = []
+        for row in range(self.table.rowCount()):
+            vol_item = self.table.item(row, 0)
+            dist_item = self.table.item(row, 1)
+            vol_text = vol_item.text().strip() if vol_item and vol_item.text() else "0"
+            dist_text = (
+                dist_item.text().strip() if dist_item and dist_item.text() else "0"
+            )
+            orders_for_apply.append({"vol": vol_text, "dist": dist_text})
+
         prev_count = self.main.settings.get("cas_last_applied_count")
         if prev_count is None:
-            prev_count = len(self.calculated_orders)
-        self._last_apply_count = len(self.calculated_orders)
+            prev_count = len(orders_for_apply)
+        self._last_apply_count = len(orders_for_apply)
         self.worker = CascadeWorker(
-            self.main.settings, self.calculated_orders, self.main, prev_count
+            self.main.settings, orders_for_apply, self.main, prev_count
         )
         self.worker.finished.connect(self._on_cascade_finished)
         self.worker.cancelled.connect(self._on_cascade_cancelled)
