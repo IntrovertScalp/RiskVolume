@@ -100,7 +100,7 @@ class CascadeWorker(QThread):
         delay_click = 0.06
         delay_short = 0.06
         delay_long = 0.18
-        drag_duration = 0.2
+        drag_duration = 0.05
         speed_mul = 0.6
         min_sleep = 0.01
         delete_delay = 0.12
@@ -140,16 +140,15 @@ class CascadeWorker(QThread):
                 return
             left_scrollbar_x = c_left_scrollbar[0]
             left_scrollbar_y_start = c_left_scrollbar[1]
-            left_scrollbar_y_end = left_scrollbar_y_start + 700
 
-            pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_start)
-            sleep_fast(delay_short)
+            pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_start, duration=0)
             pyautogui.mouseDown(button="left")
+            time.sleep(0.01)
             pyautogui.moveTo(
-                left_scrollbar_x, left_scrollbar_y_end, duration=drag_duration
+                left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.02
             )
             pyautogui.mouseUp(button="left")
-            sleep_fast(0.01)
+            time.sleep(0.01)
 
             # 3. Выбираем пункт "Книга заявок"
             if check_cancel():
@@ -164,15 +163,13 @@ class CascadeWorker(QThread):
             if c_scrollbar:
                 scrollbar_x = c_scrollbar[0]
                 scrollbar_y_start = c_scrollbar[1]
-                scrollbar_y_end = scrollbar_y_start + 900  # Тянем вниз на 900px
 
-                # Перетаскиваем ползунок: нажимаем, тянем, отпускаем
-                pyautogui.moveTo(scrollbar_x, scrollbar_y_start)
-                sleep_fast(delay_short)
+                pyautogui.moveTo(scrollbar_x, scrollbar_y_start, duration=0)
                 pyautogui.mouseDown(button="left")
-                pyautogui.moveTo(scrollbar_x, scrollbar_y_end, duration=drag_duration)
+                time.sleep(0.01)
+                pyautogui.moveTo(scrollbar_x, scrollbar_y_start + 1200, duration=0.02)
                 pyautogui.mouseUp(button="left")
-                sleep_fast(0.01)
+                time.sleep(0.01)
 
             # 5. Очистка (удаляем старые строки каскада)
             if check_cancel():
@@ -268,15 +265,15 @@ class CascadeWorker(QThread):
                 sleep_fast(0.03)
                 pyautogui.moveTo(c_dist1[0], cur_y)
                 pyautogui.click()
-                sleep_fast(0.05)
+                sleep_fast(0.08)
                 pyautogui.click(clicks=2)
-                sleep_fast(0.015)
-                keyboard.press_and_release("ctrl+a")
-                sleep_fast(0.015)
-                keyboard.press_and_release("backspace")
-                sleep_fast(0.015)
-                keyboard.press_and_release("ctrl+v")
                 sleep_fast(0.03)
+                keyboard.press_and_release("ctrl+a")
+                sleep_fast(0.03)
+                keyboard.press_and_release("backspace")
+                sleep_fast(0.03)
+                keyboard.press_and_release("ctrl+v")
+                sleep_fast(0.05)
                 keyboard.press_and_release("enter")
 
                 sleep_fast(delay_short)
