@@ -1306,6 +1306,9 @@ class RiskVolumeApp(QMainWindow):
         self.capture_coords()
 
     def _cancel_active_calibration(self):
+        if hasattr(self, "tab_cascade") and self.tab_cascade.is_apply_active():
+            return False
+
         if hasattr(self, "tab_cascade") and self.tab_cascade.cancel_calibration():
             return True
 
