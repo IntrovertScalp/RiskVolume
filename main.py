@@ -69,6 +69,8 @@ class RiskVolumeApp(QMainWindow):
 
         self.old_pos = None
         self.current_vol = 0.0
+        self.position_target_volume = 0.0
+        self.table_volume_override = 0.0
         self._ghost_input = None
         self.calc_calibration_active = False
 
@@ -128,7 +130,10 @@ class RiskVolumeApp(QMainWindow):
             "scalp_multipliers": [100, 50, 25, 10],
             "cells_reversed": False,
             "pos_current_vol": "0",
+            "pos_risk": "1",
             "pos_stop": "0",
+            "pos_target_cell": 1,
+            "pos_mode_enabled": True,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -445,6 +450,28 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "lbl_pos_adjust"):
             return
 
+        self.position_target_volume = 0.0
+        self.table_volume_override = 0.0
+
+        if not bool(self.settings.get("pos_mode_enabled", True)):
+            self.pos_adjust_delta = 0.0
+            self.pos_adjust_action = None
+            self.lbl_pos_adjust.setText(
+                "Рекомендация: режим расчета в позиции выключен"
+            )
+            self.lbl_pos_adjust.setStyleSheet("color: #555; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText("Риск сделки в $: —")
+                self.lbl_pos_risk_cash.setStyleSheet("color: #555; font-size: 7pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
+            return
+
+        self.pos_adjust_delta = 0.0
+        self.pos_adjust_action = None
+
         p_vol = self.settings.get("prec_vol", 0)
 
         try:
@@ -452,22 +479,51 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pos_vol = 0.0
 
+        if hasattr(self, "lbl_pos_vol_hint"):
+            p_vol_hint = int(self.settings.get("prec_vol", 0))
+            self.lbl_pos_vol_hint.setText(
+                f"Объем в позиции: {self.format_with_abbreviations(pos_vol, p_vol_hint)}"
+            )
+
+        try:
+            pos_risk = float(self.inp_pos_risk.text().replace(",", ".") or 0)
+        except Exception:
+            pos_risk = 0.0
+
         try:
             pos_stop = float(self.inp_pos_stop.text().replace(",", ".") or 0)
         except Exception:
             pos_stop = 0.0
 
-        try:
-            d = float(self.inp_dep.text().replace(",", ".") or 0)
-            r = float(self.inp_risk.text().replace(",", ".") or 0)
-        except Exception:
-            self.lbl_pos_adjust.setText("Добор/сокращение: —")
+        if pos_risk <= 0:
+            self.lbl_pos_adjust.setText("Рекомендация: укажи Риск сделки % > 0")
             self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText("Риск сделки в $: укажи Риск сделки %")
+                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+            self.settings["pos_current_vol"] = self.inp_pos_vol.text()
+            self.settings["pos_risk"] = self.inp_pos_risk.text()
+            self.settings["pos_stop"] = self.inp_pos_stop.text()
+            self.save_settings()
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
             return
 
+        risk_cash = pos_vol * (pos_risk / 100.0)
+        risk_cash_text = f"{risk_cash:,.2f}".replace(",", " ").replace(".", ",")
+
         if pos_stop <= 0:
-            self.lbl_pos_adjust.setText("Добор/сокращение: укажи Стоп % > 0")
+            self.lbl_pos_adjust.setText("Рекомендация: укажи Стоп % > 0")
             self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(f"Риск сделки в $: {risk_cash_text}")
+                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
             return
 
         fee_taker = self.settings.get("fee_taker", 0.05)
@@ -476,28 +532,238 @@ class RiskVolumeApp(QMainWindow):
         f_perc = (fee_taker + fee_maker) if use_fee else 0.0
 
         try:
-            _, max_vol_at_stop, _, _ = calculate_risk_data(d, r, pos_stop, f_perc)
+            _, max_vol_at_stop, _, _ = calculate_risk_data(
+                pos_vol, pos_risk, pos_stop, f_perc
+            )
         except Exception:
-            self.lbl_pos_adjust.setText("Добор/сокращение: ошибка расчета")
+            self.lbl_pos_adjust.setText("Рекомендация: ошибка расчета")
             self.lbl_pos_adjust.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(f"Риск сделки в $: {risk_cash_text}")
+                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
             return
+
+        self.position_target_volume = float(max_vol_at_stop)
+        target_vol_text = f"{max_vol_at_stop:,.{p_vol}f}".replace(",", " ").replace(
+            ".", ","
+        )
 
         delta = max_vol_at_stop - pos_vol
         if delta > 0:
-            msg = f"Можно добрать: {delta:,.{p_vol}f}".replace(",", " ").replace(
-                ".", ","
-            )
-            self.lbl_pos_adjust.setText(msg)
-            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+            self.pos_adjust_delta = float(delta)
+            self.pos_adjust_action = "add"
+            delta_text = f"{delta:,.{p_vol}f}".replace(",", " ").replace(".", ",")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(
+                    f"Риск сделки в $: {risk_cash_text}   |   Добор: {delta_text}"
+                )
+                self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
+            self.lbl_pos_adjust.setText(f"Целевой объем позиции: {target_vol_text}")
+            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(True)
         elif delta < 0:
-            msg = f"Нужно сократить: {abs(delta):,.{p_vol}f}".replace(",", " ").replace(
-                ".", ","
-            )
-            self.lbl_pos_adjust.setText(msg)
-            self.lbl_pos_adjust.setStyleSheet("color: #FF6B6B; font-size: 7pt;")
+            self.pos_adjust_delta = float(abs(delta))
+            self.pos_adjust_action = "reduce"
+            delta_text = f"{abs(delta):,.{p_vol}f}".replace(",", " ").replace(".", ",")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(
+                    f"Риск сделки в $: {risk_cash_text}   |   Сокращение: {delta_text}"
+                )
+                self.lbl_pos_risk_cash.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
+            self.lbl_pos_adjust.setText(f"Целевой объем позиции: {target_vol_text}")
+            self.lbl_pos_adjust.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(True)
         else:
-            self.lbl_pos_adjust.setText("Позиция в лимите риска")
-            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(
+                    f"Риск сделки в $: {risk_cash_text}   |   Позиция уже в лимите риска"
+                )
+                self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
+            self.lbl_pos_adjust.setText(f"Целевой объем позиции: {target_vol_text}")
+            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+
+        self.settings["pos_current_vol"] = self.inp_pos_vol.text()
+        self.settings["pos_risk"] = self.inp_pos_risk.text()
+        self.settings["pos_stop"] = self.inp_pos_stop.text()
+        self.save_settings()
+
+        if hasattr(self, "cells_table"):
+            self.update_cell_volumes()
+
+    def select_position_target_cell(self, cell_num):
+        if not hasattr(self, "pos_target_cell_buttons"):
+            return
+        cell_num = max(1, min(5, int(cell_num)))
+        for idx, btn in enumerate(self.pos_target_cell_buttons, start=1):
+            btn.setChecked(idx == cell_num)
+        self.settings["pos_target_cell"] = cell_num
+        self.save_settings()
+
+    def _set_position_target_row_mask(self, target_row=None):
+        if not hasattr(self, "cells_table") or not hasattr(self, "lbl_cells_count"):
+            return
+
+        cells_count = int(self.lbl_cells_count.text())
+        default_flags = QTableWidgetItem().flags()
+
+        for i in range(cells_count):
+            for col in range(3):
+                item = self.cells_table.item(i, col)
+                if not item:
+                    continue
+
+                if target_row is None:
+                    if col in (0, 1):
+                        item.setFlags(
+                            default_flags
+                            & ~Qt.ItemFlag.ItemIsEditable
+                            & ~Qt.ItemFlag.ItemIsSelectable
+                        )
+                    else:
+                        item.setFlags(default_flags)
+                else:
+                    if i == target_row:
+                        if col in (0, 1):
+                            item.setFlags(
+                                default_flags
+                                & ~Qt.ItemFlag.ItemIsEditable
+                                & ~Qt.ItemFlag.ItemIsSelectable
+                            )
+                        else:
+                            item.setFlags(default_flags)
+                    else:
+                        item.setFlags(Qt.ItemFlag.NoItemFlags)
+
+    def on_position_mode_toggled(self, checked):
+        enabled = bool(checked)
+        self.settings["pos_mode_enabled"] = enabled
+        if not enabled:
+            self.table_volume_override = 0.0
+        self.save_settings()
+
+        pos_controls = []
+        for name in (
+            "inp_pos_vol",
+            "inp_pos_risk",
+            "inp_pos_stop",
+            "btn_move_adjust_to_cell",
+        ):
+            widget = getattr(self, name, None)
+            if widget:
+                pos_controls.append(widget)
+
+        for widget in pos_controls:
+            widget.setEnabled(enabled)
+
+        if hasattr(self, "pos_target_cell_buttons"):
+            for btn in self.pos_target_cell_buttons:
+                btn.setEnabled(enabled)
+                if not enabled:
+                    btn.setChecked(False)
+
+            if enabled:
+                selected_cell = int(self.settings.get("pos_target_cell", 1) or 1)
+                selected_cell = max(1, min(5, selected_cell))
+                for idx, btn in enumerate(self.pos_target_cell_buttons, start=1):
+                    btn.setChecked(idx == selected_cell)
+
+        if hasattr(self, "lbl_pos_vol_hint"):
+            self.lbl_pos_vol_hint.setStyleSheet(
+                "color: #666; font-size: 8pt;"
+                if enabled
+                else "color: #555; font-size: 8pt;"
+            )
+        if hasattr(self, "lbl_pos_risk_cash"):
+            self.lbl_pos_risk_cash.setStyleSheet(
+                "color: #888; font-size: 8pt;"
+                if enabled
+                else "color: #555; font-size: 8pt;"
+            )
+        if hasattr(self, "lbl_pos_adjust"):
+            self.lbl_pos_adjust.setStyleSheet(
+                "color: #888; font-size: 8pt;"
+                if enabled
+                else "color: #555; font-size: 8pt;"
+            )
+
+        self._set_position_target_row_mask(None)
+        self.update_position_adjustment_info()
+
+    def apply_position_adjustment_to_cell(self):
+        if not bool(self.settings.get("pos_mode_enabled", True)):
+            self.lbl_status.setText("Режим позиции выключен")
+            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return
+
+        amount = float(getattr(self, "pos_adjust_delta", 0.0) or 0.0)
+        if amount <= 0:
+            self.lbl_status.setText("Нет суммы для переноса")
+            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return
+
+        total_vol = float(self._get_active_table_total_volume() or 0.0)
+        if total_vol <= 0:
+            self.lbl_status.setText("Сначала получи расчет объема")
+            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return
+
+        cells_count = (
+            int(self.lbl_cells_count.text()) if hasattr(self, "lbl_cells_count") else 0
+        )
+        if cells_count <= 0:
+            self.lbl_status.setText("Нет активных ячеек")
+            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return
+
+        target_percent = max(0, min(100, round((amount / total_vol) * 100)))
+
+        # Переключаемся в ручной режим и записываем сумму в выбранную ячейку
+        if hasattr(self, "cb_distribution"):
+            self.cb_distribution.setCurrentIndex(2)
+
+        self.table_volume_override = float(amount)
+
+        target_cell = int(self.settings.get("pos_target_cell", 1) or 1)
+        target_cell = max(1, min(5, target_cell))
+
+        effective_target = min(target_cell, cells_count)
+        is_reversed = bool(self.settings.get("cells_reversed", False))
+        if is_reversed:
+            target_row = cells_count - effective_target
+        else:
+            target_row = effective_target - 1
+
+        try:
+            self.cells_table.itemChanged.disconnect(self.on_table_item_changed)
+        except Exception:
+            pass
+
+        for i in range(cells_count):
+            item = self.cells_table.item(i, 2)
+            if not item:
+                continue
+            item.setText(str(target_percent if i == target_row else 0))
+
+        self.cells_table.itemChanged.connect(self.on_table_item_changed)
+
+        self.update_cell_volumes()
+        self._set_position_target_row_mask(target_row)
+        self.save_cell_settings()
+
+        action = getattr(self, "pos_adjust_action", None)
+        action_text = "добавки" if action == "add" else "сокращения"
+        self.lbl_status.setText(
+            f"Сумма {action_text} перенесена в Ячейку {effective_target} ({target_percent}%)"
+        )
+        self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
 
     def format_with_abbreviations(self, value, precision):
         """Форматирует число с одним сокращением"""
@@ -526,19 +792,21 @@ class RiskVolumeApp(QMainWindow):
         base_font = int(11 * (self.base_scale / 100.0))
         f_main = max(8, int(base_font * ratio))
         input_font = max(8, int(9 * ratio))
-        f_small = max(6, int(8 * ratio))
+        f_small = max(7, int(8.5 * ratio))
         pad_main = max(4, int(6 * ratio))
         radius_main = max(4, int(6 * ratio))
         self.central_widget.setStyleSheet(
             f"""
             QWidget#Root {{ background: #121212; border: 2px solid #333; border-radius: {int(12*ratio)}px; }}
             QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; }}
+            QLineEdit:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QLineEdit:focus {{ border: 1px solid #FFFFFF; }}
             QLineEdit[ghostFocus="true"] {{ border: 1px solid #FFFFFF; }}
             QLabel {{ color: #888; border: none; font-size: {max(6, f_main-2)}pt; }}
             QPushButton#HeadBtn {{ color: #555; border: none; background: transparent; font-size: {f_main}pt; font-weight: bold; }}
             QPushButton#HeadBtn:hover {{ color: #38BE1D; }}
             QPushButton {{ background: #333; color: white; border: 1px solid #444; border-radius: {max(4, int(4*ratio))}px; font-weight: bold; }}
+            QPushButton:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QPushButton:hover {{ background: #444; border-color: #38BE1D; }}
             QPushButton:pressed {{ background: #38BE1D; color: black; }}
             QComboBox, QSpinBox, QDoubleSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; }}
@@ -553,9 +821,9 @@ class RiskVolumeApp(QMainWindow):
         # Масштабируем размеры элементов равномерно относительно базового масштаба
         if hasattr(self, "main_layout"):
             self.main_layout.setContentsMargins(
-                int(10 * ratio), int(10 * ratio), int(10 * ratio), int(10 * ratio)
+                int(8 * ratio), int(8 * ratio), int(8 * ratio), int(8 * ratio)
             )
-            self.main_layout.setSpacing(int(5 * ratio))
+            self.main_layout.setSpacing(int(4 * ratio))
         if hasattr(self, "header_layout"):
             self.header_layout.setContentsMargins(
                 int(10 * ratio), int(5 * ratio), int(10 * ratio), int(5 * ratio)
@@ -586,7 +854,7 @@ class RiskVolumeApp(QMainWindow):
         for b in [self.btn_set, self.btn_min, self.btn_close]:
             b.setFixedSize(btn_size, btn_size)
 
-        input_height = max(int(26 * ratio), int(12 * ratio + 14))
+        input_height = max(int(24 * ratio), int(11 * ratio + 12))
         if hasattr(self, "inp_dep"):
             self.inp_dep.setFixedHeight(input_height)
         if hasattr(self, "inp_risk"):
@@ -665,7 +933,7 @@ class RiskVolumeApp(QMainWindow):
             )
             self.update_cells_table_height()
 
-        btn_pad = max(5, int(8 * ratio))
+        btn_pad = max(4, int(7 * ratio))
         if hasattr(self, "btn_calib_calc"):
             self.btn_calib_calc.setStyleSheet(
                 f"background: #333; color: white; padding: {btn_pad}px;"
@@ -673,6 +941,10 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "btn_submit"):
             self.btn_submit.setStyleSheet(
                 f"background: #38BE1D; color: black; font-weight: bold; padding: {btn_pad}px;"
+            )
+        if hasattr(self, "chk_pos_mode"):
+            self.chk_pos_mode.setStyleSheet(
+                f"QCheckBox#PosModeToggle {{ background: #38BE1D; color: black; font-weight: bold; padding: {btn_pad}px; border-radius: {radius_main}px; }}"
             )
 
         self.adjustSize()
@@ -1194,10 +1466,21 @@ class RiskVolumeApp(QMainWindow):
         self.update_cell_volumes()
         self.save_cell_settings()
 
+    def _get_active_table_total_volume(self):
+        override = float(getattr(self, "table_volume_override", 0.0) or 0.0)
+        if override > 0:
+            return override
+
+        if bool(self.settings.get("pos_mode_enabled", True)):
+            target = float(getattr(self, "position_target_volume", 0.0) or 0.0)
+            if target > 0:
+                return target
+        return float(getattr(self, "current_vol", 0.0) or 0.0)
+
     def update_cell_volumes(self):
         """Обновляет объемы в каждой ячейке на основе процентов и минимума"""
         cells_count = int(self.lbl_cells_count.text())
-        total_vol = getattr(self, "current_vol", 0)
+        total_vol = self._get_active_table_total_volume()
         p_vol = self.settings.get(
             "prec_vol", 0
         )  # Используем ту же точность что и для основного объема

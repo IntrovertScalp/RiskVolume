@@ -39,13 +39,13 @@ def get_info_html(
 ):
     """HTML-блок для калькулятора, принимает txt_labels (словарь текстов)"""
     return f"""
-    <div style="line-height: 140%;">
+    <div style="line-height: 120%; white-space: nowrap;">
         <span style="color: #888; font-size: {font_size}pt;">{txt_labels['risk_deal']} </span>
-        <b style="color: #FF453A; font-size: {font_size+1}pt;">${smart_format(cash_risk, prec_risk)}</b><br>
-        
+        <b style="color: #FF453A; font-size: {font_size+1}pt;">${smart_format(cash_risk, prec_risk)}</b>
+        <span style="color: #666;">  |  </span>
         <span style="color: #888; font-size: {font_size}pt;">{txt_labels['comm']} </span>
-        <b style="color: #FF9F0A; font-size: {font_size}pt;">${smart_format(comm_usd, prec_fee)}</b><br>
-        
+        <b style="color: #FF9F0A; font-size: {font_size}pt;">${smart_format(comm_usd, prec_fee)}</b>
+        <span style="color: #666;">  |  </span>
         <span style="color: #888; font-size: {font_size}pt;">{txt_labels['lev']} </span>
         <b style="color: #FFFFFF; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>
     </div>
