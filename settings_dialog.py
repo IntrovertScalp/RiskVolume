@@ -294,14 +294,12 @@ class SettingsDialog(QDialog):
         self.prec_risk = QLineEdit(str(parent.settings.get("prec_risk", 2)))
         self.prec_fee = QLineEdit(str(parent.settings.get("prec_fee", 3)))
         self.prec_lev = QLineEdit(str(parent.settings.get("prec_lev", 1)))  # ПЛЕЧО
-        self.prec_min_order = QLineEdit(str(parent.settings.get("prec_min_order", 2)))
 
         for inp in [
             self.prec_dep,
             self.prec_risk,
             self.prec_fee,
             self.prec_lev,
-            self.prec_min_order,
         ]:
             inp.setObjectName("PrecInput")
             inp.setFixedWidth(45)
@@ -373,9 +371,6 @@ class SettingsDialog(QDialog):
         row += 1
         grid.addWidget(QLabel(t["prec_lev"]), row, 0)
         grid.addWidget(self.prec_lev, row, 1)
-        row += 1
-        grid.addWidget(QLabel(t["prec_min_order"]), row, 0)
-        grid.addWidget(self.prec_min_order, row, 1)
         # --- КОНЕЦ ЗАМЕНЫ БЛОКА GRID ---
 
         layout.addLayout(grid)
@@ -475,13 +470,11 @@ class SettingsDialog(QDialog):
         prec_risk = self._safe_int(self.prec_risk.text() or "", 2, 0, 6)
         prec_fee = self._safe_int(self.prec_fee.text() or "", 3, 0, 6)
         prec_lev = self._safe_int(self.prec_lev.text() or "", 1, 0, 6)
-        prec_min_order = self._safe_int(self.prec_min_order.text() or "", 2, 0, 6)
 
         self.prec_dep.setText(str(prec_dep))
         self.prec_risk.setText(str(prec_risk))
         self.prec_fee.setText(str(prec_fee))
         self.prec_lev.setText(str(prec_lev))
-        self.prec_min_order.setText(str(prec_min_order))
         self.parent_window.settings.update(
             {
                 "scale": int(self.cb_scale.currentText()),
@@ -495,7 +488,7 @@ class SettingsDialog(QDialog):
                 "prec_risk": prec_risk,
                 "prec_fee": prec_fee,
                 "prec_lev": prec_lev,
-                "prec_min_order": prec_min_order,
+                "prec_min_order": 0,
                 "settings_pos": current_pos,
                 "lang": "ru" if self.combo_lang.currentIndex() == 0 else "en",
             }

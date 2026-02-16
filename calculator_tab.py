@@ -8,7 +8,6 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QAbstractItemView,
     QStyledItemDelegate,
-    QSizePolicy,
     QCheckBox,
 )
 from PyQt6.QtCore import Qt, QRegularExpression, QTimer
@@ -112,7 +111,7 @@ def init_calculator_tab(app):
     # --- ОБЪЁМ (ПОСЛЕ ИНФОРМАЦИИ) ---
     app.lbl_vol_title = QLabel("...")
     app.lbl_vol_title.setStyleSheet(
-        "color: #888; font-size: 11pt; font-weight: bold; margin-top: 2px;"
+        "color: #888; font-size: 9pt; font-weight: 600; margin-top: 2px;"
     )
     main_layout.addWidget(app.lbl_vol_title)
 
@@ -215,97 +214,38 @@ def init_calculator_tab(app):
 
     main_layout.addLayout(pos_hints_row)
 
-    app.btn_move_adjust_to_cell = QPushButton("Перенести сумму в выбранную ячейку")
-    app.btn_move_adjust_to_cell.setStyleSheet(
-        "font-size: 8pt; padding: 4px; color: #8E8E8E;"
-    )
-    app.btn_move_adjust_to_cell.clicked.connect(app.apply_position_adjustment_to_cell)
-    app.btn_move_adjust_to_cell.setEnabled(False)
-    main_layout.addWidget(app.btn_move_adjust_to_cell)
-
-    target_cells_row = QHBoxLayout()
-    target_cells_row.setSpacing(6)
-    app.pos_target_cell_buttons = []
-    selected_target = int(app.settings.get("pos_target_cell", 1) or 1)
-    selected_target = max(1, min(5, selected_target))
-
-    for cell_num in range(1, 6):
-        btn = QPushButton(f"Ячейка {cell_num}")
-        btn.setCheckable(True)
-        btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        btn.setStyleSheet(
-            "QPushButton { font-size: 8pt; padding: 4px; color: #8E8E8E; }"
-            "QPushButton:checked { background: #38BE1D; color: black; border: 1px solid #38BE1D; }"
-            "QPushButton:checked:disabled { background: #0F0F0F; color: #555; border: 1px solid #222; }"
-        )
-        btn.setChecked(cell_num == selected_target)
-        btn.clicked.connect(
-            lambda checked, n=cell_num: app.select_position_target_cell(n)
-        )
-        app.pos_target_cell_buttons.append(btn)
-        target_cells_row.addWidget(btn)
-
-    main_layout.addLayout(target_cells_row)
-
     # --- НАСТРОЙКА ЯЧЕЕК ---
     cells_header = QHBoxLayout()
 
     # Кнопка переворота таблицы
     app.btn_reverse_cells = QPushButton("⇅")
     app.btn_reverse_cells.setStyleSheet("color: #8E8E8E;")
-    app.btn_reverse_cells.setFixedSize(25, 25)
+    app.btn_reverse_cells.setFixedSize(34, 25)
     app.btn_reverse_cells.setToolTip("Перевернуть порядок ячеек")
     app.btn_reverse_cells.clicked.connect(app.toggle_cells_order)
     cells_header.addWidget(app.btn_reverse_cells)
 
-    lbl_cells = QLabel("Кол-во:")
-    lbl_cells.setStyleSheet("font-size: 8pt;")
-    cells_header.addWidget(lbl_cells)
+    app.btn_move_adjust_to_cell = QPushButton("↪")
+    app.btn_move_adjust_to_cell.setFixedSize(34, 25)
+    app.btn_move_adjust_to_cell.setToolTip("Перенести сумму в выбранные ячейки")
+    app.btn_move_adjust_to_cell.setStyleSheet("color: #8E8E8E;")
+    app.btn_move_adjust_to_cell.clicked.connect(app.apply_position_adjustment_to_cell)
+    app.btn_move_adjust_to_cell.setEnabled(False)
+    cells_header.addWidget(app.btn_move_adjust_to_cell)
 
-    # Кнопка уменьшить
-    app.btn_cells_minus = QPushButton("-")
-    app.btn_cells_minus.setFixedSize(25, 25)
-    app.btn_cells_minus.setStyleSheet("color: #8E8E8E;")
-    app.btn_cells_minus.clicked.connect(app.decrease_cells)
-    cells_header.addWidget(app.btn_cells_minus)
-
-    # Отображение количества (с возможностью прокрутки колесиком)
-    app.lbl_cells_count = QLabel(str(app.settings.get("scalp_cells_count", 4)))
-    app.lbl_cells_count.setStyleSheet(
-        "color: white; font-weight: bold; font-size: 8pt;"
-    )
-    app.lbl_cells_count.setFixedWidth(20)
-    app.lbl_cells_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    # Включаем захват колесика мыши
-    app.lbl_cells_count.installEventFilter(app)
-    cells_header.addWidget(app.lbl_cells_count)
-
-    # Кнопка увеличить
-    app.btn_cells_plus = QPushButton("+")
-    app.btn_cells_plus.setFixedSize(25, 25)
-    app.btn_cells_plus.setStyleSheet("color: #8E8E8E;")
-    app.btn_cells_plus.clicked.connect(app.increase_cells)
-    cells_header.addWidget(app.btn_cells_plus)
+    # Количество ячеек фиксируем на 5, управление теперь только выделением строк
+    app.lbl_cells_count = QLabel("5")
+    app.lbl_cells_count.hide()
 
     # Минимальный ордер
     lbl_min_order = QLabel("Мин.ордер:")
     lbl_min_order.setStyleSheet("font-size: 8pt;")
     cells_header.addWidget(lbl_min_order)
-    min_order_prec = int(app.settings.get("prec_min_order", 2))
-    min_order_val = float(app.settings.get("scalp_min_order", 6))
-    app.inp_min_order = QLineEdit(
-        f"{min_order_val:.{min_order_prec}f}".replace(".", ",")
+    min_order_val = int(float(app.settings.get("scalp_min_order", 6) or 6))
+    app.inp_min_order = QLineEdit(str(min_order_val))
+    app.inp_min_order.setValidator(
+        QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
     )
-    if min_order_prec == 0:
-        app.inp_min_order.setValidator(
-            QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
-        )
-    else:
-        app.inp_min_order.setValidator(
-            QRegularExpressionValidator(
-                QRegularExpression(rf"[0-9]*([.,][0-9]{{0,{min_order_prec}}})?")
-            )
-        )
     app.inp_min_order.setFixedWidth(50)
     app.inp_min_order.setFixedHeight(22)
     app.inp_min_order.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -383,8 +323,8 @@ def init_calculator_tab(app):
             border: none;
         }
         QTableWidget::item:disabled {
-            color: #555;
-            background: #0F0F0F;
+            color: #777;
+            background: #1A1A1A;
         }
         QLineEdit {
             background: #1A1A1A !important;
@@ -417,7 +357,7 @@ def init_calculator_tab(app):
     # --- КНОПКА ВЫСТАВИТЬ ---
     app.btn_submit = QPushButton("ВЫСТАВИТЬ")
     app.btn_submit.setStyleSheet(
-        "background: #38BE1D; color: black; font-weight: bold; padding: 6px;"
+        "background: #38BE1D; color: black; font-weight: bold; padding: 6px 16px 6px 24px;"
     )
     app.btn_submit.clicked.connect(app.send_volume_to_terminal)
     main_layout.addWidget(app.btn_submit)

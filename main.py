@@ -24,7 +24,7 @@ from PyQt6.QtCore import (
     QObject,
     QSharedMemory,
 )
-from PyQt6.QtGui import QIcon, QRegularExpressionValidator
+from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QColor
 
 from config import *
 from settings_dialog import SettingsDialog
@@ -73,6 +73,9 @@ class RiskVolumeApp(QMainWindow):
         self.table_volume_override = float(
             self.settings.get("pos_table_volume_override", 0.0) or 0.0
         )
+        self.selected_transfer_rows = set(
+            int(i) for i in self.settings.get("selected_cells", []) if str(i).isdigit()
+        )
         self.position_target_row_active = None
         self._cells_count_before_target_mode = None
         self._ghost_input = None
@@ -114,7 +117,7 @@ class RiskVolumeApp(QMainWindow):
             "prec_fee": 3,
             "prec_vol": 0,
             "prec_lev": 1,
-            "prec_min_order": 2,
+            "prec_min_order": 0,
             "fee_percent": 0.1,
             "fee_taker": 0.05,
             "fee_maker": 0.05,
@@ -145,6 +148,7 @@ class RiskVolumeApp(QMainWindow):
             "pos_target_cell": 1,
             "pos_mode_enabled": True,
             "pos_table_volume_override": 0.0,
+            "selected_cells": [0],
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -157,6 +161,8 @@ class RiskVolumeApp(QMainWindow):
         for key, val in default.items():
             if key not in self.settings:
                 self.settings[key] = val
+
+        self.settings["prec_min_order"] = 0
 
         if "fee_taker" not in self.settings or "fee_maker" not in self.settings:
             fee_total = float(self.settings.get("fee_percent", 0.1))
@@ -373,11 +379,7 @@ class RiskVolumeApp(QMainWindow):
     # Метод format_deposit_input удален - депозит не форматируется автоматически
 
     def apply_min_order_precision(self):
-        prec_min_order = int(self.settings.get("prec_min_order", 2))
-        if prec_min_order < 0:
-            prec_min_order = 0
-        if prec_min_order > 6:
-            prec_min_order = 6
+        prec_min_order = 0
 
         if hasattr(self, "inp_min_order"):
             if prec_min_order == 0:
@@ -393,9 +395,7 @@ class RiskVolumeApp(QMainWindow):
             except Exception:
                 current_val = float(self.settings.get("scalp_min_order", 6))
 
-            self.inp_min_order.setText(
-                f"{current_val:.{prec_min_order}f}".replace(".", ",")
-            )
+            self.inp_min_order.setText(str(int(round(current_val))))
 
         if hasattr(self, "tab_cascade") and hasattr(
             self.tab_cascade, "apply_min_order_precision"
@@ -770,58 +770,48 @@ class RiskVolumeApp(QMainWindow):
                 else "color: #555; font-size: 8pt;"
             )
 
-        if enabled:
-            if (
-                hasattr(self, "cb_distribution")
-                and int(self.cb_distribution.currentIndex()) == 2
-            ):
-                selected_cell = int(self.settings.get("pos_target_cell", 1) or 1)
-                selected_cell = max(1, min(5, selected_cell))
-                is_reversed = bool(self.settings.get("cells_reversed", False))
-                target_row = 5 - selected_cell if is_reversed else selected_cell - 1
-                self._set_position_target_row_mask(target_row, lock_controls=False)
-            else:
-                self._set_position_target_row_mask(None)
-        else:
-            self._set_position_target_row_mask(None)
+        self._set_position_target_row_mask(None)
         self.update_position_adjustment_info()
 
     def _get_active_rows_for_table(self):
-        if self.position_target_row_active is not None:
-            row = int(self.position_target_row_active)
-            if 0 <= row < 5:
-                if (
-                    hasattr(self, "cb_distribution")
-                    and int(self.cb_distribution.currentIndex()) == 2
-                ):
-                    try:
-                        cells_count = int(
-                            self.settings.get(
-                                "scalp_cells_count", self.lbl_cells_count.text()
-                            )
-                        )
-                    except Exception:
-                        cells_count = int(self.lbl_cells_count.text())
-                    cells_count = max(1, min(5, cells_count))
+        selected_rows = sorted(
+            i for i in getattr(self, "selected_transfer_rows", set()) if 0 <= int(i) < 5
+        )
+        return selected_rows
 
-                    active_rows = [row]
-                    for idx in range(5):
-                        if len(active_rows) >= cells_count:
-                            break
-                        if idx != row:
-                            active_rows.append(idx)
-                    return sorted(active_rows)
+    def _sync_selected_rows_with_cells_count(self):
+        selected = {
+            int(i)
+            for i in getattr(self, "selected_transfer_rows", set())
+            if 0 <= int(i) < 5
+        }
 
-                return [row]
+        self.selected_transfer_rows = selected
+        self.settings["selected_cells"] = sorted(selected)
 
-        try:
-            cells_count = int(
-                self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
-            )
-        except Exception:
-            cells_count = int(self.lbl_cells_count.text())
-        cells_count = max(1, min(5, cells_count))
-        return list(range(cells_count))
+    def _update_selected_rows_visuals(self):
+        if not hasattr(self, "cells_table"):
+            return
+
+        selected = set(self._get_active_rows_for_table())
+        for i in range(5):
+            for col in range(3):
+                item = self.cells_table.item(i, col)
+                if not item:
+                    continue
+
+                if col == 0:
+                    base_text = item.text() or f"Ячейка {i + 1}"
+                    if base_text.startswith("● "):
+                        base_text = base_text[2:]
+                    item.setText(f"● {base_text}" if i in selected else base_text)
+
+                if i in selected:
+                    item.setBackground(QColor("#2f2f2f"))
+                    item.setForeground(QColor("#ffffff"))
+                else:
+                    item.setBackground(QColor("#000000"))
+                    item.setForeground(QColor("#8E8E8E" if col == 0 else "#ffffff"))
 
     def _adapt_window_width_to_content(self):
         if not self.isVisible():
@@ -876,20 +866,17 @@ class RiskVolumeApp(QMainWindow):
 
     def apply_position_adjustment_to_cell(self):
         if not bool(self.settings.get("pos_mode_enabled", True)):
-            self.lbl_status.setText("Режим позиции выключен")
-            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            self._update_status_text()
             return
 
         amount = float(getattr(self, "pos_adjust_delta", 0.0) or 0.0)
         if amount <= 0:
-            self.lbl_status.setText("Нет суммы для переноса")
-            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            self._update_status_text()
             return
 
-        cells_count = int(self.settings.get("scalp_cells_count", 0))
-        if cells_count <= 0:
-            self.lbl_status.setText("Нет активных ячеек")
-            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+        active_rows = self._get_active_rows_for_table()
+        if not active_rows:
+            self._update_status_text()
             return
 
         self.table_volume_override = float(amount)
@@ -901,48 +888,50 @@ class RiskVolumeApp(QMainWindow):
             else 2
         )
 
-        if self.position_target_row_active is not None:
-            self._set_position_target_row_mask(None)
-
         try:
             self.cells_table.itemChanged.disconnect(self.on_table_item_changed)
         except Exception:
             pass
 
+        for i in range(5):
+            item = self.cells_table.item(i, 2)
+            if item:
+                item.setText("0")
+
         if preset_index == 2:
-            target_cell = int(self.settings.get("pos_target_cell", 1) or 1)
-            target_cell = max(1, min(5, target_cell))
-
-            if hasattr(self, "lbl_cells_count"):
-                self.lbl_cells_count.setText("1")
-            self.settings["scalp_cells_count"] = 1
-
-            effective_target = target_cell
-            is_reversed = bool(self.settings.get("cells_reversed", False))
-            if is_reversed:
-                target_row = 5 - effective_target
-            else:
-                target_row = effective_target - 1
-
-            for i in range(5):
-                item = self.cells_table.item(i, 2)
-                if not item:
-                    continue
-                item.setText("100" if i == target_row else "0")
-            self._set_position_target_row_mask(target_row, lock_controls=False)
-            transfer_target = f"ручной режим, Ячейка {effective_target}"
+            count = len(active_rows)
+            base = int(100 / count)
+            remainder = 100 % count
+            for idx, row in enumerate(active_rows):
+                value = base + (1 if idx < remainder else 0)
+                item = self.cells_table.item(row, 2)
+                if item:
+                    item.setText(str(value))
         else:
-            if self.position_target_row_active is not None:
-                self._set_position_target_row_mask(None, lock_controls=False)
-            self._apply_preset_values(preset_index)
-            transfer_target = "выбранный тип распределения"
+            count = len(active_rows)
+            values = []
+            if preset_index == 0:
+                base = int(100 / count)
+                remainder = 100 % count
+                values = [base + (1 if idx < remainder else 0) for idx in range(count)]
+            else:
+                dec = [100, 75, 50, 25, 10]
+                values = dec[:count]
+                if len(values) < count:
+                    values.extend([10] * (count - len(values)))
+
+            for idx, row in enumerate(active_rows):
+                item = self.cells_table.item(row, 2)
+                if item:
+                    item.setText(str(values[idx]))
 
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
 
+        self._update_selected_rows_visuals()
         self.update_cell_volumes()
         self.save_cell_settings()
 
-        self.lbl_status.setText("")
+        self._update_status_text()
 
     def format_with_abbreviations(self, value, precision):
         """Форматирует число с одним сокращением"""
@@ -1251,78 +1240,32 @@ class RiskVolumeApp(QMainWindow):
     def send_volume_to_terminal(self):
         """Отправляет объемы ячеек в терминал"""
         points = self.settings.get("points", [])
-        active_rows = self._get_active_rows_for_table()
-        cells_count = len(active_rows)
+        active_rows = sorted(self._get_active_rows_for_table())
         is_reversed = self.settings.get("cells_reversed", False)
 
-        if cells_count <= 0:
+        if not active_rows:
             return
 
-        if self.position_target_row_active is not None and cells_count == 1:
-            target_row = active_rows[0]
-            vol_item = self.cells_table.item(target_row, 1)
-            vol_to_send = (
-                vol_item.text().replace(" ", "").replace(",", ".")
-                if vol_item and vol_item.text()
-                else "0"
-            )
-
-            configured_count = int(self.settings.get("scalp_cells_count", 1))
-            point_index = (
-                configured_count - 1 - target_row if is_reversed else target_row
-            )
-
+        transfers = []
+        for row in active_rows:
+            point_index = 4 - row if is_reversed else row
             if len(points) <= point_index:
                 self.lbl_status.setText("⚠ Недостаточно калибровочных точек")
                 self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
                 return
 
-            try:
-                old_clip = pyperclip.paste()
-                start_x, start_y = pyautogui.position()
-                self.showMinimized()
-                time.sleep(0.12)
+            vol_item = self.cells_table.item(row, 1)
+            vol_to_send = (
+                vol_item.text().replace(" ", "").replace(",", ".")
+                if vol_item and vol_item.text()
+                else "0"
+            )
+            transfers.append((point_index, vol_to_send))
 
-                pyperclip.copy(vol_to_send)
-                pyautogui.moveTo(
-                    points[point_index][0], points[point_index][1], duration=0.04
-                )
-                pyautogui.click()
-                time.sleep(0.015)
-                pyautogui.click(clicks=2)
-                time.sleep(0.015)
-                keyboard.press_and_release("ctrl+a")
-                time.sleep(0.015)
-                keyboard.press_and_release("backspace")
-                time.sleep(0.015)
-                keyboard.press_and_release("ctrl+v")
-                time.sleep(0.015)
-                keyboard.press_and_release("enter")
-                time.sleep(0.015)
-
-                pyautogui.moveTo(start_x, start_y)
-                pyperclip.copy(old_clip)
-            except Exception as e:
-                print(f"Error: {e}")
+        if not transfers:
             return
 
-        # Читаем объемы из таблицы (как отображаются пользователю)
-        volumes = []
-        for i in active_rows:
-            item = self.cells_table.item(i, 1)
-            if item and item.text():
-                text = item.text().replace(" ", "").replace(",", ".")
-                volumes.append(text)
-            else:
-                volumes.append("0")
-
-        # Если таблица перевернута, переворачиваем и проценты и точки для соответствия
-        if is_reversed:
-            volumes.reverse()
-            points = list(reversed(points[:cells_count])) + points[cells_count:]
-
-        if len(points) < cells_count or self.current_vol <= 0:
-            return
+        transfers.sort(key=lambda x: x[0])
 
         try:
             old_clip = pyperclip.paste()
@@ -1330,10 +1273,11 @@ class RiskVolumeApp(QMainWindow):
             self.showMinimized()
             time.sleep(0.12)
 
-            for i in range(cells_count):
-                vol_to_send = volumes[i] if i < len(volumes) else "0"
+            for point_index, vol_to_send in transfers:
                 pyperclip.copy(vol_to_send)
-                pyautogui.moveTo(points[i][0], points[i][1], duration=0.04)
+                pyautogui.moveTo(
+                    points[point_index][0], points[point_index][1], duration=0.04
+                )
                 pyautogui.click()
                 time.sleep(0.015)
                 pyautogui.click(clicks=2)
@@ -1538,37 +1482,26 @@ class RiskVolumeApp(QMainWindow):
         if (
             not hasattr(self, "cb_distribution")
             or int(self.cb_distribution.currentIndex()) != 2
-            or self.position_target_row_active is None
             or not hasattr(self, "cells_table")
         ):
             return
 
-        active_rows = set(self._get_active_rows_for_table())
         default_flags = QTableWidgetItem().flags()
-
         for i in range(5):
             for col in range(3):
                 item = self.cells_table.item(i, col)
                 if not item:
                     continue
-
-                if i in active_rows:
-                    if col in (0, 1):
-                        item.setFlags(
-                            default_flags
-                            & ~Qt.ItemFlag.ItemIsEditable
-                            & ~Qt.ItemFlag.ItemIsSelectable
-                        )
-                    else:
-                        item.setFlags(default_flags)
+                if col in (0, 1):
+                    item.setFlags(default_flags & ~Qt.ItemFlag.ItemIsEditable)
                 else:
-                    item.setFlags(Qt.ItemFlag.NoItemFlags)
+                    item.setFlags(default_flags)
 
     def toggle_cells_order(self):
         """Переворачивает порядок ячеек в таблице"""
-        cells_count = int(self.lbl_cells_count.text())
+        cells_count = 5
 
-        # Собираем текущие проценты
+        # Собираем текущие проценты для всех 5 строк
         percentages = []
         for i in range(cells_count):
             item = self.cells_table.item(i, 2)
@@ -1603,6 +1536,7 @@ class RiskVolumeApp(QMainWindow):
 
         # Обновляем подписи ячеек
         self.update_cells_labels()
+        self._update_selected_rows_visuals()
 
         # Обновляем расчеты и сохраняем
         self.update_cell_volumes()
@@ -1629,14 +1563,8 @@ class RiskVolumeApp(QMainWindow):
 
             # Ячейка с названием (не редактируется, не выделяется)
             label_item = QTableWidgetItem(f"Ячейка {i + 1}")
-            label_item.setFlags(
-                label_item.flags()
-                & ~Qt.ItemFlag.ItemIsEditable
-                & ~Qt.ItemFlag.ItemIsSelectable
-            )
+            label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             label_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if not is_active:
-                label_item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.cells_table.setItem(i, 0, label_item)
 
             # Ячейка с объемом (не редактируется, не выделяется, рассчитывается)
@@ -1647,15 +1575,11 @@ class RiskVolumeApp(QMainWindow):
                 & ~Qt.ItemFlag.ItemIsSelectable
             )
             volume_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if not is_active:
-                volume_item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.cells_table.setItem(i, 1, volume_item)
 
             # Ячейка с процентом (редактируется только для активных)
             percent_item = QTableWidgetItem("")
             percent_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if not is_active:
-                percent_item.setFlags(Qt.ItemFlag.NoItemFlags)
             self.cells_table.setItem(i, 2, percent_item)
 
         # Обновляем подписи ячеек с учетом порядка
@@ -1663,6 +1587,7 @@ class RiskVolumeApp(QMainWindow):
 
         # Обновляем высоту таблицы, чтобы всегда были видны 5 строк
         self.update_cells_table_height()
+        self._sync_selected_rows_with_cells_count()
 
         # Переприменяем текущий тип распределения
         preset_index = self.cb_distribution.currentIndex()
@@ -1695,6 +1620,8 @@ class RiskVolumeApp(QMainWindow):
                     if percent_item:
                         percent_item.setText(str(saved_multipliers[i]))
             self._apply_manual_active_row_flags()
+
+        self._update_selected_rows_visuals()
 
         # Подключаем сигнал изменения
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
@@ -1763,10 +1690,39 @@ class RiskVolumeApp(QMainWindow):
             self.setFixedSize(self.sizeHint())
 
     def on_table_item_clicked(self, item):
-        """Обработчик клика по ячейке - снимает фокус с колонок 0 и 1"""
+        """Обработчик клика по ячейке: toggle-мультивыбор в колонке 0"""
         self._clear_ghost_focus()
-        if item and item.column() in [0, 1]:
-            # Если кликнули на колонку 0 или 1, сразу снимаем выделение
+        if not item:
+            return
+
+        if item.column() == 0:
+            row = item.row()
+
+            selected = set(getattr(self, "selected_transfer_rows", set()))
+            if row in selected:
+                selected.remove(row)
+            else:
+                selected.add(row)
+
+            self.selected_transfer_rows = selected
+            self.settings["selected_cells"] = sorted(selected)
+
+            preset_index = self.cb_distribution.currentIndex()
+            if preset_index != 2:
+                try:
+                    self.cells_table.itemChanged.disconnect(self.on_table_item_changed)
+                except Exception:
+                    pass
+                self._apply_preset_values(preset_index)
+                self.cells_table.itemChanged.connect(self.on_table_item_changed)
+
+            self._update_selected_rows_visuals()
+            self.update_cell_volumes()
+            self.save_cell_settings()
+
+            self.cells_table.clearSelection()
+            self.cells_table.setCurrentItem(None)
+        elif item.column() == 1:
             self.cells_table.clearSelection()
             self.cells_table.setCurrentItem(None)
 
@@ -1790,9 +1746,13 @@ class RiskVolumeApp(QMainWindow):
 
     def _apply_preset_values(self, preset_index):
         """Применяет значения выбранного пресета"""
-        cells_count = int(self.lbl_cells_count.text())
+        active_rows = self._get_active_rows_for_table()
+        cells_count = len(active_rows)
 
         if preset_index == 2:  # Вручную
+            return
+
+        if cells_count <= 0:
             return
 
         presets = {
@@ -1815,15 +1775,11 @@ class RiskVolumeApp(QMainWindow):
         elif preset == "decreasing":
             values = [100, 75, 50, 25, 10][:cells_count]
 
-        is_reversed = self.settings.get("cells_reversed", False)
-        if is_reversed:
-            values.reverse()
-
         # Применяем значения
-        for i in range(cells_count):
-            item = self.cells_table.item(i, 2)
+        for idx, row in enumerate(active_rows):
+            item = self.cells_table.item(row, 2)
             if item:
-                item.setText(str(values[i]))
+                item.setText(str(values[idx]))
 
     def apply_distribution_preset(self):
         """Применяет выбранную предустановку распределения"""
@@ -1854,6 +1810,7 @@ class RiskVolumeApp(QMainWindow):
 
         # Сохраняем выбранный тип и всё остальное
         self.settings["scalp_distribution_type"] = preset_index
+        self._update_selected_rows_visuals()
         self.update_cell_volumes()
         self.save_cell_settings()  # This calls save_settings() internally
 
@@ -1883,6 +1840,7 @@ class RiskVolumeApp(QMainWindow):
         except:
             min_order = 6
 
+        self.cells_table.blockSignals(True)
         for i in range(5):
             volume_item = self.cells_table.item(i, 1)
             percent_item = self.cells_table.item(i, 2)
@@ -1893,9 +1851,8 @@ class RiskVolumeApp(QMainWindow):
             if i in active_rows and percent_item:
                 try:
                     percent = float(percent_item.text() or 0)
-                    volume = max(
-                        min_order, (total_vol * percent) / 100.0
-                    )  # Не меньше минимума
+                    raw_volume = (total_vol * percent) / 100.0
+                    volume = max(min_order, raw_volume)  # Не меньше минимума
                     # Форматируем с той же точностью что и основной объем
                     volume_item.setText(
                         f"{volume:,.{p_vol}f}".replace(",", " ").replace(".", ",")
@@ -1904,9 +1861,12 @@ class RiskVolumeApp(QMainWindow):
                     volume_item.setText("0")
             else:
                 volume_item.setText("")
+                if percent_item:
+                    percent_item.setText("")
 
             # Сохраняем минимум в настройки
             self.settings["scalp_min_order"] = min_order
+        self.cells_table.blockSignals(False)
 
     def on_min_order_changed(self):
         """Вызывается при нажатии Enter в поле минимального ордера"""
