@@ -383,14 +383,15 @@ class RiskVolumeApp(QMainWindow):
         """
         )
 
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
         self.tab_calculator = QWidget()
         self.init_calculator_tab()
         self.tab_calculator.installEventFilter(self)
-        self.tabs.addTab(self.tab_calculator, "Калькулятор")
+        self.tabs.addTab(self.tab_calculator, t.get("tab_calc", "Калькулятор"))
 
         self.tab_cascade = CascadeTab(self)
         self.tab_cascade.installEventFilter(self)
-        self.tabs.addTab(self.tab_cascade, "Каскады (Profit Forge)")
+        self.tabs.addTab(self.tab_cascade, t.get("tab_casc", "Каскады"))
         self.installEventFilter(self)
 
         self.tabs.currentChanged.connect(self.on_tab_changed)
@@ -422,6 +423,58 @@ class RiskVolumeApp(QMainWindow):
         self.lbl_vol_title.setText(t["vol"])
         self.tabs.setTabText(0, t.get("tab_calc", "Калькулятор"))
         self.tabs.setTabText(1, t.get("tab_casc", "Каскады"))
+        self.refresh_calculator_labels()
+        if hasattr(self, "tab_cascade"):
+            self.tab_cascade.refresh_labels()
+
+    def refresh_calculator_labels(self):
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        if hasattr(self, "chk_pos_mode"):
+            self.chk_pos_mode.setText(t["calc_pos_mode"])
+        if hasattr(self, "lbl_pos_vol_title"):
+            self.lbl_pos_vol_title.setText(t["calc_in_position"])
+        if hasattr(self, "lbl_pos_risk_title"):
+            self.lbl_pos_risk_title.setText(t["calc_risk_percent"])
+        if hasattr(self, "lbl_pos_stop_title"):
+            self.lbl_pos_stop_title.setText(t["calc_stop_percent"])
+        if hasattr(self, "lbl_pos_adjust"):
+            self.lbl_pos_adjust.setText(t["calc_recommendation"])
+        if hasattr(self, "btn_reverse_cells"):
+            self.btn_reverse_cells.setToolTip(t["calc_reverse_cells"])
+        if hasattr(self, "btn_move_adjust_to_cell"):
+            self.btn_move_adjust_to_cell.setToolTip(t["calc_move_adjust"])
+        if hasattr(self, "btn_toggle_all_cells"):
+            self.btn_toggle_all_cells.setText(t["calc_toggle_all_btn"])
+            self.btn_toggle_all_cells.setToolTip(t["calc_toggle_all"])
+        if hasattr(self, "lbl_min_order_title"):
+            self.lbl_min_order_title.setText(t["calc_min_order"])
+        if hasattr(self, "lbl_calc_type_title"):
+            self.lbl_calc_type_title.setText(t["calc_type"])
+        if hasattr(self, "cb_distribution"):
+            current_idx = self.cb_distribution.currentIndex()
+            self.cb_distribution.blockSignals(True)
+            self.cb_distribution.clear()
+            self.cb_distribution.addItems(
+                [
+                    t["calc_dist_uniform"],
+                    t["calc_dist_desc"],
+                    t["calc_dist_manual"],
+                ]
+            )
+            self.cb_distribution.setCurrentIndex(max(0, current_idx))
+            self.cb_distribution.blockSignals(False)
+        if hasattr(self, "cells_table"):
+            self.cells_table.setHorizontalHeaderLabels(
+                [
+                    t["calc_table_cells"],
+                    t["calc_table_volumes"],
+                    t["calc_table_percent"],
+                ]
+            )
+        if hasattr(self, "btn_submit"):
+            self.btn_submit.setText(t["calc_apply"])
+        self.update_position_adjustment_info()
+        self.update_calibration_status()
 
     # Метод format_deposit_input удален - депозит не форматируется автоматически
 
@@ -522,10 +575,11 @@ class RiskVolumeApp(QMainWindow):
             self.table_volume_override = 0.0
             self.pos_adjust_delta = 0.0
             self.pos_adjust_action = None
-            self.lbl_pos_adjust.setText("Режим позиции выключен")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(t["pos_mode_off"])
             self.lbl_pos_adjust.setStyleSheet("color: #555; font-size: 7pt;")
             if hasattr(self, "lbl_pos_risk_cash"):
-                self.lbl_pos_risk_cash.setText("Риск сделки в $: —")
+                self.lbl_pos_risk_cash.setText(t["pos_risk_cash_na"])
                 self.lbl_pos_risk_cash.setStyleSheet("color: #555; font-size: 7pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
@@ -558,10 +612,11 @@ class RiskVolumeApp(QMainWindow):
             pos_stop = 0.0
 
         if pos_risk <= 0:
-            self.lbl_pos_adjust.setText("Рекомендация: укажи Риск сделки % > 0")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(t["pos_rec_risk"])
             self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
             if hasattr(self, "lbl_pos_risk_cash"):
-                self.lbl_pos_risk_cash.setText("Риск сделки в $: укажи Риск сделки %")
+                self.lbl_pos_risk_cash.setText(t["pos_risk_cash_need"])
                 self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
@@ -577,10 +632,14 @@ class RiskVolumeApp(QMainWindow):
         risk_cash_text = f"{risk_cash:,.{p_risk}f}".replace(",", " ").replace(".", ",")
 
         if pos_stop <= 0:
-            self.lbl_pos_adjust.setText("Рекомендация: укажи Стоп % > 0")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(t["pos_rec_stop"])
             self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
             if hasattr(self, "lbl_pos_risk_cash"):
-                self.lbl_pos_risk_cash.setText(f"Риск сделки в $: {risk_cash_text}")
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_pos_risk_cash.setText(
+                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
@@ -598,10 +657,14 @@ class RiskVolumeApp(QMainWindow):
                 pos_vol, pos_risk, pos_stop, f_perc
             )
         except Exception:
-            self.lbl_pos_adjust.setText("Рекомендация: ошибка расчета")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(t["pos_calc_error"])
             self.lbl_pos_adjust.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             if hasattr(self, "lbl_pos_risk_cash"):
-                self.lbl_pos_risk_cash.setText(f"Риск сделки в $: {risk_cash_text}")
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_pos_risk_cash.setText(
+                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
@@ -620,11 +683,15 @@ class RiskVolumeApp(QMainWindow):
             self.pos_adjust_action = "add"
             delta_text = f"{delta:,.{p_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_pos_risk_cash.setText(
-                    f"Риск сделки в $: {risk_cash_text}   |   Добор: {delta_text}"
+                    t["pos_add"].format(risk_cash=risk_cash_text, delta=delta_text)
                 )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
-            self.lbl_pos_adjust.setText(f"| Целевой объём: {target_vol_text}")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(
+                t["pos_target_vol"].format(target=target_vol_text)
+            )
             self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
@@ -633,21 +700,29 @@ class RiskVolumeApp(QMainWindow):
             self.pos_adjust_action = "reduce"
             delta_text = f"{abs(delta):,.{p_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_pos_risk_cash.setText(
-                    f"Риск сделки в $: {risk_cash_text}   |   Сокращение: {delta_text}"
+                    t["pos_reduce"].format(risk_cash=risk_cash_text, delta=delta_text)
                 )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
-            self.lbl_pos_adjust.setText(f"| Целевой объём: {target_vol_text}")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(
+                t["pos_target_vol"].format(target=target_vol_text)
+            )
             self.lbl_pos_adjust.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
         else:
             if hasattr(self, "lbl_pos_risk_cash"):
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_pos_risk_cash.setText(
-                    f"Риск сделки в $: {risk_cash_text}   |   Позиция в лимите риска"
+                    t["pos_in_limit"].format(risk_cash=risk_cash_text)
                 )
                 self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
-            self.lbl_pos_adjust.setText(f"| Целевой объём: {target_vol_text}")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(
+                t["pos_target_vol"].format(target=target_vol_text)
+            )
             self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
@@ -855,7 +930,8 @@ class RiskVolumeApp(QMainWindow):
                     continue
 
                 if col == 0:
-                    base_text = item.text() or f"Ячейка {i + 1}"
+                    t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                    base_text = item.text() or t["calc_cell_label"].format(num=i + 1)
                     if base_text.startswith("● "):
                         base_text = base_text[2:]
                     item.setText(base_text)
@@ -1035,16 +1111,17 @@ class RiskVolumeApp(QMainWindow):
     def format_with_abbreviations(self, value, precision):
         """Форматирует число с одним сокращением"""
         try:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             # Основное форматированное значение
             main = f"{value:,.{precision}f}".replace(",", " ").replace(".", ",")
 
             # Одно сокращение
             if value >= 1_000_000_000:
-                abbr = f"{value / 1_000_000_000:.1f}млрд"
+                abbr = f"{value / 1_000_000_000:.1f}{t['abbr_billion']}"
             elif value >= 1_000_000:
-                abbr = f"{value / 1_000_000:.1f}млн"
+                abbr = f"{value / 1_000_000:.1f}{t['abbr_million']}"
             elif value >= 1_000:
-                abbr = f"{value / 1_000:.0f}к"
+                abbr = f"{value / 1_000:.0f}{t['abbr_thousand']}"
             else:
                 return main
 
@@ -1055,6 +1132,7 @@ class RiskVolumeApp(QMainWindow):
     def format_hint_no_decimals(self, value):
         """Формат подсказок без дробной части и без зависимости от настроек точности."""
         try:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             value = float(value)
             main = f"{value:,.0f}".replace(",", " ")
 
@@ -1063,11 +1141,11 @@ class RiskVolumeApp(QMainWindow):
                 return f"{short}{suffix}"
 
             if abs(value) >= 1_000_000_000:
-                abbr = fmt_abbr(value, 1_000_000_000, "млрд")
+                abbr = fmt_abbr(value, 1_000_000_000, t["abbr_billion"])
             elif abs(value) >= 1_000_000:
-                abbr = fmt_abbr(value, 1_000_000, "млн")
+                abbr = fmt_abbr(value, 1_000_000, t["abbr_million"])
             elif abs(value) >= 1_000:
-                abbr = fmt_abbr(value, 1_000, "к")
+                abbr = fmt_abbr(value, 1_000, t["abbr_thousand"])
             else:
                 return main
 
@@ -1317,9 +1395,8 @@ class RiskVolumeApp(QMainWindow):
             self.save_settings()
             self.calc_calibration_active = False
             hk_coords = self.settings.get("hk_coords", "f2").upper()
-            self.lbl_status.setText(
-                f"Калибровка сброшена. Нажми {hk_coords}, чтобы начать заново"
-            )
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_status.setText(t["calc_calib_reset"].format(hotkey=hk_coords))
             self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             return True
 
@@ -1356,7 +1433,8 @@ class RiskVolumeApp(QMainWindow):
         for row in active_rows:
             point_index = 4 - row if is_reversed else row
             if len(points) <= point_index:
-                self.lbl_status.setText("⚠ Недостаточно калибровочных точек")
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_status.setText(t["calc_not_enough_points"])
                 self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
                 return
 
@@ -1412,9 +1490,8 @@ class RiskVolumeApp(QMainWindow):
         points = self.settings.get("points", [])
         if len(points) >= cells_count:
             self.calc_calibration_active = False
-            self.lbl_status.setText(
-                f"✓ Калибровка уже есть: {cells_count} ячеек (общая для всех режимов)"
-            )
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_status.setText(t["calc_calib_exists"].format(cells=cells_count))
             self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
             self.update_calibration_status()
             return
@@ -1422,18 +1499,10 @@ class RiskVolumeApp(QMainWindow):
         self.calc_calibration_active = True
 
         # Показываем подробную инструкцию
-        instruction = f"""Калибровка активирована!
-        
-Нужно захватить {cells_count} ячейку(ек) с объемами в терминале:
-        
-1. Откройте стакан в терминале
-2. Локализируйте поле ввода объема в стакане
-3. Нажимайте {hk_coords} последовательно на каждое поле объема
-   ({cells_count} раз всего - для каждой ячейки)
-4. После захвата всех ячеек статус<br/>   изменится на "готово к работе"
-        
-Объемы находятся внутри стакана терминала
-в правой части экрана."""
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        instruction = t["calc_calib_instruction"].format(
+            cells=cells_count, hotkey=hk_coords
+        )
 
         self.lbl_status.setText(instruction)
         self.lbl_status.setStyleSheet(
@@ -1457,8 +1526,9 @@ class RiskVolumeApp(QMainWindow):
                 self.save_settings()
                 self.calc_calibration_active = True
                 hk_coords = self.settings.get("hk_coords", "f2").upper()
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_status.setText(
-                    f"Калибровка сброшена. Нажимай {hk_coords} для нового захвата"
+                    t["calc_calib_reset_short"].format(hotkey=hk_coords)
                 )
                 self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
                 return
@@ -1500,21 +1570,20 @@ class RiskVolumeApp(QMainWindow):
 
         if points_count == 0:
             if self.calc_calibration_active:
-                self.lbl_status.setText(
-                    f"⚠ Калибровка активна: нажимай {hk_coords} на полях объема"
-                )
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_status.setText(t["calc_calib_active"].format(hotkey=hk_coords))
                 self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             else:
                 self.lbl_status.setText("")
         elif points_count < cells_count:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_status.setText(
-                f"⚡ Захвачено {points_count} из {cells_count} ячеек"
+                t["calc_calib_progress"].format(points=points_count, cells=cells_count)
             )
             self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
         else:
-            self.lbl_status.setText(
-                f"✓ Захвачено {cells_count} ячеек (готово к работе)"
-            )
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_status.setText(t["calc_calib_ready"].format(cells=cells_count))
             self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
 
     def increase_cells(self):

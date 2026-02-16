@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
 from PyQt6.QtGui import QRegularExpressionValidator
+from translations import TRANS
 
 
 class CascadeWorker(QThread):
@@ -308,6 +309,11 @@ class CascadeTab(QWidget):
         self.apply_active = False
         self.init_ui()
 
+    def _t(self, key, **kwargs):
+        t = TRANS.get(self.main.settings.get("lang", "ru"), TRANS["ru"])
+        text = t.get(key, "")
+        return text.format(**kwargs) if kwargs else text
+
     def _wrap_spinbox(self, spinbox):
         wrap = QFrame()
         wrap.setObjectName("SpinWrap")
@@ -344,6 +350,7 @@ class CascadeTab(QWidget):
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
+        t = TRANS.get(self.main.settings.get("lang", "ru"), TRANS["ru"])
 
         # --- Стили для этого окна ---
         self.setStyleSheet(
@@ -423,7 +430,7 @@ class CascadeTab(QWidget):
         )
 
         # --- БЛОК 1: Объем ---
-        gb_vol = QGroupBox("1. Общий объем каскада")
+        self.gb_vol = QGroupBox(t["casc_block1"])
         l_vol = QVBoxLayout()
 
         num_validator = QRegularExpressionValidator(
@@ -443,7 +450,7 @@ class CascadeTab(QWidget):
 
         self.group_btns[3].setChecked(True)  # 100% по умолчанию
 
-        self.btn_use_custom_percent = QPushButton("Свой %")
+        self.btn_use_custom_percent = QPushButton(t["casc_custom_percent"])
         self.btn_use_custom_percent.setCheckable(True)
         self.btn_use_custom_percent.setProperty("class", "percBtn")
         self.btn_use_custom_percent.setObjectName("percBtn")
@@ -472,7 +479,7 @@ class CascadeTab(QWidget):
                 btn.setChecked(False)
 
         h_source = QHBoxLayout()
-        self.btn_use_custom_vol = QPushButton("Свой объём")
+        self.btn_use_custom_vol = QPushButton(t["casc_custom_volume"])
         self.btn_use_custom_vol.setCheckable(True)
         self.btn_use_custom_vol.setProperty("class", "percBtn")
         self.btn_use_custom_vol.setObjectName("percBtn")
@@ -498,7 +505,7 @@ class CascadeTab(QWidget):
 
         self.set_custom_vol_enabled(self.btn_use_custom_vol.isChecked())
 
-        self.lbl_total_vol = QLabel("Итого в каскад: 0 $")
+        self.lbl_total_vol = QLabel(t["casc_total"].format(total="0"))
         self.lbl_total_vol.setStyleSheet(
             "color: #FF9F0A; font-weight: bold; font-size: 11pt; margin-top: 5px;"
         )
@@ -517,18 +524,18 @@ class CascadeTab(QWidget):
         l_vol.addWidget(self.lbl_custom_total_hint)
         l_vol.addWidget(self.lbl_total_vol)
         l_vol.addWidget(self.lbl_total_vol_hint)
-        gb_vol.setLayout(l_vol)
-        layout.addWidget(gb_vol)
+        self.gb_vol.setLayout(l_vol)
+        layout.addWidget(self.gb_vol)
 
         # --- БЛОК 2: Настройки (Сетка исправлена) ---
-        gb_set = QGroupBox("2. Настройки расстановки")
+        self.gb_set = QGroupBox(t["casc_block2"])
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)  # Отступ между колонками
         grid.setVerticalSpacing(8)
 
         # Используем QLabel с wordWrap, чтобы текст переносился если что
-        l1 = QLabel("Кол-во:")
-        grid.addWidget(l1, 0, 0)
+        self.lbl_count_title = QLabel(t["casc_count"])
+        grid.addWidget(self.lbl_count_title, 0, 0)
         self.sb_count = QSpinBox()
         self.sb_count.setRange(2, 20)
         saved_count = int(self.main.settings.get("last_cascade_count", 5) or 5)
@@ -541,8 +548,8 @@ class CascadeTab(QWidget):
         self.sb_count_wrap = self._wrap_spinbox(self.sb_count)
         grid.addWidget(self.sb_count_wrap, 0, 1)
 
-        l2 = QLabel("Мин.ордер ($):")
-        grid.addWidget(l2, 0, 2)
+        self.lbl_min_order_title = QLabel(t["casc_min_order"])
+        grid.addWidget(self.lbl_min_order_title, 0, 2)
         self.sb_min = QDoubleSpinBox()
         self.sb_min.setRange(1, 1000)
         min_order_prec = int(self.main.settings.get("prec_min_order", 2))
@@ -559,22 +566,22 @@ class CascadeTab(QWidget):
         grid.addWidget(self.sb_min_wrap, 0, 3)
 
         # Подсказка под Кол-во (новая строка 1)
-        self.lbl_count_hint = QLabel("Макс: ? ячеек")
+        self.lbl_count_hint = QLabel(t["casc_max_cells"].format(max="?"))
         self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
         self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
         grid.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
 
-        l3 = QLabel("Тип:")
-        grid.addWidget(l3, 1, 2)
+        self.lbl_type_title = QLabel(t["casc_type"])
+        grid.addWidget(self.lbl_type_title, 1, 2)
         self.cb_type = QComboBox()
         # Сократим названия, чтобы влазили
         self.cb_type.addItems(
             [
-                "Равномерно",
-                "Матрешка x1.2",
-                "Матрешка x1.5",
-                "Агрессивно x2",
-                "Ручной k",
+                t["casc_type_uniform"],
+                t["casc_type_matr_12"],
+                t["casc_type_matr_15"],
+                t["casc_type_aggr_2"],
+                t["casc_type_manual"],
             ]
         )
         saved_type = int(self.main.settings.get("cas_type_index", 0) or 0)
@@ -584,7 +591,7 @@ class CascadeTab(QWidget):
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
         grid.addWidget(self.cb_type, 1, 3)
 
-        self.lbl_manual_k = QLabel("k (ручной):")
+        self.lbl_manual_k = QLabel(t["casc_manual_k"])
         grid.addWidget(self.lbl_manual_k, 2, 2)
         self.sb_manual_k = QDoubleSpinBox()
         self.sb_manual_k.setRange(0.01, 1000.0)
@@ -602,8 +609,8 @@ class CascadeTab(QWidget):
         self.sb_manual_k_wrap = self._wrap_spinbox(self.sb_manual_k)
         grid.addWidget(self.sb_manual_k_wrap, 2, 3)
 
-        l4 = QLabel("Шаг (%):")
-        grid.addWidget(l4, 3, 2)
+        self.lbl_step_title = QLabel(t["casc_step"])
+        grid.addWidget(self.lbl_step_title, 3, 2)
         self.sb_dist = QDoubleSpinBox()
         self.sb_dist.setRange(0.001, 10.0)
         self.sb_dist.setDecimals(2)
@@ -618,8 +625,8 @@ class CascadeTab(QWidget):
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
         grid.addWidget(self.sb_dist_wrap, 3, 3)
 
-        l5 = QLabel("Ширина диапазона (%):")
-        grid.addWidget(l5, 3, 0)
+        self.lbl_range_title = QLabel(t["casc_range"])
+        grid.addWidget(self.lbl_range_title, 3, 0)
         self.sb_range_width = QDoubleSpinBox()
         self.sb_range_width.setRange(0.0, 100.0)
         self.sb_range_width.setDecimals(2)
@@ -660,13 +667,15 @@ class CascadeTab(QWidget):
         self.group_btns[2].clicked.connect(self.recalc_table)
         self.group_btns[3].clicked.connect(self.recalc_table)
 
-        gb_set.setLayout(grid)
-        layout.addWidget(gb_set)
+        self.gb_set.setLayout(grid)
+        layout.addWidget(self.gb_set)
 
         # --- БЛОК 3: Таблица (Исправлено обрезание) ---
         self.table = QTableWidget()
         self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Объем ($)", "Дистанция (%)"])
+        self.table.setHorizontalHeaderLabels(
+            [t["casc_table_vol"], t["casc_table_dist"]]
+        )
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
@@ -686,7 +695,7 @@ class CascadeTab(QWidget):
         layout.addWidget(self.table, 1)
 
         # --- БЛОК 4: Кнопка выставления ---
-        self.btn_apply = QPushButton("ВЫСТАВИТЬ")
+        self.btn_apply = QPushButton(t["casc_apply"])
         self.btn_apply.setStyleSheet(
             "background: #38BE1D; color: black; font-weight: bold; padding: 8px; font-size: 10pt;"
         )
@@ -694,7 +703,7 @@ class CascadeTab(QWidget):
         layout.addWidget(self.btn_apply)
 
         # Статус (с переносом текста)
-        self.lbl_status = QLabel("Нужна калибровка (12 шагов)")
+        self.lbl_status = QLabel(t["casc_status_need"])
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_status.setWordWrap(True)  # <-- ВАЖНО: Текст будет переноситься
         self.lbl_status.setStyleSheet(
@@ -705,6 +714,39 @@ class CascadeTab(QWidget):
         # Применяем масштабирование под текущий размер интерфейса
         self.apply_scale()
         self.on_type_changed(self.cb_type.currentIndex())
+        self._refresh_calibration_status()
+
+    def refresh_labels(self):
+        t = TRANS.get(self.main.settings.get("lang", "ru"), TRANS["ru"])
+        self.gb_vol.setTitle(t["casc_block1"])
+        self.gb_set.setTitle(t["casc_block2"])
+        self.btn_use_custom_percent.setText(t["casc_custom_percent"])
+        self.btn_use_custom_vol.setText(t["casc_custom_volume"])
+        self.lbl_count_title.setText(t["casc_count"])
+        self.lbl_min_order_title.setText(t["casc_min_order"])
+        self.lbl_type_title.setText(t["casc_type"])
+        self.lbl_manual_k.setText(t["casc_manual_k"])
+        self.lbl_step_title.setText(t["casc_step"])
+        self.lbl_range_title.setText(t["casc_range"])
+        current_idx = self.cb_type.currentIndex()
+        self.cb_type.blockSignals(True)
+        self.cb_type.clear()
+        self.cb_type.addItems(
+            [
+                t["casc_type_uniform"],
+                t["casc_type_matr_12"],
+                t["casc_type_matr_15"],
+                t["casc_type_aggr_2"],
+                t["casc_type_manual"],
+            ]
+        )
+        self.cb_type.setCurrentIndex(max(0, current_idx))
+        self.cb_type.blockSignals(False)
+        self.table.setHorizontalHeaderLabels(
+            [t["casc_table_vol"], t["casc_table_dist"]]
+        )
+        self.btn_apply.setText(t["casc_apply"])
+        self.recalc_table()
         self._refresh_calibration_status()
 
     def _clear_input_focus(self):
@@ -1114,7 +1156,9 @@ class CascadeTab(QWidget):
         if p_vol > 6:
             p_vol = 6
 
-        self.lbl_total_vol.setText(f"Итого в каскад: {total_vol:.{p_dep}f} $")
+        self.lbl_total_vol.setText(
+            self._t("casc_total", total=f"{total_vol:.{p_dep}f}")
+        )
         if hasattr(self, "lbl_total_vol_hint"):
             self.lbl_total_vol_hint.setText(
                 self.main.format_hint_no_decimals(total_vol)
@@ -1187,7 +1231,7 @@ class CascadeTab(QWidget):
             final_volumes = [vol_per_cell for _ in range(count)]
 
             # Подсказка для равномерного
-            hint_text = f"Макс: {max_possible} ячеек"
+            hint_text = self._t("casc_max_cells", max=max_possible)
             self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
@@ -1217,7 +1261,7 @@ class CascadeTab(QWidget):
             final_volumes = [scale * min_size * (mult**i) for i in range(count)]
 
             # Подсказка для матрешки с максимумом
-            hint_text = f"Макс: {max_possible} ячеек"
+            hint_text = self._t("casc_max_cells", max=max_possible)
             self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
@@ -1281,9 +1325,7 @@ class CascadeTab(QWidget):
         self.calib_hotkey = self.main.settings.get("hk_coords", "f2").lower()
         hotkey_display = self.calib_hotkey.upper().replace("+", " + ")
 
-        self.lbl_status.setText(
-            f"1. Наведи на ШЕСТЕРЕНКУ настроек -> нажми {hotkey_display}"
-        )
+        self.lbl_status.setText(self._t("casc_step_1", hotkey=hotkey_display))
         self.lbl_status.setStyleSheet("color: cyan;")
         self.calib_active = True
         self.calib_step = 1
@@ -1317,9 +1359,7 @@ class CascadeTab(QWidget):
         hotkey_display = (
             self.main.settings.get("hk_coords", "f2").upper().replace("+", " + ")
         )
-        self.lbl_status.setText(
-            f"Калибровка сброшена. Нажми {hotkey_display}, чтобы начать заново"
-        )
+        self.lbl_status.setText(self._t("casc_calib_reset", hotkey=hotkey_display))
         self.lbl_status.setStyleSheet("color: #FF9F0A;")
         return True
 
@@ -1331,73 +1371,51 @@ class CascadeTab(QWidget):
 
         if self.calib_step == 1:
             self.main.settings["cas_p_gear"] = [x, y]
-            self.lbl_status.setText(
-                f"2. Наведи на ЛЕВЫЙ ПОЛЗУНОК -> {hotkey_display} (потяни в самый низ)"
-            )
+            self.lbl_status.setText(self._t("casc_step_2", hotkey=hotkey_display))
 
         elif self.calib_step == 2:
             self.main.settings["cas_p_left_scrollbar"] = [x, y]
-            self.lbl_status.setText(f"3. Наведи на 'КНИГА ЗАЯВОК' -> {hotkey_display}")
+            self.lbl_status.setText(self._t("casc_step_3", hotkey=hotkey_display))
 
         elif self.calib_step == 3:
             self.main.settings["cas_p_book"] = [x, y]
-            self.lbl_status.setText(
-                f"4. Наведи на ПРАВЫЙ ПОЛЗУНОК -> {hotkey_display} (потяни в самый низ)"
-            )
+            self.lbl_status.setText(self._t("casc_step_4", hotkey=hotkey_display))
 
         elif self.calib_step == 4:
             self.main.settings["cas_p_scrollbar"] = [x, y]
-            self.lbl_status.setText(
-                f"5. Установи 2 ячейки в каскадах, затем наведи на ОБЪЕМ 1-й строки -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_5", hotkey=hotkey_display))
 
         elif self.calib_step == 5:
             self.main.settings["cas_p_vol1"] = [x, y]
-            self.lbl_status.setText(
-                f"6. Наведи на ДИСТАНЦИЮ 1-й строки -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_6", hotkey=hotkey_display))
 
         elif self.calib_step == 6:
             self.main.settings["cas_p_dist1"] = [x, y]
-            self.lbl_status.setText(
-                f"7. Наведи на ОБЪЕМ 2-й строки -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_7", hotkey=hotkey_display))
 
         elif self.calib_step == 7:
             self.main.settings["cas_p_vol2"] = [x, y]
-            self.lbl_status.setText(
-                f"8. Наведи на ДИСТАНЦИЮ 2-й строки -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_8", hotkey=hotkey_display))
 
         elif self.calib_step == 8:
             self.main.settings["cas_p_dist2"] = [x, y]
-            self.lbl_status.setText(
-                f"9. Наведи на ПЛЮС (+) именно второй строки -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_9", hotkey=hotkey_display))
 
         elif self.calib_step == 9:
             self.main.settings["cas_p_btn_add"] = [x, y]
-            self.lbl_status.setText(
-                f"10. Наведи на МИНУС (-) второй строки -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_10", hotkey=hotkey_display))
 
         elif self.calib_step == 10:
             self.main.settings["cas_p_btn_del"] = [x, y]
-            self.lbl_status.setText(
-                f"11. Наведи на окно выбора торгового объема/свое значение -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_11", hotkey=hotkey_display))
 
         elif self.calib_step == 11:
             self.main.settings["cas_p_combo_vol"] = [x, y]
-            self.lbl_status.setText(
-                f"12. Наведи на крестик закрытия окна настроек -> {hotkey_display}"
-            )
+            self.lbl_status.setText(self._t("casc_step_12", hotkey=hotkey_display))
 
         elif self.calib_step == 12:
             self.main.settings["cas_p_close_x"] = [x, y]
-            self.lbl_status.setText(
-                "✓ Калибровка завершена! Настройки сохранены. Удали вторую ячейку и оставь только одну."
-            )
+            self.lbl_status.setText(self._t("casc_calib_done"))
             self.lbl_status.setStyleSheet("color: #38BE1D;")
             self.main.save_settings()
             self.calib_active = False
@@ -1424,7 +1442,7 @@ class CascadeTab(QWidget):
             or self.main.settings.get("cas_p_x"),
         )
         if not all(required_points):
-            self.lbl_status.setText("Нужна калибровка (12 шагов)")
+            self.lbl_status.setText(self._t("casc_status_need"))
             self.lbl_status.setStyleSheet("color: #666;")
             return
 
@@ -1435,7 +1453,7 @@ class CascadeTab(QWidget):
         except Exception:
             self._btn_apply_global_pos = None
 
-        self.lbl_status.setText("Выставляю ордера... Нажми ESC для остановки")
+        self.lbl_status.setText(self._t("casc_status_applying"))
         self.lbl_status.setStyleSheet("color: #FF9F0A;")
         self.apply_active = True
 
@@ -1479,7 +1497,7 @@ class CascadeTab(QWidget):
             pass
 
     def _on_cascade_finished(self):
-        self.lbl_status.setText("Каскад выставлен!")
+        self.lbl_status.setText(self._t("casc_status_done"))
         self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
         try:
             self.main.settings["cas_last_applied_count"] = int(
@@ -1493,7 +1511,7 @@ class CascadeTab(QWidget):
         QTimer.singleShot(5000, self._set_ready_status)
 
     def _on_cascade_cancelled(self):
-        self.lbl_status.setText("Остановлено пользователем (ESC)")
+        self.lbl_status.setText(self._t("casc_status_cancel"))
         self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
         self.apply_active = False
         self._restore_cursor_after_apply()
@@ -1531,7 +1549,7 @@ class CascadeTab(QWidget):
         if self.calib_active or self.apply_active:
             return
         cells_count = self._cascade_points_count()
-        self.lbl_status.setText(f"✓ Захвачено {cells_count} точек (готово к работе)")
+        self.lbl_status.setText(self._t("casc_status_ready", count=cells_count))
         self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
 
     def _refresh_calibration_status(self):
@@ -1542,10 +1560,10 @@ class CascadeTab(QWidget):
             self._set_ready_status()
             return
         if points_count > 0:
-            self.lbl_status.setText(f"⚡ Захвачено {points_count} из 12 точек")
+            self.lbl_status.setText(self._t("casc_status_partial", count=points_count))
             self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             return
-        self.lbl_status.setText("Нужна калибровка (12 шагов)")
+        self.lbl_status.setText(self._t("casc_status_need"))
         self.lbl_status.setStyleSheet(
             "color: #666; font-size: 7pt; margin-bottom: 5px;"
         )

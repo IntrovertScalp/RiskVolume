@@ -65,8 +65,9 @@ class ClickableQRLabel(QLabel):
     def _show_enlarged_qr(self):
         """Показать увеличенный QR-код в диалоге с возможностью перетаскивания и масштабирования"""
         # Обновляем текущий язык на случай, если он изменился
-        settings = QSettings("MyTradeTools", "TF-Alerter")
-        current_lang = settings.value("language", "RU")
+        current_lang = "RU"
+        if self.parent_dialog and hasattr(self.parent_dialog, "_get_lang_key"):
+            current_lang = self.parent_dialog._get_lang_key()
         t = self.parent_dialog.translations[current_lang]
 
         dialog = QDialog(self)
@@ -131,7 +132,7 @@ class ClickableQRLabel(QLabel):
 
         # Заголовок с кнопкой закрытия
         header_layout = QHBoxLayout()
-        title = QLabel("QR-код для сканирования")
+        title = QLabel(t["qr_scan_title"])
         title.setStyleSheet(
             f"color: #1e90ff; font-size: {self.parent_dialog._s(14)}px; font-weight: bold; border: none; background: transparent;"
         )
@@ -192,7 +193,7 @@ class ClickableQRLabel(QLabel):
         controls_layout = QHBoxLayout()
         controls_layout.addSpacing(self.parent_dialog._s(10))
 
-        size_label = QLabel("Размер:")
+        size_label = QLabel(t["size_label"])
         size_label.setStyleSheet(
             f"color: {config.COLORS['text']}; font-size: {self.parent_dialog._s(10)}px; border: none; background: transparent;"
         )
@@ -266,7 +267,7 @@ class ClickableQRLabel(QLabel):
         layout.addWidget(address_label)
 
         # Кнопка закрытия
-        close_dialog_btn = QPushButton("Закрыть")
+        close_dialog_btn = QPushButton(t["close"])
         close_dialog_btn.setFixedHeight(self.parent_dialog._s(32))
         close_dialog_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_dialog_btn.clicked.connect(dialog.close)
@@ -326,6 +327,17 @@ class DonateDialog(QDialog):
     _qr_cache = {}
     _qr_cache_max_size = 10  # Максимум 10 QR-кодов в кэше
 
+    def _get_lang_key(self):
+        lang_code = "ru"
+        if self.parent_window is not None:
+            if hasattr(self.parent_window, "parent_window") and hasattr(
+                self.parent_window.parent_window, "settings"
+            ):
+                lang_code = self.parent_window.parent_window.settings.get("lang", "ru")
+            elif hasattr(self.parent_window, "settings"):
+                lang_code = self.parent_window.settings.get("lang", "ru")
+        return "EN" if lang_code == "en" else "RU"
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
@@ -340,6 +352,9 @@ class DonateDialog(QDialog):
                 "close": "Закрыть",
                 "qr_title": "QR-код",
                 "copy_btn": "📋 Копировать адрес",
+                "qr_scan_title": "QR-код для сканирования",
+                "size_label": "Размер:",
+                "short_desc": "Программа бесплатная и всегда будет такой!\nЕсли она вам помогает — любая поддержка очень мотивирует 😊🙏\nСпасибо!",
             },
             "EN": {
                 "title": "Support the project",
@@ -349,6 +364,9 @@ class DonateDialog(QDialog):
                 "close": "Close",
                 "qr_title": "QR Code",
                 "copy_btn": "📋 Copy Address",
+                "qr_scan_title": "QR code for scanning",
+                "size_label": "Size:",
+                "short_desc": "The program is free and always will be!\nIf it helps you, any support is very motivating 😊🙏\nThank you!",
             },
         }
 
@@ -371,9 +389,9 @@ class DonateDialog(QDialog):
         self._scale_factor = factor  # Allow full scaling up to app's scale
 
         # Определяем язык и получаем переводы
-        settings_qsett = QSettings("MyTradeTools", "TF-Alerter")
-        current_lang = settings_qsett.value("language", "RU")
-        self.t = self.translations.get(current_lang, self.translations["RU"])
+        self.t = self.translations.get(self._get_lang_key(), self.translations["RU"])
+
+        self.setWindowTitle(self.t["title"])
 
         # Базовые размеры диалога (increased for better scaling at large DPI)
         base_w = 520
@@ -440,7 +458,7 @@ class DonateDialog(QDialog):
         heart_label.setStyleSheet("background: transparent; border: none;")
         title_layout.addWidget(heart_label)
 
-        title = QLabel("Поддержать")
+        title = QLabel(self.t["header"])
         title.setStyleSheet(
             f"""
             color: #1e90ff;
@@ -455,9 +473,7 @@ class DonateDialog(QDialog):
         layout.addLayout(title_layout)
 
         # --- Краткое описание с эмодзи ---
-        desc = QLabel(
-            "Программа бесплатная и всегда будет такой!\nЕсли она вам помогает — любая поддержка очень мотивирует 😊🙏\nСпасибо!"
-        )
+        desc = QLabel(self.t["short_desc"])
         desc.setStyleSheet(
             f"color: {config.COLORS['text']}; font-size: {self._s(11)}px; border: none; background: transparent;"
         )

@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QRegularExpression, QTimer
 from PyQt6.QtGui import QRegularExpressionValidator
+from translations import TRANS
 
 
 class PercentItemDelegate(QStyledItemDelegate):
@@ -37,8 +38,10 @@ def init_calculator_tab(app):
     app.calc_layout = main_layout
     v_reg = QRegularExpressionValidator(QRegularExpression(r"[0-9]*[.,]?[0-9]*"))
 
+    t = TRANS.get(app.settings.get("lang", "ru"), TRANS["ru"])
+
     # --- ДЕПОЗИТ (ВВЕРХУ НА ВСЮ ШИРИНУ) ---
-    app.lbl_dep_title = QLabel("...")
+    app.lbl_dep_title = QLabel(t["dep"])
     app.lbl_dep_title.setStyleSheet("color: #888; font-size: 8pt; font-weight: bold;")
     main_layout.addWidget(app.lbl_dep_title)
 
@@ -67,7 +70,7 @@ def init_calculator_tab(app):
     # Риск
     risk_col = QVBoxLayout()
     risk_col.setSpacing(1)
-    app.lbl_risk_title = QLabel("...")
+    app.lbl_risk_title = QLabel(t["risk"])
     app.lbl_risk_title.setStyleSheet("color: #888; font-size: 8pt; font-weight: bold;")
     risk_col.addWidget(app.lbl_risk_title)
     app.inp_risk = QLineEdit(str(app.settings.get("risk", 1)))
@@ -83,7 +86,7 @@ def init_calculator_tab(app):
     # Стоп
     stop_col = QVBoxLayout()
     stop_col.setSpacing(1)
-    app.lbl_stop_title = QLabel("...")
+    app.lbl_stop_title = QLabel(t["stop"])
     app.lbl_stop_title.setStyleSheet("color: #888; font-size: 8pt; font-weight: bold;")
     stop_col.addWidget(app.lbl_stop_title)
     app.inp_stop = QLineEdit(str(app.settings.get("stop", 1)))
@@ -109,7 +112,7 @@ def init_calculator_tab(app):
     main_layout.addWidget(app.lbl_info)
 
     # --- ОБЪЁМ (ПОСЛЕ ИНФОРМАЦИИ) ---
-    app.lbl_vol_title = QLabel("...")
+    app.lbl_vol_title = QLabel(t["vol"])
     app.lbl_vol_title.setStyleSheet(
         "color: #888; font-size: 9pt; font-weight: 600; margin-top: 2px;"
     )
@@ -124,7 +127,7 @@ def init_calculator_tab(app):
     app.lbl_vol.setFixedHeight(36)
     main_layout.addWidget(app.lbl_vol)
 
-    app.chk_pos_mode = QCheckBox("Расчет в позиции (добор/сокращение)")
+    app.chk_pos_mode = QCheckBox(t["calc_pos_mode"])
     app.chk_pos_mode.setObjectName("PosModeToggle")
     app.chk_pos_mode.setChecked(bool(app.settings.get("pos_mode_enabled", True)))
     app.chk_pos_mode.toggled.connect(app.on_position_mode_toggled)
@@ -136,9 +139,9 @@ def init_calculator_tab(app):
 
     pos_vol_col = QVBoxLayout()
     pos_vol_col.setSpacing(1)
-    lbl_pos_vol = QLabel("В позиции:")
-    lbl_pos_vol.setStyleSheet("font-size: 8pt;")
-    pos_vol_col.addWidget(lbl_pos_vol)
+    app.lbl_pos_vol_title = QLabel(t["calc_in_position"])
+    app.lbl_pos_vol_title.setStyleSheet("font-size: 8pt;")
+    pos_vol_col.addWidget(app.lbl_pos_vol_title)
 
     app.inp_pos_vol = QLineEdit(str(app.settings.get("pos_current_vol", "0")))
     app.inp_pos_vol.setValidator(v_reg)
@@ -152,9 +155,9 @@ def init_calculator_tab(app):
 
     pos_risk_col = QVBoxLayout()
     pos_risk_col.setSpacing(1)
-    lbl_pos_risk = QLabel("Риск сделки %:")
-    lbl_pos_risk.setStyleSheet("font-size: 8pt;")
-    pos_risk_col.addWidget(lbl_pos_risk)
+    app.lbl_pos_risk_title = QLabel(t["calc_risk_percent"])
+    app.lbl_pos_risk_title.setStyleSheet("font-size: 8pt;")
+    pos_risk_col.addWidget(app.lbl_pos_risk_title)
 
     app.inp_pos_risk = QLineEdit(str(app.settings.get("pos_risk", "1")))
     app.inp_pos_risk.setValidator(v_reg)
@@ -168,9 +171,9 @@ def init_calculator_tab(app):
 
     pos_stop_col = QVBoxLayout()
     pos_stop_col.setSpacing(1)
-    lbl_pos_stop = QLabel("Стоп %:")
-    lbl_pos_stop.setStyleSheet("font-size: 8pt;")
-    pos_stop_col.addWidget(lbl_pos_stop)
+    app.lbl_pos_stop_title = QLabel(t["calc_stop_percent"])
+    app.lbl_pos_stop_title.setStyleSheet("font-size: 8pt;")
+    pos_stop_col.addWidget(app.lbl_pos_stop_title)
 
     app.inp_pos_stop = QLineEdit(str(app.settings.get("pos_stop", "0")))
     app.inp_pos_stop.setValidator(v_reg)
@@ -197,14 +200,14 @@ def init_calculator_tab(app):
     )
     pos_hints_row.addWidget(app.lbl_pos_vol_hint, 1)
 
-    app.lbl_pos_risk_cash = QLabel("Риск сделки в $: —")
+    app.lbl_pos_risk_cash = QLabel(t["pos_risk_cash_na"])
     app.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
     app.lbl_pos_risk_cash.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
     pos_hints_row.addWidget(app.lbl_pos_risk_cash, 1)
 
-    app.lbl_pos_adjust = QLabel("Рекомендация: —")
+    app.lbl_pos_adjust = QLabel(t["calc_recommendation"])
     app.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 8pt;")
     app.lbl_pos_adjust.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -221,21 +224,21 @@ def init_calculator_tab(app):
     app.btn_reverse_cells = QPushButton("⇅")
     app.btn_reverse_cells.setStyleSheet("color: #8E8E8E;")
     app.btn_reverse_cells.setFixedSize(34, 25)
-    app.btn_reverse_cells.setToolTip("Перевернуть порядок ячеек")
+    app.btn_reverse_cells.setToolTip(t["calc_reverse_cells"])
     app.btn_reverse_cells.clicked.connect(app.toggle_cells_order)
     cells_header.addWidget(app.btn_reverse_cells)
 
     app.btn_move_adjust_to_cell = QPushButton("↪")
     app.btn_move_adjust_to_cell.setFixedSize(34, 25)
-    app.btn_move_adjust_to_cell.setToolTip("Перенести сумму в выбранные ячейки")
+    app.btn_move_adjust_to_cell.setToolTip(t["calc_move_adjust"])
     app.btn_move_adjust_to_cell.setStyleSheet("color: #8E8E8E;")
     app.btn_move_adjust_to_cell.clicked.connect(app.apply_position_adjustment_to_cell)
     app.btn_move_adjust_to_cell.setEnabled(False)
     cells_header.addWidget(app.btn_move_adjust_to_cell)
 
-    app.btn_toggle_all_cells = QPushButton("Все")
+    app.btn_toggle_all_cells = QPushButton(t["calc_toggle_all_btn"])
     app.btn_toggle_all_cells.setFixedSize(34, 25)
-    app.btn_toggle_all_cells.setToolTip("Вкл/выкл все ячейки")
+    app.btn_toggle_all_cells.setToolTip(t["calc_toggle_all"])
     app.btn_toggle_all_cells.setStyleSheet("color: #8E8E8E;")
     app.btn_toggle_all_cells.clicked.connect(app.toggle_all_transfer_rows)
     cells_header.addWidget(app.btn_toggle_all_cells)
@@ -245,9 +248,9 @@ def init_calculator_tab(app):
     app.lbl_cells_count.hide()
 
     # Минимальный ордер
-    lbl_min_order = QLabel("Мин.ордер:")
-    lbl_min_order.setStyleSheet("font-size: 8pt;")
-    cells_header.addWidget(lbl_min_order)
+    app.lbl_min_order_title = QLabel(t["calc_min_order"])
+    app.lbl_min_order_title.setStyleSheet("font-size: 8pt;")
+    cells_header.addWidget(app.lbl_min_order_title)
     min_order_val = int(float(app.settings.get("scalp_min_order", 6) or 6))
     app.inp_min_order = QLineEdit(str(min_order_val))
     app.inp_min_order.setValidator(
@@ -263,11 +266,17 @@ def init_calculator_tab(app):
     cells_header.addWidget(app.inp_min_order)
 
     # Тип распределения (слева, в той же строке)
-    lbl_type = QLabel("Тип:")
-    lbl_type.setStyleSheet("font-size: 8pt;")
-    cells_header.addWidget(lbl_type)
+    app.lbl_calc_type_title = QLabel(t["calc_type"])
+    app.lbl_calc_type_title.setStyleSheet("font-size: 8pt;")
+    cells_header.addWidget(app.lbl_calc_type_title)
     app.cb_distribution = QComboBox()
-    app.cb_distribution.addItems(["Равномерно", "Убывающая", "Вручную"])
+    app.cb_distribution.addItems(
+        [
+            t["calc_dist_uniform"],
+            t["calc_dist_desc"],
+            t["calc_dist_manual"],
+        ]
+    )
     saved_type = app.settings.get("scalp_distribution_type", 0)
     if saved_type >= 3:
         saved_type = 0  # Защита от устаревших значений
@@ -288,7 +297,11 @@ def init_calculator_tab(app):
     app.cells_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Remove focus border
     app.cells_table.setColumnCount(3)
     app.cells_table.setHorizontalHeaderLabels(
-        ["Ячейки:", "Объемы:", "% от общего объёма"]
+        [
+            t["calc_table_cells"],
+            t["calc_table_volumes"],
+            t["calc_table_percent"],
+        ]
     )
     app.cells_table.verticalHeader().setVisible(False)
     app.cells_table.horizontalHeader().setStretchLastSection(True)
@@ -362,7 +375,7 @@ def init_calculator_tab(app):
     main_layout.addWidget(app.cells_table)
 
     # --- КНОПКА ВЫСТАВИТЬ ---
-    app.btn_submit = QPushButton("ВЫСТАВИТЬ")
+    app.btn_submit = QPushButton(t["calc_apply"])
     app.btn_submit.setStyleSheet(
         "background: #38BE1D; color: black; font-weight: bold; padding: 6px 16px 6px 24px;"
     )

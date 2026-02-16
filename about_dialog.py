@@ -28,7 +28,7 @@ class AboutDialog(QDialog):
             "EN": {
                 "title": "About",
                 "version": "Version 1.0",
-                "description": "Free timer with alerts for traders.\nNotifies about candle closures on selected timeframes\nwith voice notifications and visual clocks.",
+                "description": "This is a calculator for position entry size based on the desired stop-loss percentage. It helps you quickly calculate position size with the ability to automatically transfer the values into terminal order-book volume cells.",
                 "developer": "Developer:",
                 "youtube_btn": "🎥 YouTube",
             },
@@ -50,9 +50,10 @@ class AboutDialog(QDialog):
         def s(px):
             return max(1, int(px * factor))
 
-        self.current_lang = QSettings("MyTradeTools", "TF-Alerter").value(
-            "language", "RU"
-        )
+        lang_code = "ru"
+        if parent is not None and hasattr(parent, "settings"):
+            lang_code = parent.settings.get("lang", "ru")
+        self.current_lang = "EN" if lang_code == "en" else "RU"
         self.t = self.translations[self.current_lang]
         self.setWindowTitle(self.t["title"])
 

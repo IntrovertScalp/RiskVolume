@@ -61,10 +61,10 @@ class CustomCheckBox(QCheckBox):
 
 
 class HotkeyEdit(QLineEdit):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, placeholder_text=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.setReadOnly(True)
-        self.setPlaceholderText("Нажми клавишу...")
+        self.setPlaceholderText(placeholder_text or "Нажми клавишу...")
         self.setStyleSheet(
             """
             QLineEdit { 
@@ -134,16 +134,18 @@ class SettingsDialog(QDialog):
             dlg = DonateDialog(self)
             dlg.exec()
         except ModuleNotFoundError as e:
+            t = TRANS.get(self.parent_window.settings.get("lang", "ru"), TRANS["ru"])
             QMessageBox.warning(
                 self,
-                "Поддержать",
-                "Не установлен модуль для QR-кода.\nУстановите: pip install qrcode[pil]",
+                t["support_title"],
+                t["support_qr_missing"],
             )
         except Exception as e:
+            t = TRANS.get(self.parent_window.settings.get("lang", "ru"), TRANS["ru"])
             QMessageBox.warning(
                 self,
-                "Поддержать",
-                f"Не удалось открыть окно поддержки:\n{e}",
+                t["support_title"],
+                t["support_open_failed"].format(error=e),
             )
 
     def __init__(self, parent=None):
@@ -206,9 +208,9 @@ class SettingsDialog(QDialog):
 
         # --- КНОПКИ ---
         extra_btns = QHBoxLayout()
-        self.btn_about = QPushButton("ℹ️ О программе")
+        self.btn_about = QPushButton(t["about_btn"])
         self.btn_about.clicked.connect(self.show_about_dialog)
-        self.btn_donate = QPushButton("❤️ Поддержать")
+        self.btn_donate = QPushButton(t["support_btn"])
         self.btn_donate.clicked.connect(self.show_donate_dialog)
         # Темный стиль для этих двух кнопок
         dark_style = (
@@ -264,8 +266,13 @@ class SettingsDialog(QDialog):
         grid = QGridLayout()
 
         # Поля ввода клавиш
-        self.hk_show = HotkeyEdit(parent.settings.get("hk_show", "f1"))
-        self.hk_coords = HotkeyEdit(parent.settings.get("hk_coords", "f2"))
+        self.hk_show = HotkeyEdit(
+            parent.settings.get("hk_show", "f1"), placeholder_text=t["hk_placeholder"]
+        )
+        self.hk_coords = HotkeyEdit(
+            parent.settings.get("hk_coords", "f2"),
+            placeholder_text=t["hk_placeholder"],
+        )
 
         # Комиссия
         fee_total = float(parent.settings.get("fee_percent", 0.1))
