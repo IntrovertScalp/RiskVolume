@@ -43,6 +43,8 @@ class CascadeWorker(QThread):
         import keyboard
         import pyperclip
 
+        pyautogui.FAILSAFE = False
+
         vol_prec = int(self.settings.get("prec_dep", 2))
         if vol_prec < 0:
             vol_prec = 0
@@ -90,6 +92,7 @@ class CascadeWorker(QThread):
             return
 
         row_height = c_vol2[1] - c_vol1[1]
+        base_y = c_vol1[1]
 
         delay_click = 0.12
         delay_short = 0.07
@@ -101,18 +104,30 @@ class CascadeWorker(QThread):
             self._cancelled = True
             self.cancelled.emit()
 
+        def check_cancel():
+            if self._cancelled:
+                return True
+            try:
+                if keyboard.is_pressed("esc"):
+                    self._cancelled = True
+                    self.cancelled.emit()
+                    return True
+            except Exception:
+                pass
+            return False
+
         keyboard.add_hotkey("esc", on_esc)
 
         try:
             # 1. Открываем настройки (Шестеренка)
-            if self._cancelled:
+            if check_cancel():
                 return
             pyautogui.moveTo(c_gear[0], c_gear[1])
             pyautogui.click()
             time.sleep(delay_long)
 
             # 2. В левой части тянем ползунок резко вниз
-            if self._cancelled:
+            if check_cancel():
                 return
             left_scrollbar_x = c_left_scrollbar[0]
             left_scrollbar_y_start = c_left_scrollbar[1]
@@ -130,14 +145,14 @@ class CascadeWorker(QThread):
             time.sleep(delay_long)
 
             # 3. Выбираем пункт "Книга заявок"
-            if self._cancelled:
+            if check_cancel():
                 return
             pyautogui.moveTo(c_book[0], c_book[1])
             pyautogui.click()
             time.sleep(delay_long)
 
             # 4. Перетаскиваем правый ползунок вниз
-            if self._cancelled:
+            if check_cancel():
                 return
             if c_scrollbar:
                 scrollbar_x = c_scrollbar[0]
@@ -155,33 +170,39 @@ class CascadeWorker(QThread):
                 time.sleep(delay_long)
 
             # 5. Очистка (удаляем старые строки каскада)
-            if self._cancelled:
+            if check_cancel():
                 return
             prev_count = (
                 self.prev_count if self.prev_count is not None else len(self.orders)
             )
-            del_clicks = max(0, int(prev_count) - 1)
+            base_count = max(int(prev_count), len(self.orders), 1)
+            base_count = min(20, base_count)
+            del_clicks = max(0, base_count - 1)
+            if del_clicks > 0:
+                base_y = c_vol2[1]
             print(
                 f"[CASCADE] Шаг 5: Удаляю старые строки. Координаты: {c_del}, кликoв: {del_clicks}"
             )
             pyautogui.moveTo(c_del[0], c_del[1])
             for i in range(del_clicks):
-                if self._cancelled:
+                if check_cancel():
                     return
                 print(f"[CASCADE]   Нажатие {i+1}/{del_clicks} на минус/удалить")
                 pyautogui.click()
                 time.sleep(delay_short)
 
             # 6. Создаем нужное количество строк
-            if self._cancelled:
+            if check_cancel():
                 return
             print(
                 f"[CASCADE] Шаг 6: Заполняю строки по одной. Высота строки: {row_height}"
             )
+            plus_count = 0
             for i, order in enumerate(self.orders):
-                if self._cancelled:
+                if check_cancel():
                     return
-                cur_y = c_vol1[1] + (i * row_height)
+                # После прокрутки новая строка ВСЕГДА оказывается на позиции base_y
+                cur_y = base_y
                 print(
                     f"[CASCADE]   Заявка {i+1}: объем={order['vol']:.{vol_prec}f}, дистанция={order['dist']:.2f}%, Y={cur_y}"
                 )
@@ -190,58 +211,65 @@ class CascadeWorker(QThread):
                     pyautogui.moveTo(c_plus[0], c_plus[1])
                     pyautogui.click()
                     time.sleep(delay_long)
-                    for _ in range(2):
-                        if self._cancelled:
-                            return
+                    # Клик в пустую область слева (вместо ESC)
+                    # чтобы снять фокус без закрытия элементов
+                    pyautogui.click(c_vol1[0] - 80, base_y)
+                    time.sleep(0.2)
+                    # ВСЕГДА 2 раза вниз для прокрутки
+                    print(f"[CASCADE]     Нажимаю вниз 2 раза")
+                    if check_cancel():
+                        return
+                    for _ds in range(2):
                         pyautogui.press("down")
-                        time.sleep(delay_short)
+                        time.sleep(0.12)
+                    time.sleep(0.3)
 
                 # --- Комбобокс объема: 6 раз вниз + Enter ---
                 pyautogui.moveTo(c_combo[0], cur_y)
                 pyautogui.click()
-                time.sleep(delay_short)
+                time.sleep(0.3)
                 for _ in range(6):
-                    if self._cancelled:
+                    if check_cancel():
                         return
                     pyautogui.press("down")
-                    time.sleep(delay_short)
+                    time.sleep(0.08)
                 pyautogui.press("enter")
-                time.sleep(delay_short)
+                time.sleep(0.15)
 
                 # --- Объём ---
                 vol_str = f"{order['vol']:.{vol_prec}f}".replace(",", ".")
-                pyperclip.copy(vol_str)
                 print(
                     f"[CASCADE]     Выставляю объем {vol_str} в координаты ({c_vol1[0]}, {cur_y})"
                 )
+                pyperclip.copy(vol_str)
                 pyautogui.moveTo(c_vol1[0], cur_y)
                 pyautogui.click()
-                time.sleep(delay_short)
+                time.sleep(0.015)
                 pyautogui.click(clicks=2)
-                time.sleep(delay_short)
-                pyautogui.hotkey("ctrl", "a")
-                time.sleep(delay_short)
-                pyautogui.press("backspace")
-                time.sleep(delay_short)
-                pyautogui.hotkey("ctrl", "v")
-                time.sleep(delay_short)
-                pyautogui.press("enter")
+                time.sleep(0.015)
+                keyboard.press_and_release("ctrl+a")
+                time.sleep(0.015)
+                keyboard.press_and_release("backspace")
+                time.sleep(0.015)
+                keyboard.press_and_release("ctrl+v")
+                time.sleep(0.015)
+                keyboard.press_and_release("enter")
 
                 # --- Дистанция ---
                 dist_str = f"{order['dist']:.2f}".replace(",", ".")
                 pyperclip.copy(dist_str)
                 pyautogui.moveTo(c_dist1[0], cur_y)
                 pyautogui.click()
-                time.sleep(delay_short)
+                time.sleep(0.015)
                 pyautogui.click(clicks=2)
-                time.sleep(delay_short)
-                pyautogui.hotkey("ctrl", "a")
-                time.sleep(delay_short)
-                pyautogui.press("backspace")
-                time.sleep(delay_short)
-                pyautogui.hotkey("ctrl", "v")
-                time.sleep(delay_short)
-                pyautogui.press("enter")
+                time.sleep(0.015)
+                keyboard.press_and_release("ctrl+a")
+                time.sleep(0.015)
+                keyboard.press_and_release("backspace")
+                time.sleep(0.015)
+                keyboard.press_and_release("ctrl+v")
+                time.sleep(0.015)
+                keyboard.press_and_release("enter")
 
                 time.sleep(delay_short)
 
@@ -255,6 +283,10 @@ class CascadeWorker(QThread):
                     pyautogui.press("esc")
                 self.finished.emit()
         finally:
+            try:
+                pyautogui.mouseUp(button="left")
+            except Exception:
+                pass
             # Убираем хоткей ESC
             try:
                 keyboard.remove_hotkey("esc")
@@ -668,6 +700,7 @@ class CascadeTab(QWidget):
         # Применяем масштабирование под текущий размер интерфейса
         self.apply_scale()
         self.on_type_changed(self.cb_type.currentIndex())
+        self._refresh_calibration_status()
 
     def _clear_input_focus(self):
         focus_widget = QApplication.focusWidget()
@@ -686,7 +719,15 @@ class CascadeTab(QWidget):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if event.key() == Qt.Key.Key_Escape:
+            if self.calib_active:
+                self.cancel_calibration()
+                event.accept()
+                return
+            self._clear_input_focus()
+            event.accept()
+            return
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self._clear_input_focus()
             event.accept()
             return
@@ -1213,6 +1254,24 @@ class CascadeTab(QWidget):
             )
 
     def start_calibration(self):
+        # Сбрасываем старые точки калибровки перед началом новой
+        for key in [
+            "cas_p_gear",
+            "cas_p_left_scrollbar",
+            "cas_p_book",
+            "cas_p_scrollbar",
+            "cas_p_vol1",
+            "cas_p_dist1",
+            "cas_p_vol2",
+            "cas_p_dist2",
+            "cas_p_btn_add",
+            "cas_p_btn_del",
+            "cas_p_combo_vol",
+            "cas_p_close_x",
+        ]:
+            self.main.settings[key] = None
+        self.main.save_settings()
+
         # Получаем горячую клавишу для захвата координат из настроек
         self.calib_hotkey = self.main.settings.get("hk_coords", "f2").lower()
         hotkey_display = self.calib_hotkey.upper().replace("+", " + ")
@@ -1364,16 +1423,22 @@ class CascadeTab(QWidget):
             self.lbl_status.setStyleSheet("color: #666;")
             return
 
+        # Сохраняем позицию кнопки ВЫСТАВИТЬ на экране
         try:
-            import pyautogui
-
-            self._last_apply_cursor = pyautogui.position()
+            btn_center = self.btn_apply.rect().center()
+            self._btn_apply_global_pos = self.btn_apply.mapToGlobal(btn_center)
         except Exception:
-            self._last_apply_cursor = None
+            self._btn_apply_global_pos = None
 
         self.lbl_status.setText("Выставляю ордера... Нажми ESC для остановки")
         self.lbl_status.setStyleSheet("color: #FF9F0A;")
         self.apply_active = True
+
+        # Сворачиваем окно программы
+        self.main.showMinimized()
+        import time as _t
+
+        _t.sleep(0.15)
         prev_count = self.main.settings.get("cas_last_applied_count")
         if prev_count is None:
             prev_count = len(self.calculated_orders)
@@ -1386,17 +1451,20 @@ class CascadeTab(QWidget):
         self.worker.start()
 
     def _restore_cursor_after_apply(self):
-        if not getattr(self, "_last_apply_cursor", None):
+        """Перемещаем курсор на позицию кнопки ВЫСТАВИТЬ (окно НЕ разворачиваем)"""
+        pos = getattr(self, "_btn_apply_global_pos", None)
+        if not pos:
             return
         try:
             import pyautogui
 
-            pyautogui.moveTo(self._last_apply_cursor[0], self._last_apply_cursor[1])
+            pyautogui.moveTo(pos.x(), pos.y())
         except Exception:
             pass
 
     def _on_cascade_finished(self):
         self.lbl_status.setText("Каскад выставлен!")
+        self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
         try:
             self.main.settings["cas_last_applied_count"] = int(
                 getattr(self, "_last_apply_count", 1)
@@ -1406,17 +1474,62 @@ class CascadeTab(QWidget):
             pass
         self.apply_active = False
         self._restore_cursor_after_apply()
+        QTimer.singleShot(5000, self._set_ready_status)
 
     def _on_cascade_cancelled(self):
         self.lbl_status.setText("Остановлено пользователем (ESC)")
+        self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
         self.apply_active = False
         self._restore_cursor_after_apply()
+        QTimer.singleShot(5000, self._set_ready_status)
 
     def is_apply_active(self):
         return bool(getattr(self, "apply_active", False))
 
+    def _cascade_points_count(self):
+        required = [
+            "cas_p_gear",
+            "cas_p_left_scrollbar",
+            "cas_p_book",
+            "cas_p_scrollbar",
+            "cas_p_vol1",
+            "cas_p_dist1",
+            "cas_p_vol2",
+            "cas_p_dist2",
+            "cas_p_close_x",
+        ]
+        count = sum(1 for key in required if self.main.settings.get(key))
+        if self.main.settings.get("cas_p_btn_add") or self.main.settings.get(
+            "cas_p_plus"
+        ):
+            count += 1
+        if self.main.settings.get("cas_p_btn_del") or self.main.settings.get("cas_p_x"):
+            count += 1
+        if self.main.settings.get("cas_p_combo_vol") or self.main.settings.get(
+            "cas_p_vol1"
+        ):
+            count += 1
+        return count
+
     def _set_ready_status(self):
         if self.calib_active or self.apply_active:
             return
-        self.lbl_status.setText("Готово к работе (выставлению). Калибровка завершена.")
-        self.lbl_status.setStyleSheet("color: #888;")
+        cells_count = self._cascade_points_count()
+        self.lbl_status.setText(f"✓ Захвачено {cells_count} точек (готово к работе)")
+        self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+
+    def _refresh_calibration_status(self):
+        if self.calib_active or self.apply_active:
+            return
+        points_count = self._cascade_points_count()
+        if points_count >= 12:
+            self._set_ready_status()
+            return
+        if points_count > 0:
+            self.lbl_status.setText(f"⚡ Захвачено {points_count} из 12 точек")
+            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            return
+        self.lbl_status.setText("Нужна калибровка (12 шагов)")
+        self.lbl_status.setStyleSheet(
+            "color: #666; font-size: 7pt; margin-bottom: 5px;"
+        )
