@@ -484,8 +484,15 @@ class CascadeTab(QWidget):
                 border: 1px solid #333;
                 border-radius: 4px;
             }
+            QFrame#SpinWrap:disabled {
+                background: #0F0F0F;
+                border: 1px solid #222;
+            }
             QSpinBox#spinInner, QDoubleSpinBox#spinInner {
                 background: transparent; color: white; border: none; padding: 2px;
+            }
+            QSpinBox#spinInner:disabled, QDoubleSpinBox#spinInner:disabled {
+                color: #555;
             }
             QLineEdit {
                 background: #1A1A1A;
@@ -515,6 +522,11 @@ class CascadeTab(QWidget):
             }
             QPushButton#SpinStepBtn:hover {
                 background: #3a3a3a;
+            }
+            QPushButton#SpinStepBtn:disabled {
+                background: #1a1a1a;
+                color: #555;
+                border: 1px solid #222;
             }
         """
         )
