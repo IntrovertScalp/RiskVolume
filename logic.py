@@ -36,17 +36,33 @@ def get_info_html(
     prec_fee=3,
     prec_lev=1,
     font_size=8,
+    dimmed=False,
 ):
     """HTML-блок для калькулятора, принимает txt_labels (словарь текстов)"""
+    if dimmed:
+        # Затемнённые цвета
+        text_color = "#555"
+        risk_color = "#555"
+        sep_color = "#555"
+        comm_color = "#555"
+        lev_color = "#555"
+    else:
+        # Обычные цвета
+        text_color = "#888"
+        risk_color = "#FF453A"
+        sep_color = "#666"
+        comm_color = "#FF9F0A"
+        lev_color = "#A8A8A8"
+
     return f"""
     <div style="line-height: 120%; white-space: nowrap;">
-        <span style="color: #888; font-size: {font_size}pt;">{txt_labels['risk_deal']} </span>
-        <b style="color: #FF453A; font-size: {font_size+1}pt;">${smart_format(cash_risk, prec_risk)}</b>
-        <span style="color: #666;">  |  </span>
-        <span style="color: #888; font-size: {font_size}pt;">{txt_labels['comm']} </span>
-        <b style="color: #FF9F0A; font-size: {font_size}pt;">${smart_format(comm_usd, prec_fee)}</b>
-        <span style="color: #666;">  |  </span>
-        <span style="color: #888; font-size: {font_size}pt;">{txt_labels['lev']} </span>
-        <b style="color: #A8A8A8; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>
+        <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['risk_deal']} </span>
+        <b style="color: {risk_color}; font-size: {font_size+1}pt;">${smart_format(cash_risk, prec_risk)}</b>
+        <span style="color: {sep_color};">  |  </span>
+        <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['comm']} </span>
+        <b style="color: {comm_color}; font-size: {font_size}pt;">${smart_format(comm_usd, prec_fee)}</b>
+        <span style="color: {sep_color};">  |  </span>
+        <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['lev']} </span>
+        <b style="color: {lev_color}; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>
     </div>
     """

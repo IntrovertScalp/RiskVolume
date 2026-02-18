@@ -530,8 +530,11 @@ class RiskVolumeApp(QMainWindow):
             self.lbl_vol.setText(vol_str)
 
             t = TRANS[self.settings.get("lang", "ru")]
+            dimmed = self.settings.get("pos_mode_enabled", False)
             self.lbl_info.setText(
-                get_info_html(cash_risk, lev, comm_usd, t, p_risk, p_fee, p_lev)
+                get_info_html(
+                    cash_risk, lev, comm_usd, t, p_risk, p_fee, p_lev, dimmed=dimmed
+                )
             )
 
             # Обновляем объемы в таблице ячеек
@@ -843,60 +846,78 @@ class RiskVolumeApp(QMainWindow):
             if widget:
                 if isinstance(widget, QLineEdit):
                     if dim:
-                        # Затемняем QLineEdit
+                        widget.setEnabled(False)
                         widget.setStyleSheet(
                             "QLineEdit:disabled { background: #0F0F0F; color: #333; border: 1px solid #222; }"
                         )
-                        widget.setEnabled(False)
                     else:
-                        # Восстанавливаем нормальное состояние
                         widget.setEnabled(True)
                         widget.setStyleSheet(
                             "QLineEdit { background: #1A1A1A; color: white; border: 1px solid #252525; padding: 3px; border-radius: 4px; font-size: 9pt; }"
                         )
                 elif isinstance(widget, QLabel):
                     if dim:
-                        # Просто затемняем цвет текста, сохраняя остальные стили
                         current_style = widget.styleSheet()
-                        # Заменяем color на более темный
-                        if "color:" in current_style:
-                            # Заменяем существующий color
-                            import re
+                        import re
 
-                            new_style = re.sub(
-                                r"color:\s*#[0-9A-Fa-f]{3,6}",
-                                "color: #555",
-                                current_style,
-                            )
-                            widget.setStyleSheet(new_style)
-                        else:
-                            widget.setStyleSheet(current_style + "; color: #555;")
-                        widget.setEnabled(False)
+                        new_style = re.sub(
+                            r"color:\s*#[0-9A-Fa-f]{3,6}",
+                            "color: #555",
+                            current_style,
+                        )
+                        widget.setStyleSheet(new_style)
                     else:
-                        # Восстанавливаем оригинальное состояние
-                        widget.setEnabled(True)
+                        current_style = widget.styleSheet()
+                        # Восстанавливаем оригинальные цвета
                         if (
                             name == "lbl_dep_title"
                             or name == "lbl_risk_title"
                             or name == "lbl_stop_title"
                         ):
-                            widget.setStyleSheet(
-                                "color: #888; font-size: 8pt; font-weight: bold;"
+                            import re
+
+                            new_style = re.sub(
+                                r"color:\s*#[0-9A-Fa-f]{3,6}",
+                                "color: #888",
+                                current_style,
                             )
+                            widget.setStyleSheet(new_style)
                         elif name == "lbl_vol_title":
-                            widget.setStyleSheet(
-                                "color: #888; font-size: 9pt; font-weight: 600; margin-top: 2px;"
+                            import re
+
+                            new_style = re.sub(
+                                r"color:\s*#[0-9A-Fa-f]{3,6}",
+                                "color: #888",
+                                current_style,
                             )
+                            widget.setStyleSheet(new_style)
                         elif name == "lbl_hint":
-                            widget.setStyleSheet("color: #666; font-size: 8pt;")
+                            import re
+
+                            new_style = re.sub(
+                                r"color:\s*#[0-9A-Fa-f]{3,6}",
+                                "color: #666",
+                                current_style,
+                            )
+                            widget.setStyleSheet(new_style)
                         elif name == "lbl_info":
-                            widget.setStyleSheet(
-                                "color: #888; font-size: 9pt; line-height: 1.2;"
+                            import re
+
+                            new_style = re.sub(
+                                r"color:\s*#[0-9A-Fa-f]{3,6}",
+                                "color: #888",
+                                current_style,
                             )
+                            widget.setStyleSheet(new_style)
                         elif name == "lbl_vol":
-                            widget.setStyleSheet(
-                                "color: #FF9F0A; font-size: 11pt; font-weight: bold; border: 1px solid #333; border-radius: 4px; padding: 4px; background: #1A1A1A;"
+                            import re
+
+                            new_style = re.sub(
+                                r"color:\s*#[0-9A-Fa-f]{3,6}",
+                                "color: #FF9F0A",
+                                current_style,
                             )
+                            widget.setStyleSheet(new_style)
 
     def on_position_mode_toggled(self, checked, is_startup=False):
         enabled = bool(checked)
@@ -942,6 +963,9 @@ class RiskVolumeApp(QMainWindow):
 
         # Затемняем/включаем верхнюю часть в зависимости от позиции режима
         self._dim_top_controls(enabled)
+
+        # Пересчитываем для обновления lbl_info с правильным значением dimmed
+        self.schedule_update_calc()
 
         for widget in pos_controls:
             widget.setEnabled(enabled)
