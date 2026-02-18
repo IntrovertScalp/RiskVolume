@@ -1535,13 +1535,15 @@ class RiskVolumeApp(QMainWindow):
         points = self.settings.get("points", [])
         active_rows = sorted(self._get_active_rows_for_table())
         is_reversed = self.settings.get("cells_reversed", False)
+        if is_reversed:
+            active_rows = list(reversed(active_rows))
 
         if not active_rows:
             return
 
         transfers = []
         for row in active_rows:
-            point_index = 4 - row if is_reversed else row
+            point_index = row
             if len(points) <= point_index:
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_status.setText(t["calc_not_enough_points"])
@@ -1559,7 +1561,7 @@ class RiskVolumeApp(QMainWindow):
         if not transfers:
             return
 
-        transfers.sort(key=lambda x: x[0])
+        # Order already follows the intended row direction
 
         try:
             # speed-tweak: set pyautogui minimal sleeps/durations like in cascade_tab
