@@ -143,13 +143,35 @@ class CascadeWorker(QThread):
             left_scrollbar_y_start = c_left_scrollbar[1]
 
             pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_start, duration=0)
-            pyautogui.mouseDown(button="left")
-            time.sleep(0.01)
-            pyautogui.moveTo(
-                left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.02
-            )
-            pyautogui.mouseUp(button="left")
-            time.sleep(0.01)
+
+            # Low-level quick drag using Win32 API (replicates быстрый захват и резкий спуск)
+            def _win_quick_drag(x1, y1, x2, y2, hold=0.02):
+                import ctypes, time
+
+                user32 = ctypes.windll.user32
+                user32.SetCursorPos(int(x1), int(y1))
+                user32.mouse_event(0x0002, 0, 0, 0, 0)  # LEFTDOWN
+                time.sleep(0.01)
+                user32.SetCursorPos(int(x2), int(y2))
+                time.sleep(hold)
+                user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
+
+            try:
+                _win_quick_drag(
+                    left_scrollbar_x,
+                    left_scrollbar_y_start,
+                    left_scrollbar_x,
+                    left_scrollbar_y_start + 900,
+                    hold=0.02,
+                )
+            except Exception:
+                # fallback to pyautogui if Win32 drag fails
+                pyautogui.mouseDown(button="left")
+                pyautogui.moveTo(
+                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.005
+                )
+                pyautogui.mouseUp(button="left")
+            time.sleep(0.08)
 
             # 3. Выбираем пункт "Книга заявок"
             if check_cancel():
@@ -166,11 +188,22 @@ class CascadeWorker(QThread):
                 scrollbar_y_start = c_scrollbar[1]
 
                 pyautogui.moveTo(scrollbar_x, scrollbar_y_start, duration=0)
-                pyautogui.mouseDown(button="left")
-                time.sleep(0.01)
-                pyautogui.moveTo(scrollbar_x, scrollbar_y_start + 1200, duration=0.02)
-                pyautogui.mouseUp(button="left")
-                time.sleep(0.01)
+                # Low-level quick drag using Win32 API
+                try:
+                    _win_quick_drag(
+                        scrollbar_x,
+                        scrollbar_y_start,
+                        scrollbar_x,
+                        scrollbar_y_start + 1200,
+                        hold=0.02,
+                    )
+                except Exception:
+                    pyautogui.mouseDown(button="left")
+                    pyautogui.moveTo(
+                        scrollbar_x, scrollbar_y_start + 1200, duration=0.005
+                    )
+                    pyautogui.mouseUp(button="left")
+                time.sleep(0.08)
 
             # 5. Очистка (удаляем старые строки каскада)
             if check_cancel():
@@ -1058,6 +1091,8 @@ class CascadeTab(QWidget):
         max_possible = self.calculate_max_possible(total_vol, min_size, mult)
         max_possible = min(20, max_possible)
         min_step = self.sb_dist.minimum()
+        if min_step <= 0:
+            return
         max_count_by_range = int(range_width / min_step) + 1
         desired_count = min(max_possible, max_count_by_range)
         desired_count = max(2, desired_count)
