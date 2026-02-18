@@ -22,7 +22,15 @@ from PyQt6.QtWidgets import (
     QCheckBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
-from PyQt6.QtGui import QRegularExpressionValidator, QCursor, QPixmap, QPainter, QColor, QPen, QIcon
+from PyQt6.QtGui import (
+    QRegularExpressionValidator,
+    QCursor,
+    QPixmap,
+    QPainter,
+    QColor,
+    QPen,
+    QIcon,
+)
 from translations import TRANS
 
 
@@ -380,6 +388,7 @@ class CascadeTab(QWidget):
     def _create_checkmark_icon(self):
         """Create a small black checkmark PNG and return its path."""
         import os, tempfile
+
         path = os.path.join(tempfile.gettempdir(), "rv_checkmark.png")
         if not os.path.exists(path):
             pix = QPixmap(12, 12)
@@ -1129,7 +1138,7 @@ class CascadeTab(QWidget):
         # Range mode ON: range width enabled, step disabled
         self.sb_range_width.setEnabled(range_mode_on)
         self.sb_range_wrap.setEnabled(range_mode_on)
-        if hasattr(self, 'sb_range_left'):
+        if hasattr(self, "sb_range_left"):
             self.sb_range_left.setEnabled(range_mode_on)
             self.sb_range_right.setEnabled(range_mode_on)
 
@@ -1137,14 +1146,16 @@ class CascadeTab(QWidget):
         self.sb_dist.setEnabled(not range_mode_on)
         self.sb_dist_wrap.setEnabled(not range_mode_on)
         self.lbl_step_title.setEnabled(not range_mode_on)
-        if hasattr(self, 'sb_dist_left'):
+        if hasattr(self, "sb_dist_left"):
             self.sb_dist_left.setEnabled(not range_mode_on)
             self.sb_dist_right.setEnabled(not range_mode_on)
 
         # Обновляем стили для затемнения
         disabled_style = "color: #444; font-size: 9pt;"
         enabled_style = "color: #aaa; font-size: 9pt;"
-        self.lbl_step_title.setStyleSheet(disabled_style if range_mode_on else enabled_style)
+        self.lbl_step_title.setStyleSheet(
+            disabled_style if range_mode_on else enabled_style
+        )
 
     def on_range_width_changed(self, value):
         self.main.settings["cas_range_width"] = float(value)
