@@ -1561,29 +1561,52 @@ class RiskVolumeApp(QMainWindow):
         transfers.sort(key=lambda x: x[0])
 
         try:
+            # speed-tweak: set pyautogui minimal sleeps/durations like in cascade_tab
+            try:
+                pyautogui.MINIMUM_SLEEP = 0.0001
+                pyautogui.MINIMUM_DURATION = 0.0001
+                pyautogui.PAUSE = 0.0
+            except Exception:
+                pass
+
             old_clip = pyperclip.paste()
-            start_x, start_y = pyautogui.position()
+            # capture exact start position to restore later if needed
+            try:
+                start_pos = pyautogui.position()
+                start_x, start_y = int(start_pos[0]), int(start_pos[1])
+            except Exception:
+                start_x, start_y = None, None
+
             self.showMinimized()
-            time.sleep(0.12)
+            time.sleep(0.06)
 
             for point_index, vol_to_send in transfers:
                 pyperclip.copy(vol_to_send)
+                # quick move (small non-zero duration so target registers drag/click reliably)
                 pyautogui.moveTo(
-                    points[point_index][0], points[point_index][1], duration=0.04
+                    points[point_index][0], points[point_index][1], duration=0.005
                 )
                 pyautogui.click()
-                time.sleep(0.015)
+                # small pause to ensure focus, then double-click to select
+                time.sleep(0.006)
                 pyautogui.click(clicks=2)
-                time.sleep(0.015)
+                time.sleep(0.006)
                 keyboard.press_and_release("ctrl+a")
-                time.sleep(0.015)
+                time.sleep(0.006)
                 keyboard.press_and_release("backspace")
-                time.sleep(0.015)
+                time.sleep(0.006)
                 keyboard.press_and_release("ctrl+v")
-                time.sleep(0.015)
+                time.sleep(0.006)
                 keyboard.press_and_release("enter")
-                time.sleep(0.015)
-            pyautogui.moveTo(start_x, start_y)
+                # tiny pause before moving to next cell
+                time.sleep(0.01)
+
+            # restore original cursor position if captured
+            if start_x is not None and start_y is not None:
+                try:
+                    pyautogui.moveTo(start_x, start_y)
+                except Exception:
+                    pass
             pyperclip.copy(old_clip)
             # Окно остается свернутым - не разворачиваем автоматически
         except Exception as e:
