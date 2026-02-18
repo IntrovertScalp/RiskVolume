@@ -1,105 +1,52 @@
-# RiskVolume - Trading Risk Calculator
+# RiskVolume - калькулятор риска для трейдинга 🚀 | 👤Разработчик: IntrovertScalp
 
-A professional PyQt6-based trading calculator for risk management and automated order placement.
+Приложение для управления рисками, расчета объема позиции и автоматической расстановки ордеров в ячейки обьемов в стакане ⚡
 
-## Features
+## Ключевые возможности ✨
+- **Калькулятор риска**: объем позиции по депозиту, риску % и стопу %
+- **Распределение объемов**: авто-распределение или ручные проценты
+- **Каскады (Profit Forge)**: автоматическая расстановка по шагу/диапазону
+- **Мгновенный пересчет**: обновление по мере ввода
 
-### Core Functionality
-- **Risk Calculator**: Calculate position size based on deposit, risk percentage, and stop loss
-- **Volume Distribution**: Distribute capital across multiple orders with various strategies
-- **Cascade Orders (Profit Forge)**: Automated placement of multiple orders with custom volumes and distances
-- **Real-time Calculation**: Dynamic updates with commission fee consideration
+## Типы распределения 📊
+1. **Равномерно**: равный сплит
+2. **Убывающая**: 100%, 75%, 50%, 25%, 10%
+3. **Вручную**: свой процент в каждой ячейке
 
-### Order Distribution Types
-1. **Uniform**: Equal distribution across all orders
-2. **Decreasing**: Gradually decreasing volumes (100%, 75%, 50%, 25%, 10%)
-3. **Scalper**: Optimized for scalping (40%, 20%, 15%, 15%, 10%)
-4. **Pyramid**: Pyramiding strategy (50%, 25%, 15%, 7%, 3%)
-5. **Manual**: Custom percentage allocation
+## Типы каскадов 🧩
+- **Равномерно**: равные ордера
+- **Матрешка x1.2**: рост по множителю 1.2x
+- **Матрешка x1.5**: рост по множителю 1.5x
+- **Ручной k**: свой множитель
 
-### Cascade Types
-- **Uniform**: Equal order sizes
-- **Matryoshka x1.2**: Progressive increase by 1.2x multiplier
-- **Matryoshka x1.5**: Progressive increase by 1.5x multiplier
-- **Aggressive x2**: Progressive increase by 2x multiplier
+## Доп. функции 🛠️
+- **Комиссии**: Maker/Taker с переключателем
+- **Калибровка**: захват точек кликом для автоматизации отправки данных в ячейки терминала
+- **Горячие клавиши**: Настраиваемые в настройках
+- **Масштаб UI**: 100%–170% 
+- **RU/EN**: два языка интерфейса
+- **Точность**: настройка десятичных знаков
+- **Автосохранение**: настройки сохраняются между сессиями
 
-### Advanced Features
-- **Commission Management**: Separate Maker/Taker fee configuration with toggle
-- **Calibration System**: Point-and-click coordinate capture for terminal automation
-- **Hotkey Support**: Configurable keyboard shortcuts (F1: Show/Hide, F2: Calibration, F3: Send)
-- **UI Scaling**: Adjustable interface size (80%-200%, baseline 150%)
-- **Multi-language**: Russian/English interface
-- **Precision Control**: Customizable decimal places for all values
-- **Settings Persistence**: All configurations saved automatically
-- **Window Management**: Position memory, drag functionality, minimize on execution
+## Загрузка 💾
+Скачивание — через **GitHub Releases**:
 
-## Technical Stack
-- **Framework**: PyQt6
-- **Automation**: pyautogui, keyboard
-- **Clipboard**: pyperclip
-- **Configuration**: JSON-based settings storage
+- **RiskVolume_Portable.zip**
 
-## Installation
+Распакуйте архив и запустите приложение. ✅
 
-```bash
-# Install dependencies
-pip install PyQt6 pyautogui keyboard pyperclip
+## Использование 🧭
 
-# Run application
-python main.py
-```
+### Вкладка калькулятора
+1. Введите депозит
+2. Укажите риск % и стоп %
+3. Выберите тип распределения
+4. Сделайте калибровку точек
+5. Нажмите **ВЫСТАВИТЬ**
 
-## Usage
+### Вкладка каскадов (Profit Forge)
+1. Выберите % от общего объема
+2. Настройте количество, мин. ордер, тип и шаг/диапазон
+3. Сделайте калибровку точек
+4. Нажмите **ВЫСТАВИТЬ**
 
-### Calculator Tab
-1. Enter deposit amount
-2. Set risk percentage
-3. Define stop loss percentage
-4. Adjust number of orders and minimum order size
-5. Select distribution type
-6. Click "CALIBRATE" to set terminal coordinates
-7. Click "EXECUTE" to place orders
-
-### Cascades Tab (Profit Forge)
-1. Select percentage of total volume (25%, 50%, 75%, 100%)
-2. Configure quantity, minimum order size, type, and distance step
-3. Click "CALIBRATE" to capture terminal interface points
-4. Click "EXECUTE" to place cascade orders
-
-### Settings
-- **Hotkeys**: Customize keyboard shortcuts
-- **Commission**: Configure Maker/Taker fees (toggle on/off)
-- **Display Precision**: Set decimal places for each value type
-- **Interface Scale**: Adjust UI size
-- **Language**: Switch between Russian/English
-
-## Project Structure
-```
-RiskVolume/
-├── main.py                    # Main application entry
-├── cascade_tab.py            # Cascade orders functionality
-├── ui_components.py          # Settings dialog and UI components
-├── logic.py                  # Risk calculation logic
-├── translations.py           # Multi-language support
-├── config.py                 # Configuration management
-├── ScalpSettings_Py.json     # Persistent settings
-└── Logo/                     # Application assets
-```
-
-## Configuration
-
-All settings are stored in `ScalpSettings_Py.json` including:
-- Window position and scale
-- Hotkey mappings
-- Commission fees (Maker/Taker)
-- Precision settings
-- Calibration points
-- Order distribution preferences
-
-## License
-
-Private project - All rights reserved
-
-## Author
-
-IntrovertScalp
