@@ -402,6 +402,8 @@ class CascadeTab(QWidget):
             p.drawLine(5, 9, 10, 3)
             p.end()
             pix.save(path, "PNG")
+        # Store path with forward slashes for CSS
+        self._checkmark_path_css = path.replace("\\", "/")
         return path
 
     def _wrap_spinbox(self, spinbox):
@@ -631,13 +633,13 @@ class CascadeTab(QWidget):
 
         # --- БЛОК 2: Настройки (Сетка исправлена) ---
         self.gb_set = QGroupBox(t["casc_block2"])
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(12)  # Отступ между колонками
-        grid.setVerticalSpacing(8)
+        self.grid_settings = QGridLayout()
+        self.grid_settings.setHorizontalSpacing(12)  # Отступ между колонками
+        self.grid_settings.setVerticalSpacing(8)
 
         # Используем QLabel с wordWrap, чтобы текст переносился если что
         self.lbl_count_title = QLabel(t["casc_count"])
-        grid.addWidget(self.lbl_count_title, 0, 0)
+        self.grid_settings.addWidget(self.lbl_count_title, 0, 0)
         self.sb_count = QSpinBox()
         self.sb_count.setRange(2, 20)
         saved_count = int(self.main.settings.get("last_cascade_count", 5) or 5)
@@ -648,10 +650,10 @@ class CascadeTab(QWidget):
         self.sb_count.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_count.setObjectName("spinInner")
         self.sb_count_wrap = self._wrap_spinbox(self.sb_count)
-        grid.addWidget(self.sb_count_wrap, 0, 1)
+        self.grid_settings.addWidget(self.sb_count_wrap, 0, 1)
 
         self.lbl_min_order_title = QLabel(t["casc_min_order"])
-        grid.addWidget(self.lbl_min_order_title, 0, 2)
+        self.grid_settings.addWidget(self.lbl_min_order_title, 0, 2)
         self.sb_min = QDoubleSpinBox()
         self.sb_min.setRange(1, 1000)
         min_order_prec = int(self.main.settings.get("prec_min_order", 2))
@@ -665,16 +667,16 @@ class CascadeTab(QWidget):
         self.sb_min.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_min.setObjectName("spinInner")
         self.sb_min_wrap = self._wrap_spinbox(self.sb_min)
-        grid.addWidget(self.sb_min_wrap, 0, 3)
+        self.grid_settings.addWidget(self.sb_min_wrap, 0, 3)
 
         # Подсказка под Кол-во (новая строка 1)
         self.lbl_count_hint = QLabel(t["casc_max_cells"].format(max="?"))
         self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
         self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        grid.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
+        self.grid_settings.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
 
         self.lbl_type_title = QLabel(t["casc_type"])
-        grid.addWidget(self.lbl_type_title, 1, 2)
+        self.grid_settings.addWidget(self.lbl_type_title, 1, 2)
         self.cb_type = QComboBox()
         # Сократим названия, чтобы влазили
         self.cb_type.addItems(
@@ -691,10 +693,10 @@ class CascadeTab(QWidget):
             saved_type = 0
         self.cb_type.setCurrentIndex(saved_type)
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
-        grid.addWidget(self.cb_type, 1, 3)
+        self.grid_settings.addWidget(self.cb_type, 1, 3)
 
         self.lbl_manual_k = QLabel(t["casc_manual_k"])
-        grid.addWidget(self.lbl_manual_k, 2, 2)
+        self.grid_settings.addWidget(self.lbl_manual_k, 2, 2)
         self.sb_manual_k = QDoubleSpinBox()
         self.sb_manual_k.setRange(1.00, 1000.0)
         self.sb_manual_k.setDecimals(2)
@@ -709,10 +711,10 @@ class CascadeTab(QWidget):
         self.sb_manual_k.lineEdit().setReadOnly(False)
         self.sb_manual_k.lineEdit().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.sb_manual_k_wrap = self._wrap_spinbox(self.sb_manual_k)
-        grid.addWidget(self.sb_manual_k_wrap, 2, 3)
+        self.grid_settings.addWidget(self.sb_manual_k_wrap, 2, 3)
 
         self.lbl_step_title = QLabel(t["casc_step"])
-        grid.addWidget(self.lbl_step_title, 3, 2)
+        self.grid_settings.addWidget(self.lbl_step_title, 3, 2)
         self.sb_dist = QDoubleSpinBox()
         self.sb_dist.setRange(0.001, 10.0)
         self.sb_dist.setDecimals(2)
@@ -725,21 +727,20 @@ class CascadeTab(QWidget):
         self.sb_dist.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_dist.setObjectName("spinInner")
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
-        grid.addWidget(self.sb_dist_wrap, 3, 3)
+        self.grid_settings.addWidget(self.sb_dist_wrap, 3, 3)
 
         self.chk_range_mode = QCheckBox(t["casc_range"])
         self.chk_range_mode.setChecked(
             bool(self.main.settings.get("cas_range_mode", False))
         )
         # Generate a black checkmark on green background icon for the checkbox
-        chk_img_path = self._create_checkmark_icon()
-        chk_img_path_css = chk_img_path.replace("\\", "/")
+        self._create_checkmark_icon()
         self.chk_range_mode.setStyleSheet(
             "QCheckBox { color: #aaa; font-size: 9pt; spacing: 5px; }"
             "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; }"
-            f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({chk_img_path_css}); }}"
+            f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._checkmark_path_css}); }}"
         )
-        grid.addWidget(self.chk_range_mode, 3, 0)
+        self.grid_settings.addWidget(self.chk_range_mode, 3, 0)
         self.sb_range_width = QDoubleSpinBox()
         self.sb_range_width.setRange(0.0, 100.0)
         self.sb_range_width.setDecimals(2)
@@ -750,7 +751,7 @@ class CascadeTab(QWidget):
         self.sb_range_width.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.sb_range_width.setObjectName("spinInner")
         self.sb_range_wrap = self._wrap_spinbox(self.sb_range_width)
-        grid.addWidget(self.sb_range_wrap, 3, 1)
+        self.grid_settings.addWidget(self.sb_range_wrap, 3, 1)
 
         # Используем тот же eventFilter, что и в калькуляторе (из main.py)
         self.sb_count.lineEdit().installEventFilter(self.main)
@@ -784,7 +785,7 @@ class CascadeTab(QWidget):
         self.group_btns[2].clicked.connect(self.recalc_table)
         self.group_btns[3].clicked.connect(self.recalc_table)
 
-        self.gb_set.setLayout(grid)
+        self.gb_set.setLayout(self.grid_settings)
         layout.addWidget(self.gb_set)
 
         # --- БЛОК 3: Таблица (Исправлено обрезание) ---
@@ -912,9 +913,18 @@ class CascadeTab(QWidget):
         чтобы на вкладке каскадов ничего не вылезало за рамки и текст не резался.
         """
         scale = self.main.settings.get("scale", 100)
-        base_scale = getattr(self.main, "base_scale", 150)
+        base_scale = getattr(self.main, "base_scale", 130)
         ratio = scale / float(base_scale)
         sc = scale / 100.0
+
+        # Динамическая подстройка spacing при высоких масштабах для предотвращения наложения текста
+        # При 100% (130) - базовый spacing, при 170% (200) - увеличиваем в ~1.5 раза
+        base_h_spacing = 12
+        base_v_spacing = 8
+        h_spacing = max(12, int(base_h_spacing * (scale / 130.0)))
+        v_spacing = max(8, int(base_v_spacing * (scale / 130.0)))
+        self.grid_settings.setHorizontalSpacing(h_spacing)
+        self.grid_settings.setVerticalSpacing(v_spacing)
 
         # Кнопка типов: компактная ширина и синхронно с "Кол-во"
         compact_w = max(60, int(70 * sc))
@@ -949,9 +959,10 @@ class CascadeTab(QWidget):
         self.sb_manual_k_wrap.setFixedHeight(field_h)
         if hasattr(self, "inp_custom_total"):
             self.inp_custom_total.setFixedHeight(field_h)
+            self.inp_custom_total.setMinimumWidth(max(80, int(90 * sc)))
         if hasattr(self, "inp_custom_percent"):
             self.inp_custom_percent.setFixedHeight(field_h)
-            self.inp_custom_percent.setFixedWidth(max(52, int(60 * sc)))
+            self.inp_custom_percent.setMinimumWidth(max(80, int(90 * sc)))
         if hasattr(self, "inp_max_limit"):
             self.inp_max_limit.setFixedHeight(field_h)
             self.inp_max_limit.setFixedWidth(max(52, int(60 * sc)))
@@ -1167,6 +1178,16 @@ class CascadeTab(QWidget):
         enabled_style = "color: #aaa; font-size: 9pt;"
         self.lbl_step_title.setStyleSheet(
             disabled_style if range_mode_on else enabled_style
+        )
+        # Затемняем чекбокс когда он выключен (range_mode_on = False)
+        self.chk_range_mode.setStyleSheet(
+            "QCheckBox { color: #aaa; font-size: 9pt; spacing: 5px; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; }"
+            f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._checkmark_path_css}); }}"
+            if range_mode_on
+            else "QCheckBox { color: #444; font-size: 9pt; spacing: 5px; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #333; background: #0F0F0F; }"
+            f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._checkmark_path_css}); }}"
         )
 
     def on_range_width_changed(self, value):

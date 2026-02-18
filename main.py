@@ -79,7 +79,7 @@ class CellsLabelDarkDelegate(QStyledItemDelegate):
 class RiskVolumeApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.base_scale = 150
+        self.base_scale = 130
         self.load_settings()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
@@ -138,7 +138,7 @@ class RiskVolumeApp(QMainWindow):
             "lang": "ru",
             "risk": 1.0,
             "stop": 1.0,
-            "scale": 150,
+            "scale": 130,
             "hk_show": "f1",
             "hk_coords": "f2",
             "hk_send": "f3",
@@ -217,7 +217,7 @@ class RiskVolumeApp(QMainWindow):
 
         # Корректируем масштаб если он выходит за разумные пределы
         scale = self.settings.get("scale", self.base_scale)
-        if scale < 80 or scale > 200:
+        if scale < 130 or scale > 200:
             self.settings["scale"] = self.base_scale
             self.save_settings()
 

@@ -131,6 +131,11 @@ def init_calculator_tab(app):
     app.chk_pos_mode.setObjectName("PosModeToggle")
     app.chk_pos_mode.setChecked(bool(app.settings.get("pos_mode_enabled", True)))
     app.chk_pos_mode.toggled.connect(app.on_position_mode_toggled)
+    app.chk_pos_mode.setStyleSheet(
+        "QCheckBox { color: #aaa; font-size: 9pt; spacing: 6px; margin: 0px; padding: 0px; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; margin: auto; }"
+        "QCheckBox::indicator:checked { background: #38BE1D; border: 1px solid #38BE1D; }"
+    )
     main_layout.addWidget(app.chk_pos_mode)
 
     # --- ДОБОР / СОКРАЩЕНИЕ ПО ТЕКУЩЕЙ ПОЗИЦИИ ---

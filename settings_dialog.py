@@ -238,11 +238,18 @@ class SettingsDialog(QDialog):
         scale_row = QHBoxLayout()
         scale_row.addWidget(QLabel(t["scale"]))
         self.cb_scale = QComboBox()
-        scales = [str(i) for i in range(80, 210, 10)]
-        self.cb_scale.addItems(scales)
-        current_scale = int(parent.settings.get("scale", 100))
-        idx = self.cb_scale.findText(str(current_scale))
-        if idx >= 0:
+        # Internal scales: 130-200, displayed as 100-170
+        self.scale_display = [
+            str(i) for i in range(100, 180, 10)
+        ]  # [100, 110, 120, ..., 170]
+        self.scale_actual = [
+            i for i in range(130, 210, 10)
+        ]  # [130, 140, 150, ..., 200]
+        self.cb_scale.addItems(self.scale_display)
+        current_scale = int(parent.settings.get("scale", 130))
+        # Find display index from actual scale
+        if current_scale in self.scale_actual:
+            idx = self.scale_actual.index(current_scale)
             self.cb_scale.setCurrentIndex(idx)
         scale_row.addWidget(self.cb_scale)
 
@@ -484,7 +491,7 @@ class SettingsDialog(QDialog):
         self.prec_lev.setText(str(prec_lev))
         self.parent_window.settings.update(
             {
-                "scale": int(self.cb_scale.currentText()),
+                "scale": self.scale_actual[self.cb_scale.currentIndex()],
                 "hk_show": self.hk_show.text(),
                 "hk_coords": self.hk_coords.text(),
                 "use_fee": self.chk_use_fee.isChecked(),
