@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('Logo', 'Logo'), ('translations.py', '.'), ('ui_components.py', '.'), ('logic.py', '.'), ('config.py', '.')],
+    datas=[('Logo', 'Logo')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -41,5 +41,6 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
+    contents_directory='internal',
     name='RiskVolume',
 )
