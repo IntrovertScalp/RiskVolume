@@ -161,21 +161,26 @@ class CascadeWorker(QThread):
                 user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
 
             try:
+                # Slightly increase the hold/duration for the FIRST slider
+                # to ensure the UI has time to process the drop before
+                # subsequent actions begin.
                 _win_quick_drag(
                     left_scrollbar_x,
                     left_scrollbar_y_start,
                     left_scrollbar_x,
                     left_scrollbar_y_start + 900,
-                    hold=0.02,
+                    hold=0.06,
                 )
             except Exception:
                 # fallback to pyautogui if Win32 drag fails
                 pyautogui.mouseDown(button="left")
+                # use a slightly longer duration for the first slider fallback
                 pyautogui.moveTo(
-                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.005
+                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.04
                 )
                 pyautogui.mouseUp(button="left")
-            time.sleep(0.08)
+            # give a bit more time after the initial slider move
+            time.sleep(0.14)
 
             # 3. Выбираем пункт "Книга заявок"
             if check_cancel():
