@@ -32,6 +32,7 @@
 Скачивание — через **GitHub Releases**:
 
 - **RiskVolume_Portable.zip**
+https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.1
 
 Распакуйте архив и запустите приложение. ✅
 
