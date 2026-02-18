@@ -98,12 +98,16 @@ class CascadeWorker(QThread):
         row_height = c_vol2[1] - c_vol1[1]
         base_y = c_vol1[1]
 
-        delay_click = 0.06
-        delay_short = 0.06
+        # Tuned timings: speed up non-critical actions, keep slider-related timings safe
+        delay_click = 0.03
+        delay_short = 0.03
+        # Keep long delay to allow settings window / UI to render before interacting with sliders
         delay_long = 0.18
         drag_duration = 0.05
+        # Restore speed multipliers to original safe values to avoid too-small sleeps
         speed_mul = 0.6
         min_sleep = 0.01
+        # Restore safer delete delay to ensure UI processes deletion clicks
         delete_delay = 0.12
 
         def sleep_fast(sec):
@@ -205,6 +209,18 @@ class CascadeWorker(QThread):
                     pyautogui.mouseUp(button="left")
                 time.sleep(0.08)
 
+                # === Speed-up non-slider actions ===
+                # Sliders already moved; now make subsequent actions faster (smaller sleeps/durations)
+                try:
+                    pyautogui.MINIMUM_SLEEP = 0.0001
+                    pyautogui.MINIMUM_DURATION = 0.0001
+                    pyautogui.PAUSE = 0.0
+                except Exception:
+                    pass
+                # Reduce multiplier used by sleep_fast to make sleeps shorter
+                speed_mul = 0.25
+                min_sleep = 0.0005
+
             # 5. Очистка (удаляем старые строки каскада)
             if check_cancel():
                 return
@@ -226,7 +242,13 @@ class CascadeWorker(QThread):
                 print(f"[CASCADE]   Нажатие {i+1}/{del_clicks} на минус/удалить")
                 pyautogui.click()
                 sleep_fast(delete_delay)
-            sleep_fast(0.12)
+            # Give UI extra time to process deletions and ensure state is stable
+            sleep_fast(0.3)
+            # Click once in empty area to ensure focus is cleared and UI updated
+            try:
+                pyautogui.click(c_vol1[0] - 80, base_y)
+            except Exception:
+                pass
 
             # 6. Создаем нужное количество строк
             if check_cancel():
@@ -279,18 +301,20 @@ class CascadeWorker(QThread):
                     f"[CASCADE]     Выставляю объем {vol_str} в координаты ({c_vol1[0]}, {cur_y})"
                 )
                 pyperclip.copy(vol_str)
-                sleep_fast(0.05)
+                # Slightly longer pause to ensure clipboard is set before moving/clicking
+                sleep_fast(0.12)
                 pyautogui.moveTo(c_vol1[0], cur_y)
                 pyautogui.click()
                 sleep_fast(0.05)
                 pyautogui.click(clicks=2)
                 sleep_fast(0.015)
                 keyboard.press_and_release("ctrl+a")
-                sleep_fast(0.015)
+                sleep_fast(0.02)
                 keyboard.press_and_release("backspace")
-                sleep_fast(0.015)
+                sleep_fast(0.02)
                 keyboard.press_and_release("ctrl+v")
-                sleep_fast(0.04)
+                # ensure paste completed before hitting Enter
+                sleep_fast(0.08)
                 keyboard.press_and_release("enter")
 
                 # --- Дистанция ---
