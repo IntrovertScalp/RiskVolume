@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QWidget,
     QSpinBox,
+    QAbstractSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QCheckBox,
@@ -210,8 +211,12 @@ class SettingsDialog(QDialog):
         extra_btns = QHBoxLayout()
         self.btn_about = QPushButton(t["about_btn"])
         self.btn_about.clicked.connect(self.show_about_dialog)
+        self.btn_about.setAutoDefault(False)
+        self.btn_about.setDefault(False)
         self.btn_donate = QPushButton(t["support_btn"])
         self.btn_donate.clicked.connect(self.show_donate_dialog)
+        self.btn_donate.setAutoDefault(False)
+        self.btn_donate.setDefault(False)
         # Темный стиль для этих двух кнопок
         dark_style = (
             "QPushButton {"
@@ -414,6 +419,32 @@ class SettingsDialog(QDialog):
         )
         self.top_close_btn.raise_()
 
+        self._install_enter_accept_handlers()
+
+    def _install_enter_accept_handlers(self):
+        for widget in self.findChildren(QLineEdit):
+            if isinstance(widget, HotkeyEdit):
+                continue
+            widget.installEventFilter(self)
+        for widget in self.findChildren(QAbstractSpinBox):
+            widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == event.Type.KeyPress and event.key() in (
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+        ):
+            if isinstance(obj, (QLineEdit, QAbstractSpinBox)) and not isinstance(
+                obj, HotkeyEdit
+            ):
+                if isinstance(obj, QAbstractSpinBox):
+                    obj.interpretText()
+                if isinstance(obj, QLineEdit):
+                    obj.deselect()
+                obj.clearFocus()
+                return True
+        return super().eventFilter(obj, event)
+
     def toggle_fee_fields(self):
         """Показать/скрыть поля комиссии в зависимости от чекбокса"""
         is_checked = self.chk_use_fee.isChecked()
@@ -517,6 +548,12 @@ class SettingsDialog(QDialog):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.old_pos = event.globalPosition().toPoint()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def mouseMoveEvent(self, event):
         if hasattr(self, "old_pos"):

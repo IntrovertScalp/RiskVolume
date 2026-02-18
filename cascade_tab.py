@@ -178,18 +178,18 @@ class CascadeWorker(QThread):
                     left_scrollbar_y_start,
                     left_scrollbar_x,
                     left_scrollbar_y_start + 900,
-                    hold=0.06,
+                    hold=0.09,
                 )
             except Exception:
                 # fallback to pyautogui if Win32 drag fails
                 pyautogui.mouseDown(button="left")
                 # use a slightly longer duration for the first slider fallback
                 pyautogui.moveTo(
-                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.04
+                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.06
                 )
                 pyautogui.mouseUp(button="left")
             # give a bit more time after the initial slider move
-            time.sleep(0.14)
+            time.sleep(0.18)
 
             # 3. Выбираем пункт "Книга заявок"
             if check_cancel():
@@ -213,15 +213,15 @@ class CascadeWorker(QThread):
                         scrollbar_y_start,
                         scrollbar_x,
                         scrollbar_y_start + 1200,
-                        hold=0.02,
+                        hold=0.04,
                     )
                 except Exception:
                     pyautogui.mouseDown(button="left")
                     pyautogui.moveTo(
-                        scrollbar_x, scrollbar_y_start + 1200, duration=0.005
+                        scrollbar_x, scrollbar_y_start + 1200, duration=0.015
                     )
                     pyautogui.mouseUp(button="left")
-                time.sleep(0.08)
+                time.sleep(0.12)
 
                 # === Speed-up non-slider actions ===
                 # Sliders already moved; now make subsequent actions faster (smaller sleeps/durations)
@@ -684,13 +684,18 @@ class CascadeTab(QWidget):
                 t["casc_type_uniform"],
                 t["casc_type_matr_12"],
                 t["casc_type_matr_15"],
-                t["casc_type_aggr_2"],
                 t["casc_type_manual"],
             ]
         )
         saved_type = int(self.main.settings.get("cas_type_index", 0) or 0)
-        if saved_type < 0 or saved_type > 4:
+        if saved_type < 0:
             saved_type = 0
+        if saved_type == 4:
+            saved_type = 3
+        elif saved_type >= 3:
+            saved_type = 2
+        if saved_type > 3:
+            saved_type = 3
         self.cb_type.setCurrentIndex(saved_type)
         self.cb_type.setMinimumWidth(70)  # Более компактная ширина
         self.grid_settings.addWidget(self.cb_type, 1, 3)
@@ -856,11 +861,10 @@ class CascadeTab(QWidget):
                 t["casc_type_uniform"],
                 t["casc_type_matr_12"],
                 t["casc_type_matr_15"],
-                t["casc_type_aggr_2"],
                 t["casc_type_manual"],
             ]
         )
-        self.cb_type.setCurrentIndex(max(0, current_idx))
+        self.cb_type.setCurrentIndex(max(0, min(current_idx, 3)))
         self.cb_type.blockSignals(False)
         self.table.setHorizontalHeaderLabels(
             [t["casc_table_vol"], t["casc_table_dist"]]
@@ -1140,7 +1144,7 @@ class CascadeTab(QWidget):
             pass
 
     def on_type_changed(self, index):
-        is_manual = index == 4
+        is_manual = index == 3
         self.sb_manual_k_wrap.setEnabled(is_manual)
         self.sb_manual_k_wrap.setVisible(is_manual)
         self.lbl_manual_k.setVisible(is_manual)
@@ -1265,8 +1269,6 @@ class CascadeTab(QWidget):
         if idx == 2:
             return 1.5
         if idx == 3:
-            return 2.0
-        if idx == 4:
             self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
             return float(self.sb_manual_k.value())
         return 1.0
