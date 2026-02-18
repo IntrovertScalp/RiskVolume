@@ -501,6 +501,7 @@ class SettingsDialog(QDialog):
             }
         )
         self.parent_window.save_settings()
+        self.parent_window.refresh_labels()
         self.parent_window.apply_styles()
         self.parent_window.rebind_hotkeys()
         self.parent_window.update_calc()

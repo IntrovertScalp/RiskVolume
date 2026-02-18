@@ -346,24 +346,26 @@ class DonateDialog(QDialog):
         self.translations = {
             "RU": {
                 "title": "Поддержать проект",
-                "header": "♥️ Поддержать",
+                "header": "❤️ Поддержать",
                 "description": "Программа полностью бесплатная и всегда такой останется.\nЕсли она вам помогает — буду рад любой поддержке! 🤗",
                 "scroll_hint": "⬇ Прокрутите вниз чтобы увидеть все адреса ⬇",
                 "close": "Закрыть",
                 "qr_title": "QR-код",
                 "copy_btn": "📋 Копировать адрес",
+                "copy_success": "Скопировано!",
                 "qr_scan_title": "QR-код для сканирования",
                 "size_label": "Размер:",
                 "short_desc": "Программа бесплатная и всегда будет такой!\nЕсли она вам помогает — любая поддержка очень мотивирует 😊🙏\nСпасибо!",
             },
             "EN": {
                 "title": "Support the project",
-                "header": "♥️ Support",
+                "header": "❤️ Support",
                 "description": "The program is completely free and will always stay that way.\nIf it helps you, I'd be grateful for any support! 🤗",
                 "scroll_hint": "⬇ Scroll down to see all addresses ⬇",
                 "close": "Close",
                 "qr_title": "QR Code",
                 "copy_btn": "📋 Copy Address",
+                "copy_success": "Copied!",
                 "qr_scan_title": "QR code for scanning",
                 "size_label": "Size:",
                 "short_desc": "The program is free and always will be!\nIf it helps you, any support is very motivating 😊🙏\nThank you!",
@@ -451,12 +453,6 @@ class DonateDialog(QDialog):
         title_layout = QHBoxLayout()
         title_layout.setSpacing(self._s(10))
         title_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        heart_label = QLabel(
-            "<span style='font-size:{}px; color:#e81123;'>♥️</span>".format(self._s(20))
-        )
-        heart_label.setStyleSheet("background: transparent; border: none;")
-        title_layout.addWidget(heart_label)
 
         title = QLabel(self.t["header"])
         title.setStyleSheet(
@@ -878,8 +874,12 @@ class DonateDialog(QDialog):
             original_text = copy_btn.text()
             original_stylesheet = copy_btn.styleSheet()
 
+            # Получаем текущий язык
+            current_lang = self._get_lang_key()
+            t = self.translations[current_lang]
+
             # Меняем текст и стиль кнопки
-            copy_btn.setText("✓ Скопировано!")
+            copy_btn.setText("✓ " + t.get("copy_success", "Скопировано!"))
             copy_btn.setStyleSheet(
                 f"""
                 QPushButton {{

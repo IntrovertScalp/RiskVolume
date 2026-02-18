@@ -20,15 +20,15 @@ class AboutDialog(QDialog):
         self.translations = {
             "RU": {
                 "title": "О программе",
-                "version": "Версия 1.0",
-                "description": "Это калькулятор для расчёта объёма входа в сделку в зависимости от желаемого процентного стоп-лосса. Помогает быстро рассчитать размер позиции с возможностью автоматического переноса полученных значений в ячейки объёмов в стакан терминала.",
+                "version": "Версия 1.1",
+                "description": "Это калькулятор для расчёта объёма входа в сделку в зависимости от желаемого процентного стоп-лосса. Помогает быстро рассчитать размер позиции с возможностью автоматического переноса полученных значений в ячейки объёмов в стакан терминала. Также доступно только для ProfitForge быстрый выбор каскадов и автоматический перенос в терминал.",
                 "developer": "Разработчик:",
                 "youtube_btn": "🎥 YouTube",
             },
             "EN": {
                 "title": "About",
-                "version": "Version 1.0",
-                "description": "This is a calculator for position entry size based on the desired stop-loss percentage. It helps you quickly calculate position size with the ability to automatically transfer the values into terminal order-book volume cells.",
+                "version": "Version 1.1",
+                "description": "This is a calculator for position entry size based on the desired stop-loss percentage. It helps you quickly calculate position size with the ability to automatically transfer the values into terminal order-book volume cells. Also available exclusively for ProfitForge - quick cascade selection and automatic transfer to the terminal.",
                 "developer": "Developer:",
                 "youtube_btn": "🎥 YouTube",
             },
@@ -36,8 +36,20 @@ class AboutDialog(QDialog):
 
         # --- Получаем масштаб интерфейса из parent.settings, если есть ---
         scale = None
-        if parent is not None and hasattr(parent, "settings"):
-            scale = parent.settings.get("scale")
+        settings_obj = None
+
+        # Пытаемся получить объект settings
+        if parent is not None:
+            if hasattr(parent, "settings"):
+                settings_obj = parent.settings
+            elif hasattr(parent, "parent_window") and hasattr(
+                parent.parent_window, "settings"
+            ):
+                # Если parent - это SettingsDialog, берем settings из parent_window
+                settings_obj = parent.parent_window.settings
+
+        if settings_obj and settings_obj.get("scale"):
+            scale = settings_obj.get("scale")
         if not scale:
             qset = QSettings("MyTradeTools", "TF-Alerter")
             scale = qset.value("interface_scale_text", "100%")
@@ -51,8 +63,8 @@ class AboutDialog(QDialog):
             return max(1, int(px * factor))
 
         lang_code = "ru"
-        if parent is not None and hasattr(parent, "settings"):
-            lang_code = parent.settings.get("lang", "ru")
+        if settings_obj:
+            lang_code = settings_obj.get("lang", "ru")
         self.current_lang = "EN" if lang_code == "en" else "RU"
         self.t = self.translations[self.current_lang]
         self.setWindowTitle(self.t["title"])

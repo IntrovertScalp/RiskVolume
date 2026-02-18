@@ -471,6 +471,7 @@ class RiskVolumeApp(QMainWindow):
                     t["calc_table_percent"],
                 ]
             )
+            self.update_cells_labels()
         if hasattr(self, "btn_submit"):
             self.btn_submit.setText(t["calc_apply"])
         self.update_position_adjustment_info()
@@ -822,6 +823,81 @@ class RiskVolumeApp(QMainWindow):
                     else:
                         item.setFlags(Qt.ItemFlag.NoItemFlags)
 
+    def _dim_top_controls(self, dim):
+        """Затемняет или освещает верхние элементы (депозит, риск, стоп, объем)"""
+        elements = [
+            ("inp_dep", True),
+            ("inp_risk", True),
+            ("inp_stop", True),
+            ("lbl_vol", False),
+            ("lbl_dep_title", False),
+            ("lbl_risk_title", False),
+            ("lbl_stop_title", False),
+            ("lbl_hint", False),
+            ("lbl_info", False),
+            ("lbl_vol_title", False),
+        ]
+
+        for name, is_input in elements:
+            widget = getattr(self, name, None)
+            if widget:
+                if isinstance(widget, QLineEdit):
+                    if dim:
+                        # Затемняем QLineEdit
+                        widget.setStyleSheet(
+                            "QLineEdit:disabled { background: #0F0F0F; color: #333; border: 1px solid #222; }"
+                        )
+                        widget.setEnabled(False)
+                    else:
+                        # Восстанавливаем нормальное состояние
+                        widget.setEnabled(True)
+                        widget.setStyleSheet(
+                            "QLineEdit { background: #1A1A1A; color: white; border: 1px solid #252525; padding: 3px; border-radius: 4px; font-size: 9pt; }"
+                        )
+                elif isinstance(widget, QLabel):
+                    if dim:
+                        # Просто затемняем цвет текста, сохраняя остальные стили
+                        current_style = widget.styleSheet()
+                        # Заменяем color на более темный
+                        if "color:" in current_style:
+                            # Заменяем существующий color
+                            import re
+
+                            new_style = re.sub(
+                                r"color:\s*#[0-9A-Fa-f]{3,6}",
+                                "color: #555",
+                                current_style,
+                            )
+                            widget.setStyleSheet(new_style)
+                        else:
+                            widget.setStyleSheet(current_style + "; color: #555;")
+                        widget.setEnabled(False)
+                    else:
+                        # Восстанавливаем оригинальное состояние
+                        widget.setEnabled(True)
+                        if (
+                            name == "lbl_dep_title"
+                            or name == "lbl_risk_title"
+                            or name == "lbl_stop_title"
+                        ):
+                            widget.setStyleSheet(
+                                "color: #888; font-size: 8pt; font-weight: bold;"
+                            )
+                        elif name == "lbl_vol_title":
+                            widget.setStyleSheet(
+                                "color: #888; font-size: 9pt; font-weight: 600; margin-top: 2px;"
+                            )
+                        elif name == "lbl_hint":
+                            widget.setStyleSheet("color: #666; font-size: 8pt;")
+                        elif name == "lbl_info":
+                            widget.setStyleSheet(
+                                "color: #888; font-size: 9pt; line-height: 1.2;"
+                            )
+                        elif name == "lbl_vol":
+                            widget.setStyleSheet(
+                                "color: #FF9F0A; font-size: 11pt; font-weight: bold; border: 1px solid #333; border-radius: 4px; padding: 4px; background: #1A1A1A;"
+                            )
+
     def on_position_mode_toggled(self, checked, is_startup=False):
         enabled = bool(checked)
         self.settings["pos_mode_enabled"] = enabled
@@ -831,7 +907,13 @@ class RiskVolumeApp(QMainWindow):
             "inp_pos_vol",
             "inp_pos_risk",
             "inp_pos_stop",
+            "lbl_pos_vol_title",
+            "lbl_pos_risk_title",
+            "lbl_pos_stop_title",
             "btn_move_adjust_to_cell",
+            "lbl_pos_vol_hint",
+            "lbl_pos_risk_cash",
+            "lbl_pos_adjust",
         ):
             widget = getattr(self, name, None)
             if widget:
@@ -857,6 +939,9 @@ class RiskVolumeApp(QMainWindow):
                 self._set_position_target_row_mask(None)
 
         self.save_settings()
+
+        # Затемняем/включаем верхнюю часть в зависимости от позиции режима
+        self._dim_top_controls(enabled)
 
         for widget in pos_controls:
             widget.setEnabled(enabled)
@@ -1737,7 +1822,8 @@ class RiskVolumeApp(QMainWindow):
             is_active = i < cells_count
 
             # Ячейка с названием (не редактируется, не выделяется)
-            label_item = QTableWidgetItem(f"Ячейка {i + 1}")
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            label_item = QTableWidgetItem(t["calc_cell_label"].format(num=i + 1))
             label_item.setFlags(label_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             label_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.cells_table.setItem(i, 0, label_item)
@@ -1816,15 +1902,17 @@ class RiskVolumeApp(QMainWindow):
         if is_reversed:
             active_labels.reverse()
 
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+
         for i in range(5):
             label_item = self.cells_table.item(i, 0)
             if not label_item:
                 continue
 
             if i < cells_count:
-                label_item.setText(f"Ячейка {active_labels[i]}")
+                label_item.setText(t["calc_cell_label"].format(num=active_labels[i]))
             else:
-                label_item.setText(f"Ячейка {i + 1}")
+                label_item.setText(t["calc_cell_label"].format(num=i + 1))
 
         self._update_selected_rows_visuals()
 
