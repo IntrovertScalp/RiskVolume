@@ -19,9 +19,10 @@ from PyQt6.QtWidgets import (
     QFrame,
     QAbstractSpinBox,
     QSizePolicy,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
-from PyQt6.QtGui import QRegularExpressionValidator, QCursor
+from PyQt6.QtGui import QRegularExpressionValidator, QCursor, QPixmap, QPainter, QColor, QPen, QIcon
 from translations import TRANS
 
 
@@ -376,6 +377,24 @@ class CascadeTab(QWidget):
         text = t.get(key, "")
         return text.format(**kwargs) if kwargs else text
 
+    def _create_checkmark_icon(self):
+        """Create a small black checkmark PNG and return its path."""
+        import os, tempfile
+        path = os.path.join(tempfile.gettempdir(), "rv_checkmark.png")
+        if not os.path.exists(path):
+            pix = QPixmap(12, 12)
+            pix.fill(QColor(0, 0, 0, 0))  # transparent
+            p = QPainter(pix)
+            pen = QPen(QColor(0, 0, 0))
+            pen.setWidth(2)
+            p.setPen(pen)
+            # Draw a checkmark: short leg then long leg
+            p.drawLine(2, 6, 5, 9)
+            p.drawLine(5, 9, 10, 3)
+            p.end()
+            pix.save(path, "PNG")
+        return path
+
     def _wrap_spinbox(self, spinbox):
         wrap = QFrame()
         wrap.setObjectName("SpinWrap")
@@ -656,7 +675,7 @@ class CascadeTab(QWidget):
         self.lbl_manual_k = QLabel(t["casc_manual_k"])
         grid.addWidget(self.lbl_manual_k, 2, 2)
         self.sb_manual_k = QDoubleSpinBox()
-        self.sb_manual_k.setRange(0.01, 1000.0)
+        self.sb_manual_k.setRange(1.00, 1000.0)
         self.sb_manual_k.setDecimals(2)
         self.sb_manual_k.setSingleStep(0.1)
         self.sb_manual_k.setKeyboardTracking(False)
@@ -687,8 +706,19 @@ class CascadeTab(QWidget):
         self.sb_dist_wrap = self._wrap_spinbox(self.sb_dist)
         grid.addWidget(self.sb_dist_wrap, 3, 3)
 
-        self.lbl_range_title = QLabel(t["casc_range"])
-        grid.addWidget(self.lbl_range_title, 3, 0)
+        self.chk_range_mode = QCheckBox(t["casc_range"])
+        self.chk_range_mode.setChecked(
+            bool(self.main.settings.get("cas_range_mode", False))
+        )
+        # Generate a black checkmark on green background icon for the checkbox
+        chk_img_path = self._create_checkmark_icon()
+        chk_img_path_css = chk_img_path.replace("\\", "/")
+        self.chk_range_mode.setStyleSheet(
+            "QCheckBox { color: #aaa; font-size: 9pt; spacing: 5px; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; }"
+            f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({chk_img_path_css}); }}"
+        )
+        grid.addWidget(self.chk_range_mode, 3, 0)
         self.sb_range_width = QDoubleSpinBox()
         self.sb_range_width.setRange(0.0, 100.0)
         self.sb_range_width.setDecimals(2)
@@ -715,6 +745,10 @@ class CascadeTab(QWidget):
         self.sb_dist.valueChanged.connect(self.on_dist_changed)
         self.sb_range_width.valueChanged.connect(self.on_range_width_changed)
         self.sb_manual_k.valueChanged.connect(self.recalc_table)
+        self.chk_range_mode.toggled.connect(self.on_range_mode_toggled)
+
+        # Применяем начальное состояние enable/disable для шага и диапазона
+        self._apply_range_mode_state(self.chk_range_mode.isChecked())
 
         # Реал-тайм обновление при вводе текста в спинбоксы
         # Подключаемся к встроенному QLineEdit для обновления при каждом символе
@@ -791,7 +825,7 @@ class CascadeTab(QWidget):
         self.lbl_type_title.setText(t["casc_type"])
         self.lbl_manual_k.setText(t["casc_manual_k"])
         self.lbl_step_title.setText(t["casc_step"])
-        self.lbl_range_title.setText(t["casc_range"])
+        self.chk_range_mode.setText(t["casc_range"])
         current_idx = self.cb_type.currentIndex()
         self.cb_type.blockSignals(True)
         self.cb_type.clear()
@@ -1083,11 +1117,39 @@ class CascadeTab(QWidget):
         self.main.save_settings()
         self.recalc_table()
 
+    def on_range_mode_toggled(self, checked):
+        """Переключение режима: ширина диапазона vs шаг."""
+        self.main.settings["cas_range_mode"] = bool(checked)
+        self.main.save_settings()
+        self._apply_range_mode_state(checked)
+        self.recalc_table()
+
+    def _apply_range_mode_state(self, range_mode_on):
+        """Включает/выключает контролы в зависимости от режима."""
+        # Range mode ON: range width enabled, step disabled
+        self.sb_range_width.setEnabled(range_mode_on)
+        self.sb_range_wrap.setEnabled(range_mode_on)
+        if hasattr(self, 'sb_range_left'):
+            self.sb_range_left.setEnabled(range_mode_on)
+            self.sb_range_right.setEnabled(range_mode_on)
+
+        # Range mode OFF: step enabled, range width disabled
+        self.sb_dist.setEnabled(not range_mode_on)
+        self.sb_dist_wrap.setEnabled(not range_mode_on)
+        self.lbl_step_title.setEnabled(not range_mode_on)
+        if hasattr(self, 'sb_dist_left'):
+            self.sb_dist_left.setEnabled(not range_mode_on)
+            self.sb_dist_right.setEnabled(not range_mode_on)
+
+        # Обновляем стили для затемнения
+        disabled_style = "color: #444; font-size: 9pt;"
+        enabled_style = "color: #aaa; font-size: 9pt;"
+        self.lbl_step_title.setStyleSheet(disabled_style if range_mode_on else enabled_style)
+
     def on_range_width_changed(self, value):
         self.main.settings["cas_range_width"] = float(value)
-        if value <= 0:
-            return
-        self.auto_configure_by_range()
+        self.main.save_settings()
+        self.recalc_table()
 
     def get_base_volume(self):
         if (
@@ -1102,7 +1164,7 @@ class CascadeTab(QWidget):
             max_possible = int(total_vol / min_size)
         else:
             max_possible = 1
-            while True:
+            while max_possible <= 20:
                 geo_sum = min_size * (mult**max_possible - 1) / (mult - 1)
                 if geo_sum > total_vol:
                     break
@@ -1353,10 +1415,13 @@ class CascadeTab(QWidget):
 
         dist_prec = max(2, int(self.sb_dist.decimals()))
         for i, vol in enumerate(final_volumes):
-            if range_width > 0 and count > 1:
-                dist = range_width * (i / (count - 1))
-                if i == count - 1:
-                    dist = range_width
+            if self.chk_range_mode.isChecked():
+                if count > 1 and range_width > 0:
+                    dist = range_width * (i / (count - 1))
+                    if i == count - 1:
+                        dist = range_width
+                else:
+                    dist = 0.0
             else:
                 dist = i * dist_step
             vol_item = QTableWidgetItem(f"{vol:.{p_vol}f}")

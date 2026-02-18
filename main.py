@@ -173,6 +173,7 @@ class RiskVolumeApp(QMainWindow):
             "cas_max_count": 0,
             "cas_type_index": 0,
             "cas_dist_step": 0.1,
+            "cas_range_mode": False,
             "cas_range_width": 0.0,
             "cas_manual_k": 2.0,
             "last_cascade_count": 1,
