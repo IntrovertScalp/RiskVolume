@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
-from PyQt6.QtGui import QRegularExpressionValidator
+from PyQt6.QtGui import QRegularExpressionValidator, QCursor
 from translations import TRANS
 
 
@@ -732,6 +732,8 @@ class CascadeTab(QWidget):
         self.btn_apply.setStyleSheet(
             "background: #38BE1D; color: black; font-weight: bold; padding: 8px; font-size: 10pt;"
         )
+        # Save click position on press so we can restore cursor exactly where user clicked
+        self.btn_apply.pressed.connect(self._store_apply_click_pos)
         self.btn_apply.clicked.connect(self.run_automation)
         layout.addWidget(self.btn_apply)
 
@@ -791,6 +793,13 @@ class CascadeTab(QWidget):
             focus_widget.clearFocus()
         if hasattr(self.main, "_clear_ghost_focus"):
             self.main._clear_ghost_focus()
+
+    def _store_apply_click_pos(self):
+        """Сохраняет глобальную позицию курсора в момент нажатия кнопки ВЫСТАВИТЬ."""
+        try:
+            self._btn_apply_click_pos = QCursor.pos()
+        except Exception:
+            self._btn_apply_click_pos = None
 
     def mousePressEvent(self, event):
         clicked = self.childAt(event.position().toPoint())
@@ -1481,10 +1490,17 @@ class CascadeTab(QWidget):
             self.lbl_status.setStyleSheet("color: #666;")
             return
 
-        # Сохраняем позицию кнопки ВЫСТАВИТЬ на экране
+        # Сохраняем позицию кнопки ВЫСТАВИТЬ на экране.
+        # Prefer the actual cursor position where the user pressed the button (stored on pressed()),
+        # otherwise fall back to button center.
         try:
-            btn_center = self.btn_apply.rect().center()
-            self._btn_apply_global_pos = self.btn_apply.mapToGlobal(btn_center)
+            pos = getattr(self, "_btn_apply_click_pos", None)
+            if pos:
+                # QCursor.pos() returns a QPoint (global coords)
+                self._btn_apply_global_pos = pos
+            else:
+                btn_center = self.btn_apply.rect().center()
+                self._btn_apply_global_pos = self.btn_apply.mapToGlobal(btn_center)
         except Exception:
             self._btn_apply_global_pos = None
 
@@ -1492,7 +1508,16 @@ class CascadeTab(QWidget):
         self.lbl_status.setStyleSheet("color: #FF9F0A;")
         self.apply_active = True
 
-        # Сворачиваем окно программы
+        # Save exact mouse position (screen coords) like calculator does, then minimize
+        try:
+            import pyautogui as _pyag
+
+            start_pos = _pyag.position()
+            # store tuple for later exact restoration
+            self._btn_apply_start_pos = (int(start_pos[0]), int(start_pos[1]))
+        except Exception:
+            self._btn_apply_start_pos = None
+
         self.main.showMinimized()
         import time as _t
 
@@ -1521,6 +1546,18 @@ class CascadeTab(QWidget):
 
     def _restore_cursor_after_apply(self):
         """Перемещаем курсор на позицию кнопки ВЫСТАВИТЬ (окно НЕ разворачиваем)"""
+        # Prefer the exact screen coords captured via pyautogui.position()
+        start_pos = getattr(self, "_btn_apply_start_pos", None)
+        if start_pos:
+            try:
+                import pyautogui
+
+                pyautogui.moveTo(start_pos[0], start_pos[1])
+                return
+            except Exception:
+                pass
+
+        # Fallback to stored global QPoint from pressed() if available
         pos = getattr(self, "_btn_apply_global_pos", None)
         if not pos:
             return
