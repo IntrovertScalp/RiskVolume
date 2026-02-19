@@ -1,4 +1,4 @@
-# RiskVolume - risk calculator for trading 🚀 | 👤Developer: IntrovertScalp
+# RiskVolume - risk calculator for trading 🚀 | Developer: IntrovertScalp
 
 An application for risk management, position volume calculation, and automatic placement of orders in volume cells in the order book ⚡
 
