@@ -1,35 +1,35 @@
 # RiskVolume - risk calculator for trading 🚀 | Developer: IntrovertScalp
 
-An application for risk management, position volume calculation, and automatic placement of orders in volume cells in the order book ⚡
+An app for risk management, position volume calculation, and automatic order placement in order book volume cells ⚡
 
-## Key features ✨
-- **Risk calculator**: position volume by deposit, risk % and stop %
-- **Volume distribution**: auto-distribution or manual percentages
+## Key Features ✨
+- **Risk Calculator**: position volume by deposit, risk %, and stop loss %
+- **Volume Distribution**: automatic or manual percentages
 - **Cascades (Profit Forge)**: automatic placement by step/range
-- **Instant recalculation**: updates as you type
+- **Instant Recalculation**: updated as you enter
 
-## Distribution types 📊
-1. **Evenly**: equal split
-2. **Descending**: 100%, 75%, 50%, 25%, 10%
-3. **Manual**: your own percentage in each cell
+## Distribution Types 📊
+1. **Even**: equal split
+2. **Decreasing**: 100%, 75%, 50%, 25%, 10%
+3. **Manual**: custom percentage in each cell
 
-## Cascade types 🧩
+## Cascade Types 🧩
 - **Evenly**: equal orders
-- **Matryoshka x1.2**: growth by a multiplier of 1.2x
-- **Matryoshka x1.5**: growth by a multiplier of 1.5x
-- **Manual k**: your own multiplier
+- **Matryoshka x1.2**: growth by a 1.2x multiplier
+- **Matryoshka x1.5**: growth by a 1.5x multiplier
+- **Manual k**: custom multiplier
 
-## Additional functions 🛠️
-- **Commissions**: Maker/Taker with a switch
-- **Calibration**: capture points with a click to automate data sending to terminal cells
-- **Hotkeys**: Customisable in settings
-- **UI scale**: 100%–170%
+## Add. Features 🛠️
+- **Fees**: Maker/Taker with a switch
+- **Calibration**: Capture points with a click to automate sending data to terminal cells
+- **Hotkeys**: Configurable in settings
+- **UI Scale**: 100%–170%
 - **RU/EN**: Two interface languages
-- **Accuracy**: Decimal place settings
-- **Auto-save**: Settings are saved between sessions
+- **Precision**: Decimal place settings
+- **Autosave**: Settings are saved between sessions
 
 ## Download 💾
-Download via **GitHub Releases**:
+Download — via **GitHub Releases**:
 
 - **RiskVolume_Portable.zip**
 https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.1
@@ -38,19 +38,19 @@ Unzip the archive and run the application. ✅
 
 ## Usage 🧭
 
-### Calculator tab
+### Calculator Tab
 1. Enter your deposit
-2. Specify the risk % and stop %
-3. Select the distribution type
-4. Calibrate the points
-5. Click **PLACE**
+2. Specify your risk % and stop loss %
+3. Select your distribution type
+4. Calibrate your points
+5. Click **APPLY**
 
-### Cascades tab (Profit Forge)
-1. Select % of total volume
-2. Set the quantity, min. order, type and step/range
-3. Calibrate the points
-4. Click **SET**
+### Cascade Tab (Profit Forge)
+1. Select your % of total volume
+2. Set the quantity, min. order, type, and step/range
+3. Calibrate your points
+4. Click **APPLY**
 
-### 💻 System requirements
+### 💻 System Requirements
 - **Windows** 10/11
-- **No Python installation required (portable version is ready to run)**
+- **No Python installation required (the portable version is ready to run)**
