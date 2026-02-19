@@ -1,56 +1,56 @@
-# RiskVolume - калькулятор риска для трейдинга 🚀 | 👤Разработчик: IntrovertScalp
+# RiskVolume - risk calculator for trading 🚀 | 👤Developer: IntrovertScalp
 
-Приложение для управления рисками, расчета объема позиции и автоматической расстановки ордеров в ячейки обьемов в стакане ⚡
+An application for risk management, position volume calculation, and automatic placement of orders in volume cells in the order book ⚡
 
-## Ключевые возможности ✨
-- **Калькулятор риска**: объем позиции по депозиту, риску % и стопу %
-- **Распределение объемов**: авто-распределение или ручные проценты
-- **Каскады (Profit Forge)**: автоматическая расстановка по шагу/диапазону
-- **Мгновенный пересчет**: обновление по мере ввода
+## Key features ✨
+- **Risk calculator**: position volume by deposit, risk % and stop %
+- **Volume distribution**: auto-distribution or manual percentages
+- **Cascades (Profit Forge)**: automatic placement by step/range
+- **Instant recalculation**: updates as you type
 
-## Типы распределения 📊
-1. **Равномерно**: равный сплит
-2. **Убывающая**: 100%, 75%, 50%, 25%, 10%
-3. **Вручную**: свой процент в каждой ячейке
+## Distribution types 📊
+1. **Evenly**: equal split
+2. **Descending**: 100%, 75%, 50%, 25%, 10%
+3. **Manual**: your own percentage in each cell
 
-## Типы каскадов 🧩
-- **Равномерно**: равные ордера
-- **Матрешка x1.2**: рост по множителю 1.2x
-- **Матрешка x1.5**: рост по множителю 1.5x
-- **Ручной k**: свой множитель
+## Cascade types 🧩
+- **Evenly**: equal orders
+- **Matryoshka x1.2**: growth by a multiplier of 1.2x
+- **Matryoshka x1.5**: growth by a multiplier of 1.5x
+- **Manual k**: your own multiplier
 
-## Доп. функции 🛠️
-- **Комиссии**: Maker/Taker с переключателем
-- **Калибровка**: захват точек кликом для автоматизации отправки данных в ячейки терминала
-- **Горячие клавиши**: Настраиваемые в настройках
-- **Масштаб UI**: 100%–170% 
-- **RU/EN**: два языка интерфейса
-- **Точность**: настройка десятичных знаков
-- **Автосохранение**: настройки сохраняются между сессиями
+## Additional functions 🛠️
+- **Commissions**: Maker/Taker with a switch
+- **Calibration**: capture points with a click to automate data sending to terminal cells
+- **Hotkeys**: Customisable in settings
+- **UI scale**: 100%–170%
+- **RU/EN**: Two interface languages
+- **Accuracy**: Decimal place settings
+- **Auto-save**: Settings are saved between sessions
 
-## Загрузка 💾
-Скачивание — через **GitHub Releases**:
+## Download 💾
+Download via **GitHub Releases**:
 
 - **RiskVolume_Portable.zip**
 https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.1
 
-Распакуйте архив и запустите приложение. ✅
+Unzip the archive and run the application. ✅
 
-## Использование 🧭
+## Usage 🧭
 
-### Вкладка калькулятора
-1. Введите депозит
-2. Укажите риск % и стоп %
-3. Выберите тип распределения
-4. Сделайте калибровку точек
-5. Нажмите **ВЫСТАВИТЬ**
+### Calculator tab
+1. Enter your deposit
+2. Specify the risk % and stop %
+3. Select the distribution type
+4. Calibrate the points
+5. Click **PLACE**
 
-### Вкладка каскадов (Profit Forge)
-1. Выберите % от общего объема
-2. Настройте количество, мин. ордер, тип и шаг/диапазон
-3. Сделайте калибровку точек
-4. Нажмите **ВЫСТАВИТЬ**
+### Cascades tab (Profit Forge)
+1. Select % of total volume
+2. Set the quantity, min. order, type and step/range
+3. Calibrate the points
+4. Click **SET**
 
-### 💻 Системные требования
+### 💻 System requirements
 - **Windows** 10/11
-- **Для установки Python не требуется (portable-версия уже готова к запуску)**
+- **No Python installation required (portable version is ready to run)**
