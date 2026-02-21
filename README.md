@@ -12,13 +12,16 @@ An app for risk management, position volume calculation, and automatic order pla
 1. **Even**: equal split
 2. **Decreasing**: 100%, 75%, 50%, 25%, 10%
 3. **Manual**: custom percentage in each cell
-<img width="656" height="418" alt="image" src="https://github.com/user-attachments/assets/ccca208e-2396-4683-9cca-19cfbdac2421" />
+<img width="729" height="828" alt="image" src="https://github.com/user-attachments/assets/c4360aa4-d56f-49ea-a509-031d6076caa7" />
+
 
 ## Cascade Types 🧩
 - **Evenly**: equal orders
 - **Matryoshka x1.2**: growth by a 1.2x multiplier
 - **Matryoshka x1.5**: growth by a 1.5x multiplier
 - **Manual k**: custom multiplier
+<img width="726" height="820" alt="image" src="https://github.com/user-attachments/assets/5ce94046-2cfc-4398-b229-2621d98ddf18" />
+
 
 ## Add. Features 🛠️
 - **Fees**: Maker/Taker with a switch
@@ -28,6 +31,8 @@ An app for risk management, position volume calculation, and automatic order pla
 - **RU/EN**: Two interface languages
 - **Precision**: Decimal place settings
 - **Autosave**: Settings are saved between sessions
+<img width="401" height="631" alt="image" src="https://github.com/user-attachments/assets/7826de1e-e140-452f-9cfc-d2bfc5032fc3" />
+
 
 ## Download 💾
 Download — via **GitHub Releases**:
