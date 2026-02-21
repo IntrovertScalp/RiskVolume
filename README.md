@@ -12,6 +12,7 @@ An app for risk management, position volume calculation, and automatic order pla
 1. **Even**: equal split
 2. **Decreasing**: 100%, 75%, 50%, 25%, 10%
 3. **Manual**: custom percentage in each cell
+<img width="656" height="418" alt="image" src="https://github.com/user-attachments/assets/ccca208e-2396-4683-9cca-19cfbdac2421" />
 
 ## Cascade Types 🧩
 - **Evenly**: equal orders
