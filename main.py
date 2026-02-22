@@ -1,4 +1,5 @@
 ﻿import sys, json, os, ctypes, time, keyboard, pyautogui, pyperclip
+import config
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -535,7 +536,14 @@ class RiskVolumeApp(QMainWindow):
             dimmed = self.settings.get("pos_mode_enabled", False)
             self.lbl_info.setText(
                 get_info_html(
-                    cash_risk, lev, comm_usd, t, p_risk, p_fee, p_lev, dimmed=dimmed
+                    cash_risk,
+                    lev,
+                    comm_usd,
+                    t,
+                    p_risk,
+                    p_fee,
+                    p_lev,
+                    dimmed=dimmed,
                 )
             )
 
@@ -925,6 +933,10 @@ class RiskVolumeApp(QMainWindow):
         enabled = bool(checked)
         self.settings["pos_mode_enabled"] = enabled
 
+        # Сохраняем текущий размер окна перед изменениями
+        if not is_startup:
+            current_size = self.size()
+
         pos_controls = []
         for name in (
             "inp_pos_vol",
@@ -1005,6 +1017,10 @@ class RiskVolumeApp(QMainWindow):
 
         self._set_position_target_row_mask(None)
         self.update_position_adjustment_info()
+
+        # Восстанавливаем исходный размер окна, чтобы избежать "прыжков"
+        if not is_startup:
+            self.setFixedSize(current_size)
 
     def _get_active_rows_for_table(self):
         selected_rows = sorted(
@@ -1265,6 +1281,7 @@ class RiskVolumeApp(QMainWindow):
             return "0"
 
     def apply_styles(self):
+
         scale = self.settings.get("scale", self.base_scale)
         scale = max(80, min(200, int(scale)))
         ratio = scale / float(self.base_scale)

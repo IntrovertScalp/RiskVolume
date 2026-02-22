@@ -139,7 +139,11 @@ class CascadeWorker(QThread):
                 pass
             return False
 
-        keyboard.add_hotkey("esc", on_esc)
+        esc_hotkey_id = None
+        try:
+            esc_hotkey_id = keyboard.add_hotkey("esc", on_esc)
+        except Exception:
+            esc_hotkey_id = None
 
         try:
             # 1. Открываем настройки (Шестеренка)
@@ -285,6 +289,8 @@ class CascadeWorker(QThread):
                 )
 
                 if i > 0:
+                    if check_cancel():
+                        return
                     pyautogui.moveTo(c_plus[0], c_plus[1])
                     pyautogui.click()
                     sleep_fast(delay_long)
@@ -324,15 +330,21 @@ class CascadeWorker(QThread):
                 pyautogui.moveTo(c_vol1[0], cur_y)
                 pyautogui.click()
                 sleep_fast(0.05)
+                if check_cancel():
+                    return
                 pyautogui.click(clicks=2)
                 sleep_fast(0.015)
                 keyboard.press_and_release("ctrl+a")
                 sleep_fast(0.02)
+                if check_cancel():
+                    return
                 keyboard.press_and_release("backspace")
                 sleep_fast(0.02)
                 keyboard.press_and_release("ctrl+v")
                 # ensure paste completed before hitting Enter
                 sleep_fast(0.08)
+                if check_cancel():
+                    return
                 keyboard.press_and_release("enter")
 
                 # --- Дистанция ---
@@ -342,14 +354,20 @@ class CascadeWorker(QThread):
                 pyautogui.moveTo(c_dist1[0], cur_y)
                 pyautogui.click()
                 sleep_fast(0.08)
+                if check_cancel():
+                    return
                 pyautogui.click(clicks=2)
                 sleep_fast(0.03)
                 keyboard.press_and_release("ctrl+a")
                 sleep_fast(0.03)
+                if check_cancel():
+                    return
                 keyboard.press_and_release("backspace")
                 sleep_fast(0.03)
                 keyboard.press_and_release("ctrl+v")
                 sleep_fast(0.05)
+                if check_cancel():
+                    return
                 keyboard.press_and_release("enter")
 
                 sleep_fast(delay_short)
@@ -370,7 +388,8 @@ class CascadeWorker(QThread):
                 pass
             # Убираем хоткей ESC
             try:
-                keyboard.remove_hotkey("esc")
+                if esc_hotkey_id is not None:
+                    keyboard.remove_hotkey(esc_hotkey_id)
             except:
                 pass
 
@@ -1732,9 +1751,10 @@ class CascadeTab(QWidget):
     def _on_cascade_cancelled(self):
         self.lbl_status.setText(self._t("casc_status_cancel"))
         self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+        self._cancel_status_until = time.time() + 7.0
         self.apply_active = False
         self._restore_cursor_after_apply()
-        QTimer.singleShot(5000, self._set_ready_status)
+        QTimer.singleShot(7000, self._set_ready_status)
 
     def is_apply_active(self):
         return bool(getattr(self, "apply_active", False))
@@ -1767,12 +1787,16 @@ class CascadeTab(QWidget):
     def _set_ready_status(self):
         if self.calib_active or self.apply_active:
             return
+        if time.time() < float(getattr(self, "_cancel_status_until", 0.0) or 0.0):
+            return
         cells_count = self._cascade_points_count()
         self.lbl_status.setText(self._t("casc_status_ready", count=cells_count))
         self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
 
     def _refresh_calibration_status(self):
         if self.calib_active or self.apply_active:
+            return
+        if time.time() < float(getattr(self, "_cancel_status_until", 0.0) or 0.0):
             return
         points_count = self._cascade_points_count()
         if points_count >= 12:
