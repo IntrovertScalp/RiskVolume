@@ -36,8 +36,7 @@
 
 ## Загрузка 💾
 Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.2
-
-- ** Загрузите RiskVolume.zip**
+- Загрузите RiskVolume.zip
 Распакуйте архив и запустите .exe файл и можно пользоваться ✅
 
 ## 🔒 **Проверка безопасности**: [VirusTotal Scan](https://www.virustotal.com/gui/file/1f7becfb910f6ceff4a2ef5cf833a5db4c51e09e5a2f0e1309d97144ce02c75a?nocache=1)
