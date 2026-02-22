@@ -1,62 +1,50 @@
-# RiskVolume - risk calculator for trading 🚀 | Developer: IntrovertScalp
+# RiskVolume - калькулятор риска для трейдинга 🚀 | 👤Разработчик: IntrovertScalp
 
-An app for risk management, position volume calculation, and automatic order placement in order book volume cells ⚡
+**Приложение для управления рисками, расчета объема позиции и автоматической расстановки ордеров в ячейки объёмов в стакане ⚡**
 
-## Key Features ✨
-- **Risk Calculator**: position volume by deposit, risk %, and stop loss %
-- **Volume Distribution**: automatic or manual percentages
-- **Cascades (Profit Forge)**: automatic placement by step/range
-- **Instant Recalculation**: updated as you enter
+## Ключевые возможности ✨
+- **Калькулятор риска**: объем позиции по депозиту, риску % и стопу %
+- **Распределение объемов**: авто-распределение или ручные проценты
+- **Каскады (Profit Forge)**: автоматическая расстановка по шагу/диапазону
+- **Режим позиции**: расчет докупок/усреднений для открытых позиций
+- **Мгновенный пересчет**: обновление по мере ввода
 
-## Distribution Types 📊
-1. **Even**: equal split
-2. **Decreasing**: 100%, 75%, 50%, 25%, 10%
-3. **Manual**: custom percentage in each cell
-<img width="729" height="828" alt="image" src="https://github.com/user-attachments/assets/c4360aa4-d56f-49ea-a509-031d6076caa7" />
+## Типы распределения 📊
+1. **Равномерно**: равный сплит
+2. **Убывающая**: 100%, 75%, 50%, 25%, 10%
+3. **Вручную**: свой процент в каждой ячейке
 
+## Типы каскадов 🧩
+- **Равномерно**: равные ордера
+- **Матрешка x1.2**: рост по множителю 1.2x
+- **Матрешка x1.5**: рост по множителю 1.5x
+- **Ручной k**: свой множитель
 
-## Cascade Types 🧩
-- **Evenly**: equal orders
-- **Matryoshka x1.2**: growth by a 1.2x multiplier
-- **Matryoshka x1.5**: growth by a 1.5x multiplier
-- **Manual k**: custom multiplier
-<img width="726" height="820" alt="image" src="https://github.com/user-attachments/assets/5ce94046-2cfc-4398-b229-2621d98ddf18" />
-
-
-## Add. Features 🛠️
-- **Fees**: Maker/Taker with a switch
-- **Calibration**: Capture points with a click to automate sending data to terminal cells
-- **Hotkeys**: Configurable in settings
-- **UI Scale**: 100%–170%
-- **RU/EN**: Two interface languages
-- **Precision**: Decimal place settings
-- **Autosave**: Settings are saved between sessions
-<img width="401" height="631" alt="image" src="https://github.com/user-attachments/assets/7826de1e-e140-452f-9cfc-d2bfc5032fc3" />
+## Доп. функции 🛠️
+- **Комиссии**: Maker/Taker с переключателем
+- **Калибровка**: захват точек кликом для автоматизации отправки данных в ячейки терминала
+- **Горячие клавиши**: Настраиваемые комбинации (Ctrl+R, Alt+..., Shift+Alt+...)
+- **Масштаб UI**: 100%–170% 
+- **RU/EN**: два языка интерфейса
+- **Точность**: настройка десятичных знаков
+- **Автосохранение**: настройки сохраняются между сессиями
+- **Свернуть после выставления**: опциональная автоматическая минимизация окна
 
 
-## Download 💾
-Download — via **GitHub Releases**:
-
-- **RiskVolume_Portable.zip**
-https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.1
-
-Unzip the archive and run the application. ✅
-
-## Usage 🧭
-
-### Calculator Tab
-1. Enter your deposit
-2. Specify your risk % and stop loss %
-3. Select your distribution type
-4. Calibrate your points
-5. Click **APPLY**
-
-### Cascade Tab (Profit Forge)
-1. Select your % of total volume
-2. Set the quantity, min. order, type, and step/range
-3. Calibrate your points
-4. Click **APPLY**
-
-### 💻 System Requirements
+### 💻 Системные требования
 - **Windows** 10/11
-- **No Python installation required (the portable version is ready to run)**
+- **Для установки Python не требуется (portable-версия уже готова к запуску)**
+
+
+## Загрузка 💾
+Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.2
+
+- **RiskVolume.zip**
+Распакуйте архив и запустите приложение. ✅
+
+🔒 **Проверка безопасности**: [VirusTotal Scan](https://www.virustotal.com/gui/file/1f7becfb910f6ceff4a2ef5cf833a5db4c51e09e5a2f0e1309d97144ce02c75a?nocache=1)
+
+
+
+
+
