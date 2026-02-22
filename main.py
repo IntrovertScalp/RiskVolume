@@ -187,6 +187,7 @@ class RiskVolumeApp(QMainWindow):
             "pos_mode_enabled": True,
             "pos_table_volume_override": 0.0,
             "selected_cells": [0],
+            "minimize_after_apply": True,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -1594,8 +1595,11 @@ class RiskVolumeApp(QMainWindow):
             except Exception:
                 start_x, start_y = None, None
 
-            self.showMinimized()
-            time.sleep(0.08)
+            if bool(self.settings.get("minimize_after_apply", True)):
+                self.showMinimized()
+                time.sleep(0.08)
+            else:
+                time.sleep(0.02)
 
             for point_index, vol_to_send in transfers:
                 pyperclip.copy(vol_to_send)

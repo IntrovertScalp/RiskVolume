@@ -158,38 +158,39 @@ class CascadeWorker(QThread):
             pyautogui.moveTo(left_scrollbar_x, left_scrollbar_y_start, duration=0)
 
             # Low-level quick drag using Win32 API (replicates быстрый захват и резкий спуск)
-            def _win_quick_drag(x1, y1, x2, y2, hold=0.02):
+            def _win_quick_drag(x1, y1, x2, y2, hold=0.02, press_delay=0.01):
                 import ctypes, time
 
                 user32 = ctypes.windll.user32
                 user32.SetCursorPos(int(x1), int(y1))
                 user32.mouse_event(0x0002, 0, 0, 0, 0)  # LEFTDOWN
-                time.sleep(0.01)
+                time.sleep(press_delay)
                 user32.SetCursorPos(int(x2), int(y2))
                 time.sleep(hold)
                 user32.mouse_event(0x0004, 0, 0, 0, 0)  # LEFTUP
 
             try:
-                # Slightly increase the hold/duration for the FIRST slider
-                # to ensure the UI has time to process the drop before
-                # subsequent actions begin.
-                _win_quick_drag(
-                    left_scrollbar_x,
-                    left_scrollbar_y_start,
-                    left_scrollbar_x,
-                    left_scrollbar_y_start + 900,
-                    hold=0.09,
-                )
+                # Первый ползунок иногда не цепляется с первого раза -
+                # делаем несколько быстрых попыток со сдвигом по Y.
+                for y_offset in (0, -3, 3):
+                    _win_quick_drag(
+                        left_scrollbar_x,
+                        left_scrollbar_y_start + y_offset,
+                        left_scrollbar_x,
+                        left_scrollbar_y_start + 900,
+                        hold=0.08,
+                        press_delay=0.025,
+                    )
+                    time.sleep(0.025)
             except Exception:
                 # fallback to pyautogui if Win32 drag fails
                 pyautogui.mouseDown(button="left")
-                # use a slightly longer duration for the first slider fallback
                 pyautogui.moveTo(
-                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.06
+                    left_scrollbar_x, left_scrollbar_y_start + 900, duration=0.04
                 )
                 pyautogui.mouseUp(button="left")
             # give a bit more time after the initial slider move
-            time.sleep(0.18)
+            time.sleep(0.16)
 
             # 3. Выбираем пункт "Книга заявок"
             if check_cancel():
@@ -206,34 +207,37 @@ class CascadeWorker(QThread):
                 scrollbar_y_start = c_scrollbar[1]
 
                 pyautogui.moveTo(scrollbar_x, scrollbar_y_start, duration=0)
-                # Low-level quick drag using Win32 API
                 try:
+                    pyautogui.click()
+                    time.sleep(0.03)
+                    pyautogui.dragTo(
+                        scrollbar_x,
+                        scrollbar_x,
+                        scrollbar_y_start + 1200,
+                        duration=0.2,
+                        button="left",
+                    )
+                except Exception:
                     _win_quick_drag(
                         scrollbar_x,
                         scrollbar_y_start,
                         scrollbar_x,
                         scrollbar_y_start + 1200,
-                        hold=0.04,
+                        hold=0.1,
                     )
-                except Exception:
-                    pyautogui.mouseDown(button="left")
-                    pyautogui.moveTo(
-                        scrollbar_x, scrollbar_y_start + 1200, duration=0.015
-                    )
-                    pyautogui.mouseUp(button="left")
-                time.sleep(0.12)
+                time.sleep(0.16)
 
                 # === Speed-up non-slider actions ===
                 # Sliders already moved; now make subsequent actions faster (smaller sleeps/durations)
                 try:
-                    pyautogui.MINIMUM_SLEEP = 0.0001
-                    pyautogui.MINIMUM_DURATION = 0.0001
+                    pyautogui.MINIMUM_SLEEP = 0.0005
+                    pyautogui.MINIMUM_DURATION = 0.0005
                     pyautogui.PAUSE = 0.0
                 except Exception:
                     pass
                 # Reduce multiplier used by sleep_fast to make sleeps shorter
-                speed_mul = 0.25
-                min_sleep = 0.0005
+                speed_mul = 0.35
+                min_sleep = 0.001
 
             # 5. Очистка (удаляем старые строки каскада)
             if check_cancel():
@@ -1658,10 +1662,13 @@ class CascadeTab(QWidget):
         except Exception:
             self._btn_apply_start_pos = None
 
-        self.main.showMinimized()
         import time as _t
 
-        _t.sleep(0.15)
+        if bool(self.main.settings.get("minimize_after_apply", True)):
+            self.main.showMinimized()
+            _t.sleep(0.15)
+        else:
+            _t.sleep(0.03)
 
         orders_for_apply = []
         for row in range(self.table.rowCount()):

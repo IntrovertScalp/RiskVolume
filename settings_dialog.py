@@ -174,6 +174,26 @@ class SettingsDialog(QDialog):
                 t["support_open_failed"].format(error=e),
             )
 
+    def _create_checkmark_icon(self):
+        import os
+        import tempfile
+
+        path = os.path.join(tempfile.gettempdir(), "rv_checkmark.png")
+        if not os.path.exists(path):
+            pix = QPixmap(12, 12)
+            pix.fill(QColor(0, 0, 0, 0))
+            painter = QPainter(pix)
+            pen = QPen(QColor(0, 0, 0))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawLine(2, 6, 5, 9)
+            painter.drawLine(5, 9, 10, 3)
+            painter.end()
+            pix.save(path, "PNG")
+
+        self._checkmark_path_css = path.replace("\\", "/")
+        return path
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent_window = parent
@@ -364,6 +384,20 @@ class SettingsDialog(QDialog):
         grid.addWidget(self.hk_coords, row, 1)
         row += 1
 
+        self.chk_minimize_after_apply = QCheckBox(t["minimize_after_apply"])
+        self.chk_minimize_after_apply.setObjectName("MinimizeAfterApply")
+        self.chk_minimize_after_apply.setChecked(
+            bool(parent.settings.get("minimize_after_apply", True))
+        )
+        self._create_checkmark_icon()
+        self.chk_minimize_after_apply.setStyleSheet(
+            "QCheckBox#MinimizeAfterApply { color: #aaa; font-size: 9pt; spacing: 5px; }"
+            "QCheckBox#MinimizeAfterApply::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; }"
+            f"QCheckBox#MinimizeAfterApply::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._checkmark_path_css}); }}"
+        )
+        grid.addWidget(self.chk_minimize_after_apply, row, 0, 1, 2)
+        row += 1
+
         # Разделитель
         sep1 = QFrame()
         sep1.setObjectName("Separator")
@@ -550,6 +584,7 @@ class SettingsDialog(QDialog):
                 "scale": self.scale_actual[self.cb_scale.currentIndex()],
                 "hk_show": self.hk_show.text(),
                 "hk_coords": self.hk_coords.text(),
+                "minimize_after_apply": self.chk_minimize_after_apply.isChecked(),
                 "use_fee": self.chk_use_fee.isChecked(),
                 "fee_taker": fee_taker,
                 "fee_maker": fee_maker,
