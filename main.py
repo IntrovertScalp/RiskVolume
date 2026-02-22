@@ -1440,15 +1440,29 @@ class RiskVolumeApp(QMainWindow):
 
     # --- УПРАВЛЕНИЕ ГОРЯЧИМИ КЛАВИШАМИ (ИСПРАВЛЕНО) ---
     def rebind_hotkeys(self):
+        def normalize_hotkey(hotkey_value, fallback):
+            value = str(hotkey_value or "").strip().lower()
+            value = value.replace(" ", "")
+            return value or fallback
+
         keyboard.unhook_all()
         # F1 - Скрыть/Показать
-        keyboard.add_hotkey(
-            self.settings.get("hk_show", "f1"), self.signaler.toggle_sig.emit
-        )
+        hk_show = normalize_hotkey(self.settings.get("hk_show", "f1"), "f1")
+        try:
+            keyboard.add_hotkey(hk_show, self.signaler.toggle_sig.emit)
+            self.settings["hk_show"] = hk_show
+        except Exception:
+            keyboard.add_hotkey("f1", self.signaler.toggle_sig.emit)
+            self.settings["hk_show"] = "f1"
+
         # F2 - Калибровка (в зависимости от активной вкладки)
-        keyboard.add_hotkey(
-            self.settings.get("hk_coords", "f2"), self.handle_hotkey_calibration
-        )
+        hk_coords = normalize_hotkey(self.settings.get("hk_coords", "f2"), "f2")
+        try:
+            keyboard.add_hotkey(hk_coords, self.handle_hotkey_calibration)
+            self.settings["hk_coords"] = hk_coords
+        except Exception:
+            keyboard.add_hotkey("f2", self.handle_hotkey_calibration)
+            self.settings["hk_coords"] = "f2"
         # F3 - ОТПРАВИТЬ - ОТКЛЮЧЕНО, теперь только через кнопку
         # keyboard.add_hotkey(
         #     self.settings.get("hk_send", "f3"), self.signaler.apply_sig.emit
@@ -1566,8 +1580,8 @@ class RiskVolumeApp(QMainWindow):
         try:
             # speed-tweak: set pyautogui minimal sleeps/durations like in cascade_tab
             try:
-                pyautogui.MINIMUM_SLEEP = 0.0001
-                pyautogui.MINIMUM_DURATION = 0.0001
+                pyautogui.MINIMUM_SLEEP = 0.0005
+                pyautogui.MINIMUM_DURATION = 0.005
                 pyautogui.PAUSE = 0.0
             except Exception:
                 pass
@@ -1581,28 +1595,28 @@ class RiskVolumeApp(QMainWindow):
                 start_x, start_y = None, None
 
             self.showMinimized()
-            time.sleep(0.06)
+            time.sleep(0.08)
 
             for point_index, vol_to_send in transfers:
                 pyperclip.copy(vol_to_send)
-                # quick move (small non-zero duration so target registers drag/click reliably)
+                time.sleep(0.01)
+                # balanced sequence: faster than before, but still reliable
                 pyautogui.moveTo(
-                    points[point_index][0], points[point_index][1], duration=0.005
+                    points[point_index][0], points[point_index][1], duration=0.015
                 )
                 pyautogui.click()
-                # small pause to ensure focus, then double-click to select
-                time.sleep(0.006)
-                pyautogui.click(clicks=2)
-                time.sleep(0.006)
+                time.sleep(0.012)
+                pyautogui.doubleClick(interval=0.03)
+                time.sleep(0.012)
                 keyboard.press_and_release("ctrl+a")
-                time.sleep(0.006)
-                keyboard.press_and_release("backspace")
-                time.sleep(0.006)
-                keyboard.press_and_release("ctrl+v")
-                time.sleep(0.006)
-                keyboard.press_and_release("enter")
-                # tiny pause before moving to next cell
                 time.sleep(0.01)
+                keyboard.press_and_release("backspace")
+                time.sleep(0.01)
+                keyboard.press_and_release("ctrl+v")
+                time.sleep(0.012)
+                keyboard.press_and_release("enter")
+                # short pause before next cell
+                time.sleep(0.025)
 
             # restore original cursor position if captured
             if start_x is not None and start_y is not None:

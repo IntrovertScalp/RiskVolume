@@ -87,6 +87,14 @@ class HotkeyEdit(QLineEdit):
             self.setText("esc")
             return
 
+        if key in (
+            Qt.Key.Key_Control,
+            Qt.Key.Key_Shift,
+            Qt.Key.Key_Alt,
+            Qt.Key.Key_Meta,
+        ):
+            return
+
         mods = []
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             mods.append("ctrl")
@@ -102,6 +110,15 @@ class HotkeyEdit(QLineEdit):
             Qt.Key.Key_Tab: "tab",
             Qt.Key.Key_Backspace: "backspace",
             Qt.Key.Key_Delete: "delete",
+            Qt.Key.Key_Insert: "insert",
+            Qt.Key.Key_Home: "home",
+            Qt.Key.Key_End: "end",
+            Qt.Key.Key_PageUp: "page up",
+            Qt.Key.Key_PageDown: "page down",
+            Qt.Key.Key_Left: "left",
+            Qt.Key.Key_Right: "right",
+            Qt.Key.Key_Up: "up",
+            Qt.Key.Key_Down: "down",
             Qt.Key.Key_F1: "f1",
             Qt.Key.Key_F2: "f2",
             Qt.Key.Key_F3: "f3",
@@ -116,7 +133,15 @@ class HotkeyEdit(QLineEdit):
             Qt.Key.Key_F12: "f12",
         }
 
-        key_name = special_keys.get(key, event.text().lower())
+        key_name = special_keys.get(key)
+        if not key_name:
+            if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+                key_name = chr(ord("a") + (int(key) - int(Qt.Key.Key_A)))
+            elif Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+                key_name = str(int(key) - int(Qt.Key.Key_0))
+            else:
+                key_name = (event.text() or "").strip().lower()
+
         if key_name:
             self.setText("+".join(mods + [key_name]) if mods else key_name)
 
