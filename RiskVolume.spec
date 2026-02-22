@@ -33,6 +33,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['Logo\\Logo.png'],
+    contents_directory='internal',
 )
 coll = COLLECT(
     exe,
@@ -41,6 +42,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    contents_directory='internal',
     name='RiskVolume',
 )
