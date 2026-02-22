@@ -1579,46 +1579,57 @@ class CascadeTab(QWidget):
         if self.calib_step == 1:
             self.main.settings["cas_p_gear"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_2", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 2:
             self.main.settings["cas_p_left_scrollbar"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_3", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 3:
             self.main.settings["cas_p_book"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_4", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 4:
             self.main.settings["cas_p_scrollbar"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_5", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 5:
             self.main.settings["cas_p_vol1"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_6", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 6:
             self.main.settings["cas_p_dist1"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_7", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 7:
             self.main.settings["cas_p_vol2"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_8", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 8:
             self.main.settings["cas_p_dist2"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_9", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 9:
             self.main.settings["cas_p_btn_add"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_10", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 10:
             self.main.settings["cas_p_btn_del"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_11", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 11:
             self.main.settings["cas_p_combo_vol"] = [x, y]
             self.lbl_status.setText(self._t("casc_step_12", hotkey=hotkey_display))
+            self.lbl_status.setStyleSheet("color: cyan;")
 
         elif self.calib_step == 12:
             self.main.settings["cas_p_close_x"] = [x, y]
