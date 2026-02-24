@@ -129,7 +129,7 @@ def init_calculator_tab(app):
 
     app.chk_pos_mode = QCheckBox(t["calc_pos_mode"])
     app.chk_pos_mode.setObjectName("PosModeToggle")
-    app.chk_pos_mode.setChecked(bool(app.settings.get("pos_mode_enabled", True)))
+    app.chk_pos_mode.setChecked(bool(app.settings.get("pos_mode_enabled", False)))
     app.chk_pos_mode.toggled.connect(app.on_position_mode_toggled)
     app.chk_pos_mode.setStyleSheet(
         "QCheckBox { color: #aaa; font-size: 9pt; spacing: 6px; margin: 0px; padding: 0px; }"
@@ -195,6 +195,8 @@ def init_calculator_tab(app):
     pos_row.addLayout(pos_stop_col, 1)
     main_layout.addLayout(pos_row)
 
+    pos_hints_layout = QVBoxLayout()
+    pos_hints_layout.setSpacing(2)
     pos_hints_row = QHBoxLayout()
     pos_hints_row.setSpacing(6)
 
@@ -218,9 +220,12 @@ def init_calculator_tab(app):
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
     app.lbl_pos_adjust.setWordWrap(False)
-    pos_hints_row.addWidget(app.lbl_pos_adjust, 1)
+    app.lbl_pos_adjust.setMinimumHeight(16)
 
-    main_layout.addLayout(pos_hints_row)
+    pos_hints_layout.addLayout(pos_hints_row)
+    pos_hints_layout.addWidget(app.lbl_pos_adjust)
+
+    main_layout.addLayout(pos_hints_layout)
 
     # --- НАСТРОЙКА ЯЧЕЕК ---
     cells_header = QHBoxLayout()

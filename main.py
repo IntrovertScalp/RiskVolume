@@ -1,4 +1,4 @@
-﻿import sys, json, os, ctypes, time, keyboard, pyautogui, pyperclip
+﻿import sys, json, os, ctypes, time, threading, keyboard, pyautogui, pyperclip
 import config
 from PyQt6.QtWidgets import (
     QApplication,
@@ -41,6 +41,30 @@ try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except:
     pass
+
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    """Глобальный обработчик исключений — не даёт приложению упасть тихо."""
+    import traceback
+
+    try:
+        traceback.print_exception(exc_type, exc_value, exc_tb)
+    except Exception:
+        pass
+
+
+def _thread_exception_handler(args):
+    """Обработчик исключений в потоках (keyboard хуки и т.д.)."""
+    import traceback
+
+    try:
+        traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback)
+    except Exception:
+        pass
+
+
+sys.excepthook = _global_exception_handler
+threading.excepthook = _thread_exception_handler
 
 
 class HotkeySignaler(QObject):
@@ -123,6 +147,11 @@ class RiskVolumeApp(QMainWindow):
         self.rebind_hotkeys()
         self.update_calc()
 
+        # Периодически перерегистрируем keyboard-хуки (Windows убивает их при простое/сне)
+        self._hotkey_keepalive_timer = QTimer(self)
+        self._hotkey_keepalive_timer.timeout.connect(self._keepalive_hotkeys)
+        self._hotkey_keepalive_timer.start(5 * 60 * 1000)  # каждые 5 минут
+
         # Сохраняем настройки при закрытии приложения любым способом
         app = QApplication.instance()
         if app is not None:
@@ -185,7 +214,7 @@ class RiskVolumeApp(QMainWindow):
             "pos_risk": "1",
             "pos_stop": "0",
             "pos_target_cell": 1,
-            "pos_mode_enabled": True,
+            "pos_mode_enabled": False,
             "pos_table_volume_override": 0.0,
             "selected_cells": [0],
             "minimize_after_apply": True,
@@ -585,7 +614,7 @@ class RiskVolumeApp(QMainWindow):
 
         self.position_target_volume = 0.0
 
-        if not bool(self.settings.get("pos_mode_enabled", True)):
+        if not bool(self.settings.get("pos_mode_enabled", False)):
             self.table_volume_override = 0.0
             self.pos_adjust_delta = 0.0
             self.pos_adjust_action = None
@@ -642,7 +671,17 @@ class RiskVolumeApp(QMainWindow):
                 self.update_cell_volumes()
             return
 
-        risk_cash = pos_vol * (pos_risk / 100.0)
+        # Риск в $ считаем от ДЕПОЗИТА
+        try:
+            deposit_for_risk = float(self.inp_dep.text().replace(",", ".") or 0)
+        except Exception:
+            deposit_for_risk = 0.0
+
+        risk_cash = (
+            deposit_for_risk * (pos_risk / 100.0)
+            if deposit_for_risk > 0
+            else pos_vol * (pos_risk / 100.0)
+        )
         risk_cash_text = f"{risk_cash:,.{p_risk}f}".replace(",", " ").replace(".", ",")
 
         if pos_stop <= 0:
@@ -666,9 +705,31 @@ class RiskVolumeApp(QMainWindow):
         use_fee = self.settings.get("use_fee", True)
         f_perc = (fee_taker + fee_maker) if use_fee else 0.0
 
+        # Берём депозит из основного поля калькулятора
+        try:
+            deposit = float(self.inp_dep.text().replace(",", ".") or 0)
+        except Exception:
+            deposit = 0.0
+
+        if deposit <= 0:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(t.get("pos_need_deposit", "Укажите депозит"))
+            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(
+                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                )
+                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
+            return
+
+        # Целевой объём считаем от ДЕПОЗИТА, а не от текущего объёма позиции
         try:
             _, max_vol_at_stop, _, _ = calculate_risk_data(
-                pos_vol, pos_risk, pos_stop, f_perc
+                deposit, pos_risk, pos_stop, f_perc
             )
         except Exception:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
@@ -837,13 +898,11 @@ class RiskVolumeApp(QMainWindow):
                         item.setFlags(Qt.ItemFlag.NoItemFlags)
 
     def _dim_top_controls(self, dim):
-        """Затемняет или освещает верхние элементы (депозит, риск, стоп, объем)"""
+        """Затемняет или освещает верхние элементы (риск, стоп, объем) — депозит всегда активен"""
         elements = [
-            ("inp_dep", True),
             ("inp_risk", True),
             ("inp_stop", True),
             ("lbl_vol", False),
-            ("lbl_dep_title", False),
             ("lbl_risk_title", False),
             ("lbl_stop_title", False),
             ("lbl_hint", False),
@@ -1149,7 +1208,7 @@ class RiskVolumeApp(QMainWindow):
         self.setFixedSize(self.sizeHint())
 
     def apply_position_adjustment_to_cell(self):
-        if not bool(self.settings.get("pos_mode_enabled", True)):
+        if not bool(self.settings.get("pos_mode_enabled", False)):
             self._update_status_text()
             return
 
@@ -1485,6 +1544,13 @@ class RiskVolumeApp(QMainWindow):
         # keyboard.add_hotkey(
         #     self.settings.get("hk_send", "f3"), self.signaler.apply_sig.emit
         # )
+
+    def _keepalive_hotkeys(self):
+        """Периодическая перерегистрация хуков — Windows убивает их при простое/сне."""
+        try:
+            self.rebind_hotkeys()
+        except Exception:
+            pass
 
     def handle_hotkey_apply(self):
         # Защита от повторного входа (если один и тот же клавишный сигнал пришёл дважды)
@@ -2210,7 +2276,7 @@ class RiskVolumeApp(QMainWindow):
         if override > 0:
             return override
 
-        if bool(self.settings.get("pos_mode_enabled", True)):
+        if bool(self.settings.get("pos_mode_enabled", False)):
             delta = float(getattr(self, "pos_adjust_delta", 0.0) or 0.0)
             if delta > 0:
                 return delta
@@ -2221,6 +2287,11 @@ class RiskVolumeApp(QMainWindow):
         active_rows = set(self._get_active_rows_for_table())
         total_vol = self._get_active_table_total_volume()
         p_vol = self.settings.get("prec_dep", 2)
+        preset_index = (
+            int(self.cb_distribution.currentIndex())
+            if hasattr(self, "cb_distribution")
+            else 2
+        )
 
         try:
             min_order = float(self.inp_min_order.text().replace(",", ".") or 6)
@@ -2239,8 +2310,10 @@ class RiskVolumeApp(QMainWindow):
                 try:
                     percent = float(percent_item.text() or 0)
                     raw_volume = (total_vol * percent) / 100.0
-                    volume = max(min_order, raw_volume)  # Не меньше минимума
-                    # Форматируем с той же точностью что и основной объем
+                    if preset_index == 0:  # Равномерно: не раздуваем сумму до min_order
+                        volume = raw_volume
+                    else:
+                        volume = max(min_order, raw_volume)  # Не меньше минимума
                     volume_item.setText(
                         f"{volume:,.{p_vol}f}".replace(",", " ").replace(".", ",")
                     )
