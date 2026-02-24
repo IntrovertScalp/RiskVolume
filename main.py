@@ -1204,6 +1204,35 @@ class RiskVolumeApp(QMainWindow):
             except Exception:
                 pass
 
+        # Автоподбор минимальной ширины окна: чтобы подсказки в блоке позиции
+        # гарантированно помещались по ширине и не "наезжали" визуально.
+        try:
+            row1_width = 0
+            for name in ("lbl_pos_vol_hint", "lbl_pos_risk_cash"):
+                label = getattr(self, name, None)
+                if label:
+                    row1_width += (
+                        label.fontMetrics().horizontalAdvance(label.text() or "") + 24
+                    )
+
+            row2_width = 0
+            label_adjust = getattr(self, "lbl_pos_adjust", None)
+            if label_adjust:
+                row2_width = (
+                    label_adjust.fontMetrics().horizontalAdvance(
+                        label_adjust.text() or ""
+                    )
+                    + 24
+                )
+
+            hints_required = max(row1_width + int(18 * ratio), row2_width)
+            base_min_window = max(620, int(620 * ratio))
+            target_min_window = max(base_min_window, hints_required + int(90 * ratio))
+            target_min_window = min(target_min_window, max(980, int(1450 * ratio)))
+            self.setMinimumWidth(int(target_min_window))
+        except Exception:
+            pass
+
         self.adjustSize()
         self.setFixedSize(self.sizeHint())
 

@@ -213,6 +213,7 @@ def init_calculator_tab(app):
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
     pos_hints_row.addWidget(app.lbl_pos_risk_cash, 1)
+    pos_hints_row.addStretch(1)
 
     app.lbl_pos_adjust = QLabel(t["calc_recommendation"])
     app.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 8pt;")
