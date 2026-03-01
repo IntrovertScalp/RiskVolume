@@ -175,8 +175,8 @@ class CascadeWorker(QThread):
 
             try:
                 # Первый ползунок иногда не цепляется с первого раза -
-                # делаем несколько быстрых попыток со сдвигом по Y.
-                for y_offset in (0, -3, 3):
+                # делаем 2 быстрые попытки со сдвигом по Y.
+                for y_offset in (0, -3):
                     _win_quick_drag(
                         left_scrollbar_x,
                         left_scrollbar_y_start + y_offset,
@@ -264,13 +264,6 @@ class CascadeWorker(QThread):
                 print(f"[CASCADE]   Нажатие {i+1}/{del_clicks} на минус/удалить")
                 pyautogui.click()
                 sleep_fast(delete_delay)
-            # Give UI extra time to process deletions and ensure state is stable
-            sleep_fast(0.3)
-            # Click once in empty area to ensure focus is cleared and UI updated
-            try:
-                pyautogui.click(c_vol1[0] - 80, base_y)
-            except Exception:
-                pass
 
             # 6. Создаем нужное количество строк
             if check_cancel():
@@ -294,10 +287,6 @@ class CascadeWorker(QThread):
                     pyautogui.moveTo(c_plus[0], c_plus[1])
                     pyautogui.click()
                     sleep_fast(delay_long)
-                    # Клик в пустую область слева (вместо ESC)
-                    # чтобы снять фокус без закрытия элементов
-                    pyautogui.click(c_vol1[0] - 80, base_y)
-                    sleep_fast(0.1)
                     # ВСЕГДА 2 раза вниз для прокрутки
                     print(f"[CASCADE]     Нажимаю вниз 2 раза")
                     if check_cancel():
@@ -329,23 +318,24 @@ class CascadeWorker(QThread):
                 sleep_fast(0.12)
                 pyautogui.moveTo(c_vol1[0], cur_y)
                 pyautogui.click()
-                sleep_fast(0.05)
-                if check_cancel():
-                    return
-                pyautogui.click(clicks=2)
-                sleep_fast(0.015)
-                keyboard.press_and_release("ctrl+a")
-                sleep_fast(0.02)
-                if check_cancel():
-                    return
-                keyboard.press_and_release("backspace")
-                sleep_fast(0.02)
-                keyboard.press_and_release("ctrl+v")
-                # ensure paste completed before hitting Enter
                 sleep_fast(0.08)
                 if check_cancel():
                     return
+                pyautogui.click(clicks=2)
+                sleep_fast(0.03)
+                keyboard.press_and_release("ctrl+a")
+                sleep_fast(0.035)
+                if check_cancel():
+                    return
+                keyboard.press_and_release("backspace")
+                sleep_fast(0.035)
+                keyboard.press_and_release("ctrl+v")
+                # ensure paste completed before hitting Enter
+                sleep_fast(0.12)
+                if check_cancel():
+                    return
                 keyboard.press_and_release("enter")
+                sleep_fast(0.03)
 
                 # --- Дистанция ---
                 dist_str = str(order["dist"]).replace(",", ".")
@@ -515,6 +505,8 @@ class CascadeTab(QWidget):
             }
             QSpinBox#spinInner, QDoubleSpinBox#spinInner {
                 background: transparent; color: white; border: none; padding: 2px;
+                selection-background-color: rgba(90, 205, 80, 150);
+                selection-color: white;
             }
             QSpinBox#spinInner:disabled, QDoubleSpinBox#spinInner:disabled {
                 color: #555;
@@ -694,7 +686,7 @@ class CascadeTab(QWidget):
 
         # Подсказка под Кол-во (новая строка 1)
         self.lbl_count_hint = QLabel(t["casc_max_cells"].format(max="?"))
-        self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+        self.lbl_count_hint.setStyleSheet("color: #40E0D0; font-size: 8pt;")
         self.lbl_count_hint.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.grid_settings.addWidget(self.lbl_count_hint, 1, 0, 1, 2)
 
@@ -818,6 +810,7 @@ class CascadeTab(QWidget):
 
         # --- БЛОК 3: Таблица (Исправлено обрезание) ---
         self.table = QTableWidget()
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(
             [t["casc_table_vol"], t["casc_table_dist"]]
@@ -834,10 +827,26 @@ class CascadeTab(QWidget):
         self.table.setMinimumHeight(120)
         # Базовый стиль таблицы (точные размеры выставятся в apply_scale)
         self.table.setStyleSheet(
-            "QTableWidget::item { font-size: 6pt; padding: 0px 2px; }"
-            "QHeaderView::section { font-size: 8pt; padding: 2px; }"
+            "QTableWidget { background: #141414; color: #D0D0D0; alternate-background-color: #141414; gridline-color: #2A2A2A; }"
+            "QTableWidget::item { background: #141414; color: #D0D0D0; font-size: 6pt; padding: 0px 2px; }"
+            "QTableWidget::item:focus { outline: none; border: none; }"
+            "QHeaderView { background: #141414; }"
+            "QHeaderView::section:horizontal { background: #1A1A1A; color: #A0A0A0; border: 1px solid #2A2A2A; font-size: 8pt; padding: 2px; }"
+            "QHeaderView::section:vertical { background: #141414; color: #707070; border: 1px solid #2A2A2A; font-size: 8pt; padding: 2px; }"
+            "QTableCornerButton::section { background: #141414; border: 1px solid #2A2A2A; }"
+            "QTableWidget QScrollBar:vertical { background: #111111; width: 14px; margin: 0px; border: 1px solid #232323; }"
+            "QTableWidget QScrollBar::handle:vertical { background: #3A3A3A; min-height: 24px; border-radius: 4px; border: 1px solid #4A4A4A; }"
+            "QTableWidget QScrollBar::add-page:vertical, QTableWidget QScrollBar::sub-page:vertical { background: #111111; }"
+            "QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical { background: #1A1A1A; height: 14px; border: 1px solid #2A2A2A; }"
+            "QTableWidget QScrollBar:horizontal { background: #111111; height: 14px; margin: 0px; border: 1px solid #232323; }"
+            "QTableWidget QScrollBar::handle:horizontal { background: #3A3A3A; min-width: 24px; border-radius: 4px; border: 1px solid #4A4A4A; }"
+            "QTableWidget QScrollBar::add-page:horizontal, QTableWidget QScrollBar::sub-page:horizontal { background: #111111; }"
+            "QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal { background: #1A1A1A; width: 14px; border: 1px solid #2A2A2A; }"
             "selection-background-color: #38BE1D; selection-color: black;"
         )
+        self.table.installEventFilter(self)
+        self.table.viewport().installEventFilter(self)
+        self.table.cellChanged.connect(self._on_table_cell_changed)
         layout.addWidget(self.table, 1)
 
         # --- БЛОК 4: Кнопка выставления ---
@@ -863,6 +872,9 @@ class CascadeTab(QWidget):
         self.apply_scale()
         self.on_type_changed(self.cb_type.currentIndex())
         self._refresh_calibration_status()
+        app = QApplication.instance()
+        if app is not None:
+            app.focusChanged.connect(self._on_focus_changed)
 
     def refresh_labels(self):
         t = TRANS.get(self.main.settings.get("lang", "ru"), TRANS["ru"])
@@ -906,6 +918,24 @@ class CascadeTab(QWidget):
         if hasattr(self.main, "_clear_ghost_focus"):
             self.main._clear_ghost_focus()
 
+    def _clear_table_focus(self):
+        if not hasattr(self, "table"):
+            return
+        self.table.clearSelection()
+        self.table.setCurrentCell(-1, -1)
+        self.table.setCurrentItem(None)
+        self.table.clearFocus()
+
+    def _on_focus_changed(self, _old, now):
+        if not hasattr(self, "table"):
+            return
+        if now is None:
+            self._clear_table_focus()
+            return
+        if now is self.table or now is self.table.viewport() or self.table.isAncestorOf(now):
+            return
+        self._clear_table_focus()
+
     def _store_apply_click_pos(self):
         """Сохраняет глобальную позицию курсора в момент нажатия кнопки ВЫСТАВИТЬ."""
         try:
@@ -915,9 +945,24 @@ class CascadeTab(QWidget):
 
     def mousePressEvent(self, event):
         clicked = self.childAt(event.position().toPoint())
+        if not clicked or not (clicked is self.table or self.table.isAncestorOf(clicked)):
+            self._clear_table_focus()
         if not isinstance(clicked, (QLineEdit, QAbstractSpinBox)):
             self._clear_input_focus()
         super().mousePressEvent(event)
+
+    def eventFilter(self, obj, event):
+        if obj in (getattr(self, "table", None), getattr(getattr(self, "table", None), "viewport", lambda: None)()):
+            if event.type() == event.Type.KeyPress and event.key() in (
+                Qt.Key.Key_Escape,
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+            ):
+                self._clear_table_focus()
+                self._clear_input_focus()
+                event.accept()
+                return True
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -925,10 +970,12 @@ class CascadeTab(QWidget):
                 self.cancel_calibration()
                 event.accept()
                 return
+            self._clear_table_focus()
             self._clear_input_focus()
             event.accept()
             return
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._clear_table_focus()
             self._clear_input_focus()
             event.accept()
             return
@@ -1008,8 +1055,21 @@ class CascadeTab(QWidget):
         item_font = max(6, int(6 * ratio))
         header_font = max(6, int(8 * ratio))
         self.table.setStyleSheet(
-            f"QTableWidget::item {{ font-size: {item_font}pt; padding: 0px 1px; margin: 0px; }}"
-            f"QHeaderView::section {{ font-size: {header_font}pt; padding: 1px; }}"
+            "QTableWidget { background: #141414; color: #D0D0D0; alternate-background-color: #141414; gridline-color: #2A2A2A; }"
+            f"QTableWidget::item {{ background: #141414; color: #D0D0D0; font-size: {item_font}pt; padding: 0px 1px; margin: 0px; }}"
+            "QTableWidget::item:focus { outline: none; border: none; }"
+            "QHeaderView { background: #141414; }"
+            f"QHeaderView::section:horizontal {{ background: #1A1A1A; color: #A0A0A0; border: 1px solid #2A2A2A; font-size: {header_font}pt; padding: 1px; }}"
+            f"QHeaderView::section:vertical {{ background: #141414; color: #707070; border: 1px solid #2A2A2A; font-size: {header_font}pt; padding: 1px; }}"
+            "QTableCornerButton::section { background: #141414; border: 1px solid #2A2A2A; }"
+            "QTableWidget QScrollBar:vertical { background: #111111; width: 14px; margin: 0px; border: 1px solid #232323; }"
+            "QTableWidget QScrollBar::handle:vertical { background: #3A3A3A; min-height: 24px; border-radius: 4px; border: 1px solid #4A4A4A; }"
+            "QTableWidget QScrollBar::add-page:vertical, QTableWidget QScrollBar::sub-page:vertical { background: #111111; }"
+            "QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical { background: #1A1A1A; height: 14px; border: 1px solid #2A2A2A; }"
+            "QTableWidget QScrollBar:horizontal { background: #111111; height: 14px; margin: 0px; border: 1px solid #232323; }"
+            "QTableWidget QScrollBar::handle:horizontal { background: #3A3A3A; min-width: 24px; border-radius: 4px; border: 1px solid #4A4A4A; }"
+            "QTableWidget QScrollBar::add-page:horizontal, QTableWidget QScrollBar::sub-page:horizontal { background: #111111; }"
+            "QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal { background: #1A1A1A; width: 14px; border: 1px solid #2A2A2A; }"
             "selection-background-color: #38BE1D; selection-color: black;"
         )
 
@@ -1042,6 +1102,7 @@ class CascadeTab(QWidget):
             self.main.settings["cas_use_custom_percent"] = False
             self.main.save_settings()
         self.recalc_table()
+        self._clear_main_deposit_selection()
 
     def on_custom_percent_toggled(self, checked):
         if checked:
@@ -1054,6 +1115,7 @@ class CascadeTab(QWidget):
         self.main.settings["cas_use_custom_percent"] = bool(checked)
         self.save_custom_percent_setting()
         self.recalc_table()
+        self._clear_main_deposit_selection()
 
     def on_custom_percent_text_changed(self, text):
         if not self.btn_use_custom_percent.isChecked():
@@ -1101,6 +1163,7 @@ class CascadeTab(QWidget):
         self.main.settings["cas_use_custom_vol"] = bool(checked)
         self.main.save_settings()
         self.recalc_table()
+        self._clear_main_deposit_selection()
 
     def on_custom_vol_text_changed(self, text):
         if not self.btn_use_custom_vol.isChecked():
@@ -1175,6 +1238,25 @@ class CascadeTab(QWidget):
         self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
         self.main.save_settings()
         self.recalc_table()
+
+    def _on_table_cell_changed(self, row, column):
+        if column != 1:
+            return
+        if not hasattr(self, "cb_type"):
+            return
+        if self.cb_type.currentIndex() == 3:
+            return
+
+        self.cb_type.blockSignals(True)
+        self.cb_type.setCurrentIndex(3)
+        self.cb_type.blockSignals(False)
+
+        self.sb_manual_k_wrap.setEnabled(True)
+        self.sb_manual_k_wrap.setVisible(True)
+        self.lbl_manual_k.setVisible(True)
+        self.main.settings["cas_type_index"] = 3
+        self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
+        self.main.save_settings()
 
     def on_range_mode_toggled(self, checked):
         """Переключение режима: ширина диапазона vs шаг."""
@@ -1439,14 +1521,14 @@ class CascadeTab(QWidget):
             self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
-                    "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+                    "color: #40E0D0; font-size: 8pt; font-weight: bold;"
                 )
             elif cap_impossible:
                 self.lbl_count_hint.setStyleSheet(
-                    "color: #FF9F0A; font-size: 8pt; font-weight: bold;"
+                    "color: #40E0D0; font-size: 8pt; font-weight: bold;"
                 )
             else:
-                self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+                self.lbl_count_hint.setStyleSheet("color: #40E0D0; font-size: 8pt;")
 
         else:
             # === МАТРЕШКА/АГРЕССИВНО (экспоненциальное распределение) ===
@@ -1469,45 +1551,53 @@ class CascadeTab(QWidget):
             self.lbl_count_hint.setText(hint_text)
             if count > max_possible:
                 self.lbl_count_hint.setStyleSheet(
-                    "color: #FF6B6B; font-size: 8pt; font-weight: bold;"
+                    "color: #40E0D0; font-size: 8pt; font-weight: bold;"
                 )
             elif cap_impossible:
                 self.lbl_count_hint.setStyleSheet(
-                    "color: #FF9F0A; font-size: 8pt; font-weight: bold;"
+                    "color: #40E0D0; font-size: 8pt; font-weight: bold;"
                 )
             else:
-                self.lbl_count_hint.setStyleSheet("color: #888; font-size: 8pt;")
+                self.lbl_count_hint.setStyleSheet("color: #40E0D0; font-size: 8pt;")
 
         # Заполнение таблицы
-        self.table.setRowCount(len(final_volumes))
-        self.calculated_orders = []
+        self.table.blockSignals(True)
+        try:
+            self.table.setRowCount(len(final_volumes))
+            self.calculated_orders = []
 
-        dist_prec = max(2, int(self.sb_dist.decimals()))
-        for i, vol in enumerate(final_volumes):
-            if self.chk_range_mode.isChecked():
-                if count > 1 and range_width > 0:
-                    dist = range_width * (i / (count - 1))
-                    if i == count - 1:
-                        dist = range_width
+            dist_prec = max(2, int(self.sb_dist.decimals()))
+            for i, vol in enumerate(final_volumes):
+                if self.chk_range_mode.isChecked():
+                    if count > 1 and range_width > 0:
+                        dist = range_width * (i / (count - 1))
+                        if i == count - 1:
+                            dist = range_width
+                    else:
+                        dist = 0.0
                 else:
-                    dist = 0.0
-            else:
-                dist = i * dist_step
-            vol_item = QTableWidgetItem(f"{vol:.{p_vol}f}")
-            vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    dist = i * dist_step
+                vol_item = QTableWidgetItem(f"{vol:.{p_vol}f}")
+                vol_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                vol_item.setBackground(QColor("#141414"))
+                vol_item.setForeground(QColor("#D0D0D0"))
 
-            # Подсвечиваем если < min_size
-            if vol < min_size:
-                vol_item.setForeground(Qt.GlobalColor.red)
+                # Подсвечиваем если < min_size
+                if vol < min_size:
+                    vol_item.setForeground(Qt.GlobalColor.red)
 
-            self.table.setItem(i, 0, vol_item)
+                self.table.setItem(i, 0, vol_item)
 
-            dist_item = QTableWidgetItem(f"{dist:.{dist_prec}f}")
-            dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(i, 1, dist_item)
-            self.calculated_orders.append(
-                {"vol": round(vol, p_vol), "dist": round(dist, 2)}
-            )
+                dist_item = QTableWidgetItem(f"{dist:.{dist_prec}f}")
+                dist_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                dist_item.setBackground(QColor("#141414"))
+                dist_item.setForeground(QColor("#D0D0D0"))
+                self.table.setItem(i, 1, dist_item)
+                self.calculated_orders.append(
+                    {"vol": round(vol, p_vol), "dist": round(dist, 2)}
+                )
+        finally:
+            self.table.blockSignals(False)
 
     def start_calibration(self):
         # Сбрасываем старые точки калибровки перед началом новой
@@ -1644,6 +1734,8 @@ class CascadeTab(QWidget):
         self.calib_step += 1
 
     def run_automation(self):
+        self._clear_main_deposit_selection()
+
         if not hasattr(self, "calculated_orders") or not self.calculated_orders:
             self.recalc_table()
 
@@ -1745,6 +1837,21 @@ class CascadeTab(QWidget):
         except Exception:
             pass
 
+    def _clear_main_deposit_selection(self):
+        try:
+            if hasattr(self.main, "_clear_ghost_focus"):
+                self.main._clear_ghost_focus()
+            fw = QApplication.focusWidget()
+            if fw is not None:
+                fw.clearFocus()
+            if hasattr(self.main, "inp_dep") and self.main.inp_dep is not None:
+                self.main.inp_dep.deselect()
+                self.main.inp_dep.clearFocus()
+            if hasattr(self.main, "tabs") and self.main.tabs is not None:
+                self.main.tabs.setFocus(Qt.FocusReason.OtherFocusReason)
+        except Exception:
+            pass
+
     def _on_cascade_finished(self):
         self.lbl_status.setText(self._t("casc_status_done"))
         self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
@@ -1757,6 +1864,7 @@ class CascadeTab(QWidget):
             pass
         self.apply_active = False
         self._restore_cursor_after_apply()
+        self._clear_main_deposit_selection()
         QTimer.singleShot(5000, self._set_ready_status)
 
     def _on_cascade_cancelled(self):
@@ -1765,6 +1873,7 @@ class CascadeTab(QWidget):
         self._cancel_status_until = time.time() + 7.0
         self.apply_active = False
         self._restore_cursor_after_apply()
+        self._clear_main_deposit_selection()
         QTimer.singleShot(7000, self._set_ready_status)
 
     def is_apply_active(self):

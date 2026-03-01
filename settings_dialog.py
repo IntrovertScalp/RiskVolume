@@ -244,8 +244,44 @@ class SettingsDialog(QDialog):
                 background: #333;
                 max-height: 1px;
             }
+            QComboBox#ScaleCombo, QComboBox#LangCombo {
+                background: #252525;
+                color: #EAEAEA;
+                border: 1px solid #333;
+                border-radius: 4px;
+                padding: 4px 22px 4px 8px;
+                min-height: 20px;
+            }
+            QComboBox#ScaleCombo:hover, QComboBox#LangCombo:hover {
+                border: 1px solid #38BE1D;
+            }
+            QComboBox#ScaleCombo:focus, QComboBox#LangCombo:focus {
+                border: 1px solid #333;
+            }
+            QComboBox#ScaleCombo::drop-down, QComboBox#LangCombo::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox#ScaleCombo::down-arrow, QComboBox#LangCombo::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #B8B8B8;
+                width: 0;
+                height: 0;
+                margin-right: 6px;
+            }
+            QComboBox#ScaleCombo QAbstractItemView, QComboBox#LangCombo QAbstractItemView {
+                background: #252525;
+                color: #EAEAEA;
+                border: 1px solid #333;
+                selection-background-color: #38BE1D;
+                selection-color: black;
+            }
         """
         )
+
+        self.setMinimumWidth(430)
 
         layout = QVBoxLayout(self)
 
@@ -288,6 +324,7 @@ class SettingsDialog(QDialog):
         scale_row = QHBoxLayout()
         scale_row.addWidget(QLabel(t["scale"]))
         self.cb_scale = QComboBox()
+        self.cb_scale.setObjectName("ScaleCombo")
         # Internal scales: 130-200, displayed as 100-170
         self.scale_display = [
             str(i) for i in range(100, 180, 10)
@@ -301,17 +338,18 @@ class SettingsDialog(QDialog):
         if current_scale in self.scale_actual:
             idx = self.scale_actual.index(current_scale)
             self.cb_scale.setCurrentIndex(idx)
+        self.cb_scale.setFixedWidth(96)
+        self.cb_scale.activated.connect(self.cb_scale.clearFocus)
         scale_row.addWidget(self.cb_scale)
 
         # Компактное меню языка
         scale_row.addSpacing(20)
         self.combo_lang = QComboBox()
+        self.combo_lang.setObjectName("LangCombo")
         self.combo_lang.addItems(["Русский", "English"])
         self.combo_lang.setCurrentIndex(0 if lang_code == "ru" else 1)
-        self.combo_lang.setStyleSheet(
-            "background: #252525; color: white; padding: 4px;"
-        )
-        self.combo_lang.setFixedWidth(100)
+        self.combo_lang.setFixedWidth(118)
+        self.combo_lang.activated.connect(self.combo_lang.clearFocus)
         scale_row.addWidget(self.combo_lang)
 
         scale_row.addStretch()

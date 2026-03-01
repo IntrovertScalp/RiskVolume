@@ -111,6 +111,15 @@ def init_calculator_tab(app):
     app.lbl_info.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
     main_layout.addWidget(app.lbl_info)
 
+    app.lbl_risk_warning = QLabel("")
+    app.lbl_risk_warning.setStyleSheet("color: #FF6B6B; font-size: 7pt;")
+    app.lbl_risk_warning.setWordWrap(True)
+    app.lbl_risk_warning.setAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+    app.lbl_risk_warning.setVisible(False)
+    main_layout.addWidget(app.lbl_risk_warning)
+
     # --- ОБЪЁМ (ПОСЛЕ ИНФОРМАЦИИ) ---
     app.lbl_vol_title = QLabel(t["vol"])
     app.lbl_vol_title.setStyleSheet(
@@ -129,12 +138,14 @@ def init_calculator_tab(app):
 
     app.chk_pos_mode = QCheckBox(t["calc_pos_mode"])
     app.chk_pos_mode.setObjectName("PosModeToggle")
+    app.chk_pos_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
     app.chk_pos_mode.setChecked(bool(app.settings.get("pos_mode_enabled", False)))
     app.chk_pos_mode.toggled.connect(app.on_position_mode_toggled)
     app.chk_pos_mode.setStyleSheet(
         "QCheckBox { color: #aaa; font-size: 9pt; spacing: 6px; margin: 0px; padding: 0px; }"
-        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; margin: auto; }"
-        "QCheckBox::indicator:checked { background: #38BE1D; border: 1px solid #38BE1D; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #3E3E3E; background: #141414; margin: auto; }"
+        f"QCheckBox::indicator:checked {{ background: #1A1A1A; border: 1px solid #38BE1D; image: url({app._posmode_checkmark_path_css}); }}"
+        "QCheckBox::indicator:unchecked { image: none; }"
     )
     main_layout.addWidget(app.chk_pos_mode)
 
@@ -152,7 +163,9 @@ def init_calculator_tab(app):
     app.inp_pos_vol.setValidator(v_reg)
     app.inp_pos_vol.setFixedHeight(22)
     app.inp_pos_vol.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    app.inp_pos_vol.setStyleSheet("font-size: 8pt; padding: 1px;")
+    app.inp_pos_vol.setStyleSheet(
+        "font-size: 8pt; padding: 1px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
+    )
     app.inp_pos_vol.returnPressed.connect(app._commit_input)
     app.inp_pos_vol.installEventFilter(app)
     app.inp_pos_vol.textChanged.connect(app.update_position_adjustment_info)
@@ -168,7 +181,9 @@ def init_calculator_tab(app):
     app.inp_pos_risk.setValidator(v_reg)
     app.inp_pos_risk.setFixedHeight(22)
     app.inp_pos_risk.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    app.inp_pos_risk.setStyleSheet("font-size: 8pt; padding: 1px;")
+    app.inp_pos_risk.setStyleSheet(
+        "font-size: 8pt; padding: 1px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
+    )
     app.inp_pos_risk.returnPressed.connect(app._commit_input)
     app.inp_pos_risk.installEventFilter(app)
     app.inp_pos_risk.textChanged.connect(app.update_position_adjustment_info)
@@ -184,7 +199,9 @@ def init_calculator_tab(app):
     app.inp_pos_stop.setValidator(v_reg)
     app.inp_pos_stop.setFixedHeight(22)
     app.inp_pos_stop.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    app.inp_pos_stop.setStyleSheet("font-size: 8pt; padding: 1px;")
+    app.inp_pos_stop.setStyleSheet(
+        "font-size: 8pt; padding: 1px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
+    )
     app.inp_pos_stop.returnPressed.connect(app._commit_input)
     app.inp_pos_stop.installEventFilter(app)
     app.inp_pos_stop.textChanged.connect(app.update_position_adjustment_info)
@@ -223,8 +240,17 @@ def init_calculator_tab(app):
     app.lbl_pos_adjust.setWordWrap(False)
     app.lbl_pos_adjust.setMinimumHeight(16)
 
+    app.lbl_pos_warning = QLabel("")
+    app.lbl_pos_warning.setStyleSheet("color: #FF6B6B; font-size: 7pt;")
+    app.lbl_pos_warning.setWordWrap(True)
+    app.lbl_pos_warning.setAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+    app.lbl_pos_warning.setVisible(False)
+
     pos_hints_layout.addLayout(pos_hints_row)
     pos_hints_layout.addWidget(app.lbl_pos_adjust)
+    pos_hints_layout.addWidget(app.lbl_pos_warning)
 
     main_layout.addLayout(pos_hints_layout)
 
@@ -270,7 +296,9 @@ def init_calculator_tab(app):
     app.inp_min_order.setFixedWidth(50)
     app.inp_min_order.setFixedHeight(22)
     app.inp_min_order.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    app.inp_min_order.setStyleSheet("font-size: 8pt; padding: 2px;")
+    app.inp_min_order.setStyleSheet(
+        "font-size: 8pt; padding: 2px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
+    )
     app.inp_min_order.textChanged.connect(app.on_min_order_live_changed)
     app.inp_min_order.returnPressed.connect(app.on_min_order_changed)
     app.inp_min_order.installEventFilter(app)

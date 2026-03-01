@@ -37,6 +37,7 @@ def get_info_html(
     prec_lev=1,
     font_size=8,
     dimmed=False,
+    fee_enabled=True,
 ):
     """HTML-блок для калькулятора, принимает txt_labels (словарь текстов)"""
     if dimmed:
@@ -51,8 +52,15 @@ def get_info_html(
         text_color = "#888"
         risk_color = "#FF453A"
         sep_color = "#666"
-        comm_color = "#FF9F0A"
-        lev_color = "#A8A8A8"
+        comm_color = "#4DA3FF"
+        lev_color = "#B388FF"
+
+    if fee_enabled:
+        comm_value = f"${smart_format(comm_usd, prec_fee)}"
+        comm_value_color = comm_color
+    else:
+        comm_value = txt_labels.get("comm_off", "off")
+        comm_value_color = "#555" if dimmed else "#888"
 
     return f"""
     <div style="line-height: 120%; white-space: nowrap;">
@@ -60,7 +68,7 @@ def get_info_html(
         <b style="color: {risk_color}; font-size: {font_size+1}pt;">${smart_format(cash_risk, prec_risk)}</b>
         <span style="color: {sep_color};">  |  </span>
         <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['comm']} </span>
-        <b style="color: {comm_color}; font-size: {font_size}pt;">${smart_format(comm_usd, prec_fee)}</b>
+        <b style="color: {comm_value_color}; font-size: {font_size}pt;">{comm_value}</b>
         <span style="color: {sep_color};">  |  </span>
         <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['lev']} </span>
         <b style="color: {lev_color}; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>

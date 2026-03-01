@@ -490,6 +490,13 @@ class DonateDialog(QDialog):
                 border: none;
                 background: transparent;
             }}
+            QScrollArea::viewport {{
+                background: {config.COLORS['background']};
+                border: none;
+            }}
+            QScrollArea > QWidget > QWidget {{
+                background: {config.COLORS['background']};
+            }}
             QScrollBar:vertical {{
                 background: {config.COLORS['panel']};
                 width: 8px;
@@ -503,6 +510,9 @@ class DonateDialog(QDialog):
         )
 
         scroll_widget = QWidget()
+        scroll_widget.setStyleSheet(
+            f"background: {config.COLORS['background']}; border: none;"
+        )
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setSpacing(self._s(15))
         scroll_layout.setContentsMargins(self._s(5), self._s(5), self._s(5), self._s(5))

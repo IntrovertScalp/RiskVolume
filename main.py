@@ -2,6 +2,7 @@
 import config
 from PyQt6.QtWidgets import (
     QApplication,
+    QStyleFactory,
     QMainWindow,
     QVBoxLayout,
     QWidget,
@@ -27,7 +28,16 @@ from PyQt6.QtCore import (
     QObject,
     QSharedMemory,
 )
-from PyQt6.QtGui import QIcon, QRegularExpressionValidator, QColor, QBrush, QPalette
+from PyQt6.QtGui import (
+    QIcon,
+    QRegularExpressionValidator,
+    QColor,
+    QBrush,
+    QPalette,
+    QPixmap,
+    QPainter,
+    QPen,
+)
 
 from config import *
 from settings_dialog import SettingsDialog
@@ -65,6 +75,33 @@ def _thread_exception_handler(args):
 
 sys.excepthook = _global_exception_handler
 threading.excepthook = _thread_exception_handler
+
+_app_shared_memory_guard = None
+
+
+def _force_consistent_qt_theme(app: QApplication):
+    """Фиксирует единый тёмный вид на разных ПК/версиях Windows."""
+    try:
+        fusion_style = QStyleFactory.create("Fusion")
+        if fusion_style is not None:
+            app.setStyle(fusion_style)
+    except Exception:
+        pass
+
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor("#121212"))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor("#E0E0E0"))
+    palette.setColor(QPalette.ColorRole.Base, QColor("#1A1A1A"))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#121212"))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#1A1A1A"))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#E0E0E0"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#E0E0E0"))
+    palette.setColor(QPalette.ColorRole.Button, QColor("#252525"))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor("#E0E0E0"))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor("#FFFFFF"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor("#38BE1D"))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#000000"))
+    app.setPalette(palette)
 
 
 class HotkeySignaler(QObject):
@@ -106,6 +143,7 @@ class RiskVolumeApp(QMainWindow):
         super().__init__()
         self.base_scale = 130
         self.load_settings()
+        self._create_posmode_checkmark_icon()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         )
@@ -161,6 +199,23 @@ class RiskVolumeApp(QMainWindow):
         pos = self.settings.get("window_pos", None)
         if pos and len(pos) == 2:
             self.move(pos[0], pos[1])
+
+    def _create_posmode_checkmark_icon(self):
+        import tempfile
+
+        path = os.path.join(tempfile.gettempdir(), "rv_posmode_checkmark_white.png")
+        if not os.path.exists(path):
+            pix = QPixmap(12, 12)
+            pix.fill(QColor(0, 0, 0, 0))
+            painter = QPainter(pix)
+            pen = QPen(QColor(255, 255, 255))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            painter.drawLine(2, 6, 5, 9)
+            painter.drawLine(5, 9, 10, 3)
+            painter.end()
+            pix.save(path, "PNG")
+        self._posmode_checkmark_path_css = path.replace("\\", "/")
 
     def load_settings(self):
         default = {
@@ -335,6 +390,7 @@ class RiskVolumeApp(QMainWindow):
         for b in [self.btn_set, self.btn_min, self.btn_close]:
             b.setObjectName("HeadBtn")
             b.setFixedSize(22, 22)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 """
@@ -573,8 +629,10 @@ class RiskVolumeApp(QMainWindow):
                     p_fee,
                     p_lev,
                     dimmed=dimmed,
+                    fee_enabled=use_fee,
                 )
             )
+            self._update_risk_recommendation(r, s, lev, use_fee)
 
             # Обновляем объемы в таблице ячеек
             if hasattr(self, "cells_table"):
@@ -602,6 +660,143 @@ class RiskVolumeApp(QMainWindow):
         except Exception as e:
             print(f"Error: {e}")
 
+    def _build_risk_warning_text(self, risk_percent, stop_percent, leverage, use_fee):
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        warnings = []
+
+        try:
+            risk_value = float(risk_percent)
+        except Exception:
+            risk_value = 0.0
+
+        try:
+            stop_value = float(stop_percent)
+        except Exception:
+            stop_value = 0.0
+
+        try:
+            lev_value = float(leverage)
+        except Exception:
+            lev_value = 0.0
+
+        fee_total = 0.0
+        if bool(use_fee):
+            try:
+                fee_total = float(self.settings.get("fee_taker", 0.0)) + float(
+                    self.settings.get("fee_maker", 0.0)
+                )
+            except Exception:
+                fee_total = 0.0
+        effective_stop = abs(max(0.0, stop_value + fee_total))
+
+        if risk_value >= 10.0:
+            warnings.append(t["risk_warn_high"])
+            target_risk = min(5.0, max(1.0, risk_value / 2.0))
+            target_text = f"{target_risk:.2f}".rstrip("0").rstrip(".")
+            warnings.append(t["risk_warn_reduce"].format(target=target_text))
+
+        liq_move_est = abs(100.0 / lev_value) if lev_value > 0 else 0.0
+        liq_warn_threshold = liq_move_est * 0.95
+        if liq_move_est > 0 and effective_stop >= liq_warn_threshold:
+            liq_text = f"{liq_move_est:.2f}".rstrip("0").rstrip(".")
+            warnings.append(t["risk_warn_liq"].format(liq=liq_text))
+
+        if (not bool(use_fee)) and risk_value >= 10.0:
+            warnings.append(t["risk_warn_fee_off"])
+
+        if warnings:
+            intro = t.get("risk_warn_intro", "⚠")
+            return f"{intro}  " + "  ".join(warnings)
+
+        return ""
+
+    def _update_risk_recommendation(self, risk_percent, stop_percent, leverage, use_fee):
+        if not hasattr(self, "lbl_risk_warning"):
+            return
+
+        warning_text = self._build_risk_warning_text(
+            risk_percent, stop_percent, leverage, use_fee
+        )
+        if warning_text:
+            self.lbl_risk_warning.setText(warning_text)
+            self.lbl_risk_warning.setVisible(True)
+        else:
+            self.lbl_risk_warning.setText("")
+            self.lbl_risk_warning.setVisible(False)
+
+    def _update_position_risk_recommendation(
+        self, risk_percent, stop_percent, leverage, use_fee
+    ):
+        if not hasattr(self, "lbl_pos_warning"):
+            return
+
+        warning_text = self._build_risk_warning_text(
+            risk_percent, stop_percent, leverage, use_fee
+        )
+        if warning_text:
+            self.lbl_pos_warning.setText(warning_text)
+            self.lbl_pos_warning.setVisible(True)
+        else:
+            self.lbl_pos_warning.setText("")
+            self.lbl_pos_warning.setVisible(False)
+
+    def _build_position_risk_cash_html(self, risk_cash_text, status, delta_text=""):
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        label_color = "#FFFFFF"
+        risk_value_color = "#FF453A"
+        sep_color = "#666"
+
+        risk_label = t.get("pos_risk_cash_label", "Риск сделки в $:")
+
+        if status == "add":
+            status_label = t.get("pos_add_label", "Добор:")
+            status_value_color = "#38BE1D"
+            right_html = (
+                f"<span style='color: {label_color}; font-size: 8pt;'>{status_label} </span>"
+                f"<b style='color: {status_value_color}; font-size: 8pt;'>{delta_text}</b>"
+            )
+        elif status == "reduce":
+            status_label = t.get("pos_reduce_label", "Сокращение:")
+            status_value_color = "#FF453A"
+            right_html = (
+                f"<span style='color: {label_color}; font-size: 8pt;'>{status_label} </span>"
+                f"<b style='color: {status_value_color}; font-size: 8pt;'>{delta_text}</b>"
+            )
+        else:
+            in_limit_label = t.get("pos_in_limit_label", "Позиция в лимите риска")
+            right_html = (
+                f"<span style='color: {label_color}; font-size: 8pt;'>{in_limit_label}</span>"
+            )
+
+        return (
+            "<div style='line-height: 120%; white-space: nowrap;'>"
+            f"<span style='color: {label_color}; font-size: 8pt;'>{risk_label} </span>"
+            f"<b style='color: {risk_value_color}; font-size: 8pt;'>${risk_cash_text}</b>"
+            f"<span style='color: {sep_color};'>  |  </span>"
+            f"{right_html}"
+            "</div>"
+        )
+
+    def _build_position_target_html(self, target_vol_text, target_lev_text):
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        label_color = "#FFFFFF"
+        target_value_color = "#FF9F0A"
+        leverage_value_color = "#B388FF"
+        sep_color = "#666"
+
+        target_label = t.get("pos_target_label", "Целевой объём:")
+        leverage_label = t.get("lev", "Плечо:")
+
+        return (
+            "<div style='line-height: 120%; white-space: nowrap;'>"
+            f"<span style='color: {label_color}; font-size: 8pt;'>{target_label} </span>"
+            f"<b style='color: {target_value_color}; font-size: 8pt;'>{target_vol_text}</b>"
+            f"<span style='color: {sep_color};'>  |  </span>"
+            f"<span style='color: {label_color}; font-size: 8pt;'>{leverage_label} </span>"
+            f"<b style='color: {leverage_value_color}; font-size: 8pt;'>{target_lev_text}x</b>"
+            "</div>"
+        )
+
     def schedule_update_calc(self):
         if hasattr(self, "_calc_update_timer"):
             self._calc_update_timer.start(40)
@@ -626,6 +821,9 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_pos_risk_cash.setStyleSheet("color: #555; font-size: 7pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
+            if hasattr(self, "lbl_pos_warning"):
+                self.lbl_pos_warning.setText("")
+                self.lbl_pos_warning.setVisible(False)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
             return
@@ -635,6 +833,7 @@ class RiskVolumeApp(QMainWindow):
 
         p_vol = self.settings.get("prec_dep", 2)
         p_risk = self.settings.get("prec_risk", 2)
+        p_lev = self.settings.get("prec_lev", 1)
 
         try:
             pos_vol = float(self.inp_pos_vol.text().replace(",", ".") or 0)
@@ -669,6 +868,9 @@ class RiskVolumeApp(QMainWindow):
             self.save_settings()
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_warning"):
+                self.lbl_pos_warning.setText("")
+                self.lbl_pos_warning.setVisible(False)
             return
 
         # Риск в $ считаем от ДЕПОЗИТА
@@ -698,6 +900,9 @@ class RiskVolumeApp(QMainWindow):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_warning"):
+                self.lbl_pos_warning.setText("")
+                self.lbl_pos_warning.setVisible(False)
             return
 
         fee_taker = self.settings.get("fee_taker", 0.05)
@@ -724,6 +929,9 @@ class RiskVolumeApp(QMainWindow):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_warning"):
+                self.lbl_pos_warning.setText("")
+                self.lbl_pos_warning.setVisible(False)
             return
 
         # Целевой объём считаем от ДЕПОЗИТА, а не от текущего объёма позиции
@@ -745,11 +953,24 @@ class RiskVolumeApp(QMainWindow):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_warning"):
+                self.lbl_pos_warning.setText("")
+                self.lbl_pos_warning.setVisible(False)
             return
 
         self.position_target_volume = float(max_vol_at_stop)
         target_vol_text = f"{max_vol_at_stop:,.{p_vol}f}".replace(",", " ").replace(
             ".", ","
+        )
+        target_lev = (max_vol_at_stop / deposit) if deposit > 0 else 0.0
+        target_lev_text = f"{target_lev:,.{p_lev}f}".replace(",", " ").replace(
+            ".", ","
+        )
+        target_with_lev_text = self._build_position_target_html(
+            target_vol_text, target_lev_text
+        )
+        self._update_position_risk_recommendation(
+            pos_risk, pos_stop, target_lev, use_fee
         )
 
         delta = max_vol_at_stop - pos_vol
@@ -758,16 +979,14 @@ class RiskVolumeApp(QMainWindow):
             self.pos_adjust_action = "add"
             delta_text = f"{delta:,.{p_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_pos_risk_cash.setText(
-                    t["pos_add"].format(risk_cash=risk_cash_text, delta=delta_text)
+                    self._build_position_risk_cash_html(
+                        risk_cash_text, "add", delta_text
+                    )
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
-            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_pos_adjust.setText(
-                t["pos_target_vol"].format(target=target_vol_text)
-            )
-            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet("font-size: 8pt;")
+            self.lbl_pos_adjust.setText(target_with_lev_text)
+            self.lbl_pos_adjust.setStyleSheet("font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
         elif delta < 0:
@@ -775,30 +994,24 @@ class RiskVolumeApp(QMainWindow):
             self.pos_adjust_action = "reduce"
             delta_text = f"{abs(delta):,.{p_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_pos_risk_cash.setText(
-                    t["pos_reduce"].format(risk_cash=risk_cash_text, delta=delta_text)
+                    self._build_position_risk_cash_html(
+                        risk_cash_text, "reduce", delta_text
+                    )
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
-            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_pos_adjust.setText(
-                t["pos_target_vol"].format(target=target_vol_text)
-            )
-            self.lbl_pos_adjust.setStyleSheet("color: #FF6B6B; font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet("font-size: 8pt;")
+            self.lbl_pos_adjust.setText(target_with_lev_text)
+            self.lbl_pos_adjust.setStyleSheet("font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
         else:
             if hasattr(self, "lbl_pos_risk_cash"):
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_pos_risk_cash.setText(
-                    t["pos_in_limit"].format(risk_cash=risk_cash_text)
+                    self._build_position_risk_cash_html(risk_cash_text, "in_limit")
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #38BE1D; font-size: 8pt;")
-            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_pos_adjust.setText(
-                t["pos_target_vol"].format(target=target_vol_text)
-            )
-            self.lbl_pos_adjust.setStyleSheet("color: #38BE1D; font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet("font-size: 8pt;")
+            self.lbl_pos_adjust.setText(target_with_lev_text)
+            self.lbl_pos_adjust.setStyleSheet("font-size: 8pt;")
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
 
@@ -922,7 +1135,7 @@ class RiskVolumeApp(QMainWindow):
                     else:
                         widget.setEnabled(True)
                         widget.setStyleSheet(
-                            "QLineEdit { background: #1A1A1A; color: white; border: 1px solid #252525; padding: 3px; border-radius: 4px; font-size: 9pt; }"
+                            "QLineEdit { background: #1A1A1A; color: white; border: 1px solid #252525; padding: 3px; border-radius: 4px; font-size: 9pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }"
                         )
                 elif isinstance(widget, QLabel):
                     if dim:
@@ -1008,6 +1221,7 @@ class RiskVolumeApp(QMainWindow):
             "lbl_pos_vol_hint",
             "lbl_pos_risk_cash",
             "lbl_pos_adjust",
+            "lbl_pos_warning",
         ):
             widget = getattr(self, name, None)
             if widget:
@@ -1072,6 +1286,12 @@ class RiskVolumeApp(QMainWindow):
                 "color: #888; font-size: 8pt;"
                 if enabled
                 else "color: #555; font-size: 8pt;"
+            )
+        if hasattr(self, "lbl_pos_warning"):
+            self.lbl_pos_warning.setStyleSheet(
+                "color: #FF6B6B; font-size: 7pt;"
+                if enabled
+                else "color: #555; font-size: 7pt;"
             )
 
         self._set_position_target_row_mask(None)
@@ -1160,6 +1380,19 @@ class RiskVolumeApp(QMainWindow):
         if not self.isVisible():
             return
 
+        def _metric_text(raw_text):
+            import re
+
+            if not raw_text:
+                return ""
+            text = str(raw_text)
+            text = re.sub(r"<[^>]*>", "", text)
+            text = text.replace("&nbsp;", " ")
+            text = text.replace("&amp;", "&")
+            text = text.replace("&lt;", "<")
+            text = text.replace("&gt;", ">")
+            return text
+
         scale = self.settings.get("scale", self.base_scale)
         ratio = scale / float(self.base_scale)
         base_w = max(90, int(105 * ratio))
@@ -1198,7 +1431,7 @@ class RiskVolumeApp(QMainWindow):
             if not label:
                 continue
             try:
-                text = label.text() if label.text() else ""
+                text = _metric_text(label.text())
                 desired = label.fontMetrics().horizontalAdvance(text) + 22
                 label.setMinimumWidth(max(label_base_w, min(label_max_w, desired)))
             except Exception:
@@ -1212,7 +1445,10 @@ class RiskVolumeApp(QMainWindow):
                 label = getattr(self, name, None)
                 if label:
                     row1_width += (
-                        label.fontMetrics().horizontalAdvance(label.text() or "") + 24
+                        label.fontMetrics().horizontalAdvance(
+                            _metric_text(label.text())
+                        )
+                        + 24
                     )
 
             row2_width = 0
@@ -1220,7 +1456,7 @@ class RiskVolumeApp(QMainWindow):
             if label_adjust:
                 row2_width = (
                     label_adjust.fontMetrics().horizontalAdvance(
-                        label_adjust.text() or ""
+                        _metric_text(label_adjust.text())
                     )
                     + 24
                 )
@@ -1382,7 +1618,7 @@ class RiskVolumeApp(QMainWindow):
         self.central_widget.setStyleSheet(
             f"""
             QWidget#Root {{ background: #121212; border: 2px solid #333; border-radius: {int(12*ratio)}px; }}
-            QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; }}
+            QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}
             QLineEdit:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QLineEdit:focus {{ border: 1px solid #FFFFFF; }}
             QLineEdit[ghostFocus="true"] {{ border: 1px solid #FFFFFF; }}
@@ -1393,7 +1629,7 @@ class RiskVolumeApp(QMainWindow):
             QPushButton:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QPushButton:hover {{ background: #444; border-color: #38BE1D; }}
             QPushButton:pressed {{ background: #38BE1D; color: black; }}
-            QComboBox, QSpinBox, QDoubleSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; }}
+            QComboBox, QSpinBox, QDoubleSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}
             QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid #FFFFFF; }}
             QComboBox::drop-down {{ border: none; }}
             QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #888; width: 0; height: 0; margin-right: 5px; }}
@@ -1534,6 +1770,9 @@ class RiskVolumeApp(QMainWindow):
                     f"QCheckBox#PosModeToggle {{ color: #9A9A9A; font-size: {f_small}pt; font-weight: bold; padding: {pos_toggle_pad_v}px {btn_pad}px; min-height: {pos_toggle_min_h}px; border-radius: {radius_main}px; background: #2A2A2A; border: 1px solid #3A3A3A; }}"
                     f"QCheckBox#PosModeToggle:checked {{ background: #38BE1D; color: black; border: 1px solid #38BE1D; }}"
                     f"QCheckBox#PosModeToggle:unchecked {{ background: #2A2A2A; color: #888; border: 1px solid #3A3A3A; }}"
+                    "QCheckBox#PosModeToggle::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #3E3E3E; background: #141414; margin-right: 6px; }"
+                    f"QCheckBox#PosModeToggle::indicator:checked {{ background: #1A1A1A; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
+                    "QCheckBox#PosModeToggle::indicator:unchecked { image: none; }"
                 )
             )
 
@@ -2627,8 +2866,11 @@ if __name__ == "__main__":
             shared_memory.detach()
         if not shared_memory.create(1):
             sys.exit(0)
+    _app_shared_memory_guard = shared_memory
 
     app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
+    _force_consistent_qt_theme(app)
     win = RiskVolumeApp()
     win.show()
     sys.exit(app.exec())
