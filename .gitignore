@@ -21,6 +21,8 @@ wheels/
 *.egg
 
 # Virtual Environment
+.venv/
+.venv-1/
 venv/
 ENV/
 env/
@@ -37,6 +39,6 @@ env/
 Thumbs.db
 
 # Application specific
-*.spec
 *.log
 ScalpSettings_Py.json
+.tmp_*.py

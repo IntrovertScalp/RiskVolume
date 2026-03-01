@@ -43,6 +43,27 @@
 - Загрузите RiskVolume.zip
 Распакуйте архив и запустите .exe файл и можно пользоваться ✅
 
+## Запуск из исходников (VS Code) 🧪
+
+Если вы (или другие пользователи) клонируете репозиторий на новый ПК и хотите запускать именно код:
+
+1. Установите Python 3.10+ (Windows).
+2. Откройте папку проекта в VS Code.
+3. Запустите файл [run_from_source.bat](run_from_source.bat).
+
+Этот скрипт автоматически:
+- создаст локальное окружение `.venv` (если его нет),
+- установит зависимости из [requirements.txt](requirements.txt),
+- запустит `main.py`.
+
+### Ручной вариант (через терминал)
+
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe main.py
+```
+
 
 
 
