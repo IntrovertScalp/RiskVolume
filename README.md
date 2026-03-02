@@ -46,6 +46,8 @@
 - ОЗУ: от 4 ГБ
 - Диск: от 100 МБ 
 
+🛡️ **Результат сканирования архива из Releases:** https://www.virustotal.com/gui/file/c4b0ad0f757cf530bd3fbd48335ce5252c6b1d832189dc150fe304141f4411be?nocache=1
+
 
 ## Загрузка 💾
 Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.2
