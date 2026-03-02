@@ -14,7 +14,8 @@
 2. **Убывающая**: 100%, 75%, 50%, 25%, 10%
 3. **Вручную**: свой процент в каждой ячейке
 
-<img width="650" height="854" alt="image" src="https://github.com/user-attachments/assets/96e78efd-322e-412a-8d90-2a76eb475a84" />
+<img width="679" height="858" alt="image" src="https://github.com/user-attachments/assets/e02a9444-f577-415e-aaf2-9f1ffcb05693" />
+
 
 
 ## Типы каскадов 🧩
@@ -23,8 +24,7 @@
 - **Матрешка x1.5**: рост по множителю 1.5x
 - **Ручной k**: свой множитель
 
-<img width="674" height="855" alt="image" src="https://github.com/user-attachments/assets/b322077e-015c-43a7-a166-cdfb0c8d0f11" />
-
+<img width="680" height="857" alt="image" src="https://github.com/user-attachments/assets/0ec5ae97-6d9d-4a33-a4d6-1bbb25eed6d6" />
 
 
 ## Доп. функции 🛠️
