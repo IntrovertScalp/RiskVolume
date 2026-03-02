@@ -68,9 +68,9 @@ def get_info_html(
         <b style="color: {risk_color}; font-size: {font_size+1}pt;">${smart_format(cash_risk, prec_risk)}</b>
         <span style="color: {sep_color};">  |  </span>
         <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['comm']} </span>
-        <b style="color: {comm_value_color}; font-size: {font_size}pt;">{comm_value}</b>
+        <b style="color: {comm_value_color}; font-size: {font_size}pt; background: transparent;">{comm_value}</b>
         <span style="color: {sep_color};">  |  </span>
         <span style="color: {text_color}; font-size: {font_size}pt;">{txt_labels['lev']} </span>
-        <b style="color: {lev_color}; font-size: {font_size}pt;">{smart_format(leverage, prec_lev)}x</b>
+        <b style="color: {lev_color}; font-size: {font_size}pt; background: transparent;">{smart_format(leverage, prec_lev)}x</b>
     </div>
     """

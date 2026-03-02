@@ -23,14 +23,14 @@ class AboutDialog(QDialog):
                 "version": "Версия 1.2",
                 "description": "Это калькулятор для расчёта объёма входа в сделку в зависимости от желаемого процентного стоп-лосса. Помогает быстро рассчитать размер позиции с возможностью автоматического переноса полученных значений в ячейки объёмов в стакан терминала. Также доступно только для ProfitForge быстрый выбор каскадов и автоматический перенос в терминал.",
                 "developer": "Разработчик:",
-                "youtube_btn": "🎥 YouTube",
+                "youtube_btn": "🔗 Smart Link",
             },
             "EN": {
                 "title": "About",
                 "version": "Version 1.2",
                 "description": "This is a calculator for position entry size based on the desired stop-loss percentage. It helps you quickly calculate position size with the ability to automatically transfer the values into terminal order-book volume cells. Also available exclusively for ProfitForge - quick cascade selection and automatic transfer to the terminal.",
                 "developer": "Developer:",
-                "youtube_btn": "🎥 YouTube",
+                "youtube_btn": "🔗 Smart Link",
             },
         }
 
@@ -217,11 +217,11 @@ class AboutDialog(QDialog):
         youtube_btn = QPushButton(self.t["youtube_btn"])
         youtube_btn.setFixedHeight(s(38))
         youtube_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        youtube_btn.clicked.connect(self.open_youtube)
+        youtube_btn.clicked.connect(self.open_smart_link)
         youtube_btn.setStyleSheet(
             f"""
             QPushButton {{
-                background-color: #FF0000;
+                background-color: #1565C0;
                 color: white;
                 border: none;
                 border-radius: 5px;
@@ -230,7 +230,7 @@ class AboutDialog(QDialog):
                 font-weight: bold;
             }}
             QPushButton:hover {{
-                background-color: #CC0000;
+                background-color: #0D47A1;
             }}
         """
         )
@@ -239,9 +239,24 @@ class AboutDialog(QDialog):
         # Для перетаскивания
         self.old_pos = None
 
-    def open_youtube(self):
-        """Открывает YouTube канал в браузере"""
-        QDesktopServices.openUrl(QUrl(config.YOUTUBE_URL))
+    def open_smart_link(self):
+        """Открывает smart-link в браузере"""
+        main_window = None
+        parent = self.parent()
+        if parent is not None:
+            if hasattr(parent, "parent_window") and parent.parent_window is not None:
+                main_window = parent.parent_window
+            else:
+                main_window = parent
+
+        if main_window is not None and hasattr(main_window, "showMinimized"):
+            try:
+                main_window.showMinimized()
+            except Exception:
+                pass
+
+        self.close()
+        QDesktopServices.openUrl(QUrl("https://tapy.me/introvertscalp"))
 
     def mousePressEvent(self, event):
         """Начало перетаскивания окна"""
