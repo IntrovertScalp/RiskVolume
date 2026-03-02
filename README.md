@@ -23,7 +23,8 @@
 - **Матрешка x1.5**: рост по множителю 1.5x
 - **Ручной k**: свой множитель
 
-<img width="653" height="856" alt="image" src="https://github.com/user-attachments/assets/7c451e1d-0130-4743-8446-2cc814cb4742" />
+<img width="674" height="855" alt="image" src="https://github.com/user-attachments/assets/b322077e-015c-43a7-a166-cdfb0c8d0f11" />
+
 
 
 ## Доп. функции 🛠️
@@ -36,7 +37,8 @@
 - **Автосохранение**: настройки сохраняются между сессиями
 - **Свернуть после выставления**: опциональная автоматическая минимизация окна
 
-<img width="539" height="742" alt="image" src="https://github.com/user-attachments/assets/02228a54-209d-4bef-8248-f0c137670145" />
+<img width="673" height="857" alt="image" src="https://github.com/user-attachments/assets/f813ba5e-124c-47fa-8b3c-966200ad84a8" />
+
 
 ### 💻 Системные требования
 - Windows 10/11
