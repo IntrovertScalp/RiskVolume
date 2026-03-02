@@ -37,7 +37,7 @@
 - **Автосохранение**: настройки сохраняются между сессиями
 - **Свернуть после выставления**: опциональная автоматическая минимизация окна
 
-<img width="673" height="857" alt="image" src="https://github.com/user-attachments/assets/f813ba5e-124c-47fa-8b3c-966200ad84a8" />
+<img width="544" height="746" alt="image" src="https://github.com/user-attachments/assets/74dc4e55-85fd-405e-8360-c128398c1333" />
 
 
 ### 💻 Системные требования
