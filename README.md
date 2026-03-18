@@ -37,6 +37,7 @@
 - **Точность**: настройка десятичных знаков
 - **Автосохранение**: настройки сохраняются между сессиями
 - **Свернуть после выставления**: опциональная автоматическая минимизация окна
+- **Автозаполнение депозита по API**: получение значения депозита через ключи только для чтения (read-only)
 
 <img width="508" height="499" alt="image" src="https://github.com/user-attachments/assets/3b83f98f-2f96-4749-8454-acda5fac09d4" />
 <img width="502" height="363" alt="image" src="https://github.com/user-attachments/assets/0a3bc8a2-b1ee-48f9-bf7b-1b735c11713f" />
@@ -51,7 +52,7 @@
 - ОЗУ: от 4 ГБ
 - Диск: от 100 МБ 
 
-🛡️ **Результат сканирования архива из Releases:** https://www.virustotal.com/gui/file/c4b0ad0f757cf530bd3fbd48335ce5252c6b1d832189dc150fe304141f4411be?nocache=1
+🛡️ **Результат сканирования архива из Releases:** https://www.virustotal.com/gui/file/9ebb3cf358a4a9daa0dc67a267f244f19218a09ee32c98fb70a3d189a8bc801c?nocache=1
 
 
 ## Загрузка 💾
