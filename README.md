@@ -14,7 +14,8 @@
 2. **Убывающая**: 100%, 75%, 50%, 25%, 10%
 3. **Вручную**: свой процент в каждой ячейке
 
-<img width="679" height="858" alt="image" src="https://github.com/user-attachments/assets/e02a9444-f577-415e-aaf2-9f1ffcb05693" />
+<img width="671" height="929" alt="image" src="https://github.com/user-attachments/assets/98b21d9b-7c42-44af-9209-4e106a6fed98" />
+
 
 
 
@@ -37,7 +38,11 @@
 - **Автосохранение**: настройки сохраняются между сессиями
 - **Свернуть после выставления**: опциональная автоматическая минимизация окна
 
-<img width="544" height="746" alt="image" src="https://github.com/user-attachments/assets/74dc4e55-85fd-405e-8360-c128398c1333" />
+<img width="508" height="499" alt="image" src="https://github.com/user-attachments/assets/3b83f98f-2f96-4749-8454-acda5fac09d4" />
+<img width="502" height="363" alt="image" src="https://github.com/user-attachments/assets/0a3bc8a2-b1ee-48f9-bf7b-1b735c11713f" />
+<img width="499" height="286" alt="image" src="https://github.com/user-attachments/assets/7f2722d0-02e9-4cf2-933e-fbd36268e56d" />
+
+
 
 
 ### 💻 Системные требования
