@@ -56,7 +56,7 @@
 
 
 ## Загрузка 💾
-Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.2
+Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.3
 - Загрузите RiskVolume.zip
 Распакуйте архив и запустите .exe файл и можно пользоваться ✅
 
