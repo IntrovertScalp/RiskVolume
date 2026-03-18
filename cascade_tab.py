@@ -634,9 +634,13 @@ class CascadeTab(QWidget):
         self.lbl_total_vol_hint.setStyleSheet("color: #666; font-size: 8pt;")
         self.lbl_total_vol_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.lbl_custom_total_hint = QLabel("0")
-        self.lbl_custom_total_hint.setStyleSheet("color: #666; font-size: 8pt;")
+        self.lbl_custom_total_hint = QLabel("")
+        self.lbl_custom_total_hint.setStyleSheet(
+            "color: #666; font-size: 8pt; margin-top: 2px;"
+        )
         self.lbl_custom_total_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._set_custom_total_hint_value(self._parse_custom_total_value(self.inp_custom_total.text()))
+        self.lbl_custom_total_hint.setVisible(self.btn_use_custom_vol.isChecked())
 
         l_vol.addLayout(h_perc)
         l_vol.addLayout(h_source)
@@ -882,6 +886,9 @@ class CascadeTab(QWidget):
         self.gb_set.setTitle(t["casc_block2"])
         self.btn_use_custom_percent.setText(t["casc_custom_percent"])
         self.btn_use_custom_vol.setText(t["casc_custom_volume"])
+        self._set_custom_total_hint_value(
+            self._parse_custom_total_value(self.inp_custom_total.text())
+        )
         self.lbl_count_title.setText(t["casc_count"])
         self.lbl_min_order_title.setText(t["casc_min_order"])
         self.lbl_type_title.setText(t["casc_type"])
@@ -1171,16 +1178,20 @@ class CascadeTab(QWidget):
         value = self._parse_custom_total_value(text)
         self.main.settings["cas_custom_total_vol"] = float(value)
         self.main.save_settings()
-        if hasattr(self, "lbl_custom_total_hint"):
-            self.lbl_custom_total_hint.setText(self.main.format_hint_no_decimals(value))
+        self._set_custom_total_hint_value(value)
         self.recalc_table()
 
     def save_custom_vol_setting(self):
         value = self._parse_custom_total_value(self.inp_custom_total.text())
         self.main.settings["cas_custom_total_vol"] = float(value)
         self.main.save_settings()
-        if hasattr(self, "lbl_custom_total_hint"):
-            self.lbl_custom_total_hint.setText(self.main.format_hint_no_decimals(value))
+        self._set_custom_total_hint_value(value)
+
+    def _set_custom_total_hint_value(self, value):
+        if not hasattr(self, "lbl_custom_total_hint"):
+            return
+        hint_value = self.main.format_hint_no_decimals(value)
+        self.lbl_custom_total_hint.setText(hint_value)
 
     def _parse_custom_total_value(self, text):
         try:
@@ -1451,9 +1462,7 @@ class CascadeTab(QWidget):
             )
         if hasattr(self, "lbl_custom_total_hint"):
             base_hint_val = self._parse_custom_total_value(self.inp_custom_total.text())
-            self.lbl_custom_total_hint.setText(
-                self.main.format_hint_no_decimals(base_hint_val)
-            )
+            self._set_custom_total_hint_value(base_hint_val)
 
         count = self.sb_count.value()
         min_size = self.sb_min.value()

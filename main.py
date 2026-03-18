@@ -1,5 +1,8 @@
-﻿import sys, json, os, ctypes, time, threading, importlib, keyboard, pyautogui, pyperclip
+﻿import sys, json, os, ctypes, time, threading, importlib, hmac, hashlib, multiprocessing, keyboard, pyautogui, pyperclip
+from urllib.parse import urlencode
+import queue
 import config
+import requests
 from PyQt6.QtWidgets import (
     QApplication,
     QStyleFactory,
@@ -77,6 +80,68 @@ sys.excepthook = _global_exception_handler
 threading.excepthook = _thread_exception_handler
 
 _app_shared_memory_guard = None
+
+
+def _fetch_balance_with_ccxt_process(payload, result_queue):
+    try:
+        ccxt = importlib.import_module("ccxt")
+
+        exchange_id = str(payload.get("exchange_id", "") or "").strip().lower()
+        api_key = str(payload.get("api_key", "") or "").strip()
+        api_secret = str(payload.get("api_secret", "") or "").strip()
+        market_type = str(payload.get("market_type", "spot") or "spot").strip().lower()
+        asset = str(payload.get("asset", "USDT") or "USDT").strip().upper()
+        passphrase = str(payload.get("passphrase", "") or "").strip()
+
+        ex_class = getattr(ccxt, exchange_id, None)
+        if ex_class is None:
+            result_queue.put({"ok": False, "error": f"Unsupported exchange: {exchange_id}"})
+            return
+
+        options = {}
+        if market_type == "futures":
+            default_map = {
+                "bybit": "swap",
+                "okx": "swap",
+                "gate": "swap",
+                "bitget": "swap",
+                "mexc": "swap",
+                "kucoin": "swap",
+            }
+            options["defaultType"] = default_map.get(exchange_id, "swap")
+
+        params = {
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+            "timeout": 4000,
+            "options": options,
+        }
+        if passphrase:
+            params["password"] = passphrase
+
+        exchange = ex_class(params)
+        try:
+            balance = exchange.fetch_balance()
+        finally:
+            try:
+                exchange.close()
+            except Exception:
+                pass
+
+        total = balance.get("total", {}) if isinstance(balance, dict) else {}
+        free = balance.get("free", {}) if isinstance(balance, dict) else {}
+        used = balance.get("used", {}) if isinstance(balance, dict) else {}
+
+        if asset in total and total[asset] is not None:
+            result_queue.put({"ok": True, "balance": float(total[asset])})
+            return
+
+        free_val = float(free.get(asset, 0.0) or 0.0)
+        used_val = float(used.get(asset, 0.0) or 0.0)
+        result_queue.put({"ok": True, "balance": free_val + used_val})
+    except Exception as exc:
+        result_queue.put({"ok": False, "error": str(exc)})
 
 
 def _force_consistent_qt_theme(app: QApplication):
@@ -277,6 +342,7 @@ class RiskVolumeApp(QMainWindow):
             "last_cascade_count": 1,
             "scalp_cells_count": 4,
             "scalp_multipliers": [100, 50, 25, 10],
+            "scalp_manual_multipliers": [100, 50, 25, 10, 0],
             "cells_reversed": False,
             "pos_current_vol": "0",
             "pos_risk": "1",
@@ -386,6 +452,8 @@ class RiskVolumeApp(QMainWindow):
             return
 
         enabled = bool(self.settings.get("auto_dep_enabled", False))
+        if hasattr(self, "btn_dep_refresh"):
+            self.btn_dep_refresh.setVisible(enabled)
         if enabled:
             # Интервал до 1 минуты: достаточно оперативно и без лишней нагрузки.
             self._auto_dep_timer.start(45 * 1000)
@@ -422,6 +490,8 @@ class RiskVolumeApp(QMainWindow):
             self.lbl_dep_api_status.setToolTip("")
 
     def manual_refresh_deposit(self):
+        if not bool(self.settings.get("auto_dep_enabled", False)):
+            return
         self._sync_deposit_from_exchange(manual=True)
 
     def _get_auto_dep_credentials(self, exchange_id):
@@ -503,52 +573,108 @@ class RiskVolumeApp(QMainWindow):
         asset,
         passphrase="",
     ):
-        try:
-            ccxt = importlib.import_module("ccxt")
-        except Exception as exc:
-            raise RuntimeError("ccxt module is not installed") from exc
+        if exchange_id == "binance":
+            return self._fetch_binance_balance_light(
+                api_key,
+                api_secret,
+                market_type,
+                asset,
+            )
 
-        ex_class = getattr(ccxt, exchange_id, None)
-        if ex_class is None:
-            raise RuntimeError(f"Unsupported exchange: {exchange_id}")
+        return self._fetch_non_binance_balance_light(
+            exchange_id,
+            api_key,
+            api_secret,
+            market_type,
+            asset,
+            passphrase,
+        )
 
-        options = {}
-        if market_type == "futures":
-            default_map = {
-                "binance": "future",
-                "bybit": "swap",
-                "okx": "swap",
-                "gate": "swap",
-                "bitget": "swap",
-                "mexc": "swap",
-                "kucoin": "swap",
-            }
-            options["defaultType"] = default_map.get(exchange_id, "swap")
-
-        params = {
-            "apiKey": api_key,
-            "secret": api_secret,
-            "enableRateLimit": True,
-            "timeout": 4000,
-            "options": options,
+    def _fetch_non_binance_balance_light(
+        self,
+        exchange_id,
+        api_key,
+        api_secret,
+        market_type,
+        asset,
+        passphrase="",
+    ):
+        payload = {
+            "exchange_id": exchange_id,
+            "api_key": api_key,
+            "api_secret": api_secret,
+            "market_type": market_type,
+            "asset": asset,
+            "passphrase": passphrase,
         }
-        if passphrase:
-            params["password"] = passphrase
 
-        exchange = ex_class(params)
-        exchange.load_markets()
-        balance = exchange.fetch_balance()
+        ctx = multiprocessing.get_context("spawn")
+        result_queue = ctx.Queue(maxsize=1)
+        worker = ctx.Process(
+            target=_fetch_balance_with_ccxt_process,
+            args=(payload, result_queue),
+            daemon=True,
+        )
+        worker.start()
+        worker.join(timeout=7.0)
 
-        total = balance.get("total", {}) if isinstance(balance, dict) else {}
-        free = balance.get("free", {}) if isinstance(balance, dict) else {}
-        used = balance.get("used", {}) if isinstance(balance, dict) else {}
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=1.0)
+            raise RuntimeError("Balance request timed out")
 
-        if asset in total and total[asset] is not None:
-            return float(total[asset])
+        try:
+            result = result_queue.get_nowait()
+        except queue.Empty:
+            raise RuntimeError("Empty balance response")
+        finally:
+            try:
+                result_queue.close()
+                result_queue.join_thread()
+            except Exception:
+                pass
 
-        free_val = float(free.get(asset, 0.0) or 0.0)
-        used_val = float(used.get(asset, 0.0) or 0.0)
-        return free_val + used_val
+        if not result.get("ok"):
+            raise RuntimeError(str(result.get("error", "Balance fetch failed")))
+
+        return float(result.get("balance", 0.0) or 0.0)
+
+    def _fetch_binance_balance_light(self, api_key, api_secret, market_type, asset):
+        timestamp_ms = int(time.time() * 1000)
+        params = {
+            "timestamp": timestamp_ms,
+            "recvWindow": 5000,
+        }
+        query = urlencode(params)
+        signature = hmac.new(
+            api_secret.encode("utf-8"),
+            query.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        headers = {"X-MBX-APIKEY": api_key}
+
+        if market_type == "futures":
+            url = f"https://fapi.binance.com/fapi/v2/account?{query}&signature={signature}"
+            response = requests.get(url, headers=headers, timeout=4)
+            response.raise_for_status()
+            data = response.json()
+            assets = data.get("assets", []) if isinstance(data, dict) else []
+            for row in assets:
+                if str(row.get("asset", "")).upper() == asset:
+                    return float(row.get("walletBalance", 0.0) or 0.0)
+            return 0.0
+
+        url = f"https://api.binance.com/api/v3/account?{query}&signature={signature}"
+        response = requests.get(url, headers=headers, timeout=4)
+        response.raise_for_status()
+        data = response.json()
+        balances = data.get("balances", []) if isinstance(data, dict) else []
+        for row in balances:
+            if str(row.get("asset", "")).upper() == asset:
+                free_val = float(row.get("free", 0.0) or 0.0)
+                locked_val = float(row.get("locked", 0.0) or 0.0)
+                return free_val + locked_val
+        return 0.0
 
     def _sync_deposit_from_exchange(self, manual=False):
         if self._auto_dep_sync_busy:
@@ -1492,18 +1618,14 @@ class RiskVolumeApp(QMainWindow):
                 pos_controls.append(widget)
 
         if enabled and not is_startup:
-            # User enabled position mode - switch to manual distribution and apply transfer
-            if hasattr(self, "cb_distribution"):
-                self.cb_distribution.setCurrentIndex(2)  # Manual mode
+            # Сохраняем выбранный пользователем тип распределения без принудительной смены.
             # Automatically apply position adjustment
             if hasattr(self, "apply_position_adjustment_to_cell"):
                 self.apply_position_adjustment_to_cell()
         elif not enabled and not is_startup:
-            # User disabled position mode - reset to default distribution
+            # User disabled position mode.
             self.table_volume_override = 0.0
             self.settings["pos_table_volume_override"] = 0.0
-            if hasattr(self, "cb_distribution"):
-                self.cb_distribution.setCurrentIndex(0)  # Uniform distribution
             if (
                 hasattr(self, "position_target_row_active")
                 and self.position_target_row_active is not None
@@ -2543,7 +2665,8 @@ class RiskVolumeApp(QMainWindow):
         # Загружаем сохраненные значения процентов только для режима "Вручную"
         if preset_index == 2:
             saved_multipliers = self.settings.get(
-                "scalp_multipliers", [100, 50, 25, 10, 0]
+                "scalp_manual_multipliers",
+                self.settings.get("scalp_multipliers", [100, 50, 25, 10, 0]),
             )
             is_reversed = self.settings.get("cells_reversed", False)
             if is_reversed:
@@ -2688,6 +2811,7 @@ class RiskVolumeApp(QMainWindow):
             if text and not text.isdigit():
                 item.setText("0")
 
+            self._capture_current_manual_distribution()
             self.update_cell_volumes()
             self.save_cell_settings()
             self._adapt_window_width_to_content()
@@ -2766,9 +2890,54 @@ class RiskVolumeApp(QMainWindow):
             if item:
                 item.setText(str(values[idx]))
 
+    def _capture_current_manual_distribution(self):
+        if not hasattr(self, "cells_table"):
+            return
+
+        manual_values = []
+        for i in range(5):
+            item = self.cells_table.item(i, 2)
+            text = (item.text() if item else "") or ""
+            text = str(text).strip()
+            manual_values.append(int(text) if text.isdigit() else 0)
+
+        self.settings["scalp_manual_multipliers"] = manual_values
+
+    def _restore_manual_distribution(self):
+        if not hasattr(self, "cells_table"):
+            return
+
+        saved = self.settings.get(
+            "scalp_manual_multipliers",
+            self.settings.get("scalp_multipliers", [100, 50, 25, 10, 0]),
+        )
+        if not isinstance(saved, list):
+            saved = [100, 50, 25, 10, 0]
+        saved = list(saved)[:5] + [0] * max(0, 5 - len(saved))
+
+        if self.settings.get("cells_reversed", False):
+            saved = list(reversed(saved))
+
+        active_rows = set(self._get_active_rows_for_table())
+        for i in range(5):
+            item = self.cells_table.item(i, 2)
+            if not item:
+                continue
+            if i in active_rows:
+                val = saved[i]
+                item.setText(str(int(val) if str(val).isdigit() else 0))
+            else:
+                item.setText("")
+
+        self._apply_manual_active_row_flags()
+
     def apply_distribution_preset(self):
         """Применяет выбранную предустановку распределения"""
         preset_index = self.cb_distribution.currentIndex()
+        prev_preset_index = int(self.settings.get("scalp_distribution_type", 0) or 0)
+
+        if prev_preset_index == 2 and preset_index != 2:
+            self._capture_current_manual_distribution()
 
         if preset_index != 2:
             self.table_volume_override = 0.0
@@ -2788,7 +2957,10 @@ class RiskVolumeApp(QMainWindow):
             pass
 
         # Применяем значения пресета
-        self._apply_preset_values(preset_index)
+        if preset_index == 2:
+            self._restore_manual_distribution()
+        else:
+            self._apply_preset_values(preset_index)
 
         # Включаем сигнал обратно
         self.cells_table.itemChanged.connect(self.on_table_item_changed)
@@ -3113,6 +3285,7 @@ class RiskVolumeApp(QMainWindow):
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     existing_qt_rules = os.environ.get("QT_LOGGING_RULES", "")
     dpi_noise_rule = "qt.qpa.window.warning=false"
     if dpi_noise_rule not in existing_qt_rules:

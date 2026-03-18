@@ -17,9 +17,11 @@ from PyQt6.QtWidgets import (
     QFrame,
     QMessageBox,
     QScrollArea,
+    QAbstractItemView,
+    QListView,
 )
 from translations import TRANS  # Импортируем наш новый файл
-from PyQt6.QtCore import Qt, QPoint, QRegularExpression, QRect
+from PyQt6.QtCore import Qt, QPoint, QRegularExpression, QRect, QItemSelectionModel
 from PyQt6.QtGui import (
     QRegularExpressionValidator,
     QPainter,
@@ -153,7 +155,30 @@ class NoWheelComboBox(QComboBox):
         event.ignore()
 
 
+class HoverHighlightListView(QListView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
+    def mouseMoveEvent(self, event):
+        index = self.indexAt(event.position().toPoint())
+        if index.isValid():
+            sel = self.selectionModel()
+            if sel is not None:
+                sel.setCurrentIndex(
+                    index,
+                    QItemSelectionModel.SelectionFlag.ClearAndSelect,
+                )
+        super().mouseMoveEvent(event)
+
+
 class SettingsDialog(QDialog):
+    def _enable_combo_popup_hover_highlight(self, combo):
+        view = HoverHighlightListView(combo)
+        combo.setView(view)
+
     def show_about_dialog(self):
         from about_dialog import AboutDialog
 
@@ -212,11 +237,6 @@ class SettingsDialog(QDialog):
         lang_code = parent.settings.get("lang", "ru")
         t = TRANS[lang_code]
 
-        # --- ВОССТАНОВЛЕНИЕ ПОЗИЦИИ ОКНА ---
-        if "settings_pos" in parent.settings:
-            pos = parent.settings["settings_pos"]
-            self.move(pos[0], pos[1])
-
         self.setStyleSheet(
             """
             QDialog { background: #1E1E1E; border: 2px solid #555; border-radius: 8px; }
@@ -262,10 +282,20 @@ class SettingsDialog(QDialog):
             QComboBox#ScaleCombo:hover, QComboBox#LangCombo:hover {
                 border: 1px solid #38BE1D;
             }
+            QComboBox#AutoDepCombo:hover {
+                border: 1px solid #38BE1D;
+            }
             QComboBox#ScaleCombo:focus, QComboBox#LangCombo:focus {
                 border: 1px solid #333;
             }
+            QComboBox#AutoDepCombo:focus {
+                border: 1px solid #333;
+            }
             QComboBox#ScaleCombo::drop-down, QComboBox#LangCombo::drop-down {
+                border: none;
+                width: 18px;
+            }
+            QComboBox#AutoDepCombo::drop-down {
                 border: none;
                 width: 18px;
             }
@@ -278,7 +308,31 @@ class SettingsDialog(QDialog):
                 height: 0;
                 margin-right: 6px;
             }
+            QComboBox#AutoDepCombo::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid #B8B8B8;
+                width: 0;
+                height: 0;
+                margin-right: 6px;
+            }
             QComboBox#ScaleCombo QAbstractItemView, QComboBox#LangCombo QAbstractItemView {
+                background: #252525;
+                color: #EAEAEA;
+                border: 1px solid #333;
+                selection-background-color: #38BE1D;
+                selection-color: black;
+            }
+            QComboBox#LangCombo QAbstractItemView::item:hover {
+                background: #38BE1D;
+                color: black;
+            }
+            QComboBox#LangCombo QAbstractItemView::item:selected {
+                background: #38BE1D;
+                color: black;
+            }
+            QComboBox#AutoDepCombo QAbstractItemView {
                 background: #252525;
                 color: #EAEAEA;
                 border: 1px solid #333;
@@ -420,6 +474,7 @@ class SettingsDialog(QDialog):
         self.cb_auto_dep_exchange.addItems(
             ["Binance", "Bybit", "OKX", "Gate", "Bitget", "MEXC", "Kucoin"]
         )
+        self._enable_combo_popup_hover_highlight(self.cb_auto_dep_exchange)
         self._auto_dep_credentials = self._normalize_auto_dep_credentials(
             parent.settings
         )
@@ -442,6 +497,7 @@ class SettingsDialog(QDialog):
         self.cb_auto_dep_market.addItems(
             [t["auto_dep_market_futures"], t["auto_dep_market_spot"]]
         )
+        self._enable_combo_popup_hover_highlight(self.cb_auto_dep_market)
         saved_market = str(parent.settings.get("auto_dep_market", "futures")).lower()
         self.cb_auto_dep_market.setCurrentIndex(1 if saved_market == "spot" else 0)
 
@@ -656,6 +712,17 @@ class SettingsDialog(QDialog):
         self.top_close_btn.raise_()
 
         self._install_enter_accept_handlers()
+        self._center_on_parent_window()
+
+    def _center_on_parent_window(self):
+        parent = self.parent_window
+        if parent is None:
+            return
+
+        parent_geom = parent.frameGeometry()
+        x = parent_geom.x() + (parent_geom.width() - self.width()) // 2
+        y = parent_geom.y() + (parent_geom.height() - self.height()) // 2
+        self.move(max(0, x), max(0, y))
 
     def _install_enter_accept_handlers(self):
         for widget in self.findChildren(QLineEdit):
@@ -809,9 +876,6 @@ class SettingsDialog(QDialog):
             fee_maker = 0.05
         fee_val = fee_taker + fee_maker
 
-        # Сохраняем позицию окна
-        current_pos = [self.x(), self.y()]
-
         prec_dep = self._safe_int(self.prec_dep.text() or "", 2, 0, 6)
         prec_risk = self._safe_int(self.prec_risk.text() or "", 2, 0, 6)
         prec_fee = self._safe_int(self.prec_fee.text() or "", 3, 0, 6)
@@ -852,7 +916,6 @@ class SettingsDialog(QDialog):
                 "prec_fee": prec_fee,
                 "prec_lev": prec_lev,
                 "prec_min_order": 0,
-                "settings_pos": current_pos,
                 "lang": "ru" if self.combo_lang.currentIndex() == 0 else "en",
             }
         )

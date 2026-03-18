@@ -20,14 +20,14 @@ class AboutDialog(QDialog):
         self.translations = {
             "RU": {
                 "title": "О программе",
-                "version": "Версия 1.2",
+                "version": "Версия 1.3",
                 "description": "Это калькулятор для расчёта объёма входа в сделку в зависимости от желаемого процентного стоп-лосса. Помогает быстро рассчитать размер позиции с возможностью автоматического переноса полученных значений в ячейки объёмов в стакан терминала. Также доступно только для ProfitForge быстрый выбор каскадов и автоматический перенос в терминал.",
                 "developer": "Разработчик:",
                 "youtube_btn": "🔗 Smart Link",
             },
             "EN": {
                 "title": "About",
-                "version": "Version 1.2",
+                "version": "Version 1.3",
                 "description": "This is a calculator for position entry size based on the desired stop-loss percentage. It helps you quickly calculate position size with the ability to automatically transfer the values into terminal order-book volume cells. Also available exclusively for ProfitForge - quick cascade selection and automatic transfer to the terminal.",
                 "developer": "Developer:",
                 "youtube_btn": "🔗 Smart Link",

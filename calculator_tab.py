@@ -16,6 +16,10 @@ from translations import TRANS
 
 
 class PercentItemDelegate(QStyledItemDelegate):
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self.app = app
+
     def createEditor(self, parent, option, index):
         editor = super().createEditor(parent, option, index)
         if isinstance(editor, QLineEdit):
@@ -24,6 +28,23 @@ class PercentItemDelegate(QStyledItemDelegate):
             editor.setFont(option.font)
             editor.setContentsMargins(0, 0, 0, 0)
             editor.setStyleSheet("padding: 0px; margin: 0px;")
+            editor.setValidator(
+                QRegularExpressionValidator(QRegularExpression(r"[0-9]*"), editor)
+            )
+
+            model = index.model()
+            row = index.row()
+            col = index.column()
+
+            def _push_live_value(text, m=model, r=row, c=col):
+                idx = m.index(r, c)
+                if not idx.isValid():
+                    return
+                current = str(m.data(idx, Qt.ItemDataRole.EditRole) or "")
+                if current != text:
+                    m.setData(idx, text, Qt.ItemDataRole.EditRole)
+
+            editor.textChanged.connect(_push_live_value)
             QTimer.singleShot(0, editor.selectAll)
         return editor
 
@@ -68,6 +89,7 @@ def init_calculator_tab(app):
     app.btn_dep_refresh.setToolTip(
         t.get("dep_refresh_tip", "Обновить депозит с биржи")
     )
+    app.btn_dep_refresh.setVisible(bool(app.settings.get("auto_dep_enabled", False)))
     app.btn_dep_refresh.clicked.connect(app.manual_refresh_deposit)
     app.btn_dep_refresh.setStyleSheet(
         "QPushButton { background: #1F1F1F; color: #8CB4FF; border: 1px solid #2D2D2D; border-radius: 4px; font-weight: bold; }"
@@ -426,7 +448,7 @@ def init_calculator_tab(app):
         }
         """
     )
-    app.cells_table.setItemDelegateForColumn(2, PercentItemDelegate(app.cells_table))
+    app.cells_table.setItemDelegateForColumn(2, PercentItemDelegate(app, app.cells_table))
     # Устанавливаем пропорции колонок (30%, 35%, 35%)
     app.cells_table.horizontalHeader().setSectionResizeMode(
         0, app.cells_table.horizontalHeader().ResizeMode.Stretch
