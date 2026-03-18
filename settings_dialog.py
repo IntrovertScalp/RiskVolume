@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QFrame,
     QMessageBox,
+    QScrollArea,
 )
 from translations import TRANS  # Импортируем наш новый файл
 from PyQt6.QtCore import Qt, QPoint, QRegularExpression, QRect
@@ -26,6 +27,7 @@ from PyQt6.QtGui import (
     QColor,
     QFont,
     QIntValidator,
+    QPixmap,
 )
 
 
@@ -144,6 +146,11 @@ class HotkeyEdit(QLineEdit):
 
         if key_name:
             self.setText("+".join(mods + [key_name]) if mods else key_name)
+
+
+class NoWheelComboBox(QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
 
 
 class SettingsDialog(QDialog):
@@ -281,7 +288,8 @@ class SettingsDialog(QDialog):
         """
         )
 
-        self.setMinimumWidth(430)
+        self.setMinimumWidth(390)
+        self.resize(400, 560)
 
         layout = QVBoxLayout(self)
 
@@ -391,6 +399,75 @@ class SettingsDialog(QDialog):
         self.lbl_fee_maker = QLabel(t["fee_maker"])
         self.lbl_fee_taker = QLabel(t["fee_taker"])
 
+        # Авто-депозит через API
+        self.chk_auto_deposit = CustomCheckBox()
+        self.chk_auto_deposit.setChecked(
+            bool(parent.settings.get("auto_dep_enabled", False))
+        )
+        self.chk_auto_deposit.stateChanged.connect(self._toggle_auto_deposit_fields)
+
+        self.cb_auto_dep_exchange = NoWheelComboBox()
+        self.cb_auto_dep_exchange.setObjectName("LangCombo")
+        self._auto_dep_exchange_values = [
+            "binance",
+            "bybit",
+            "okx",
+            "gate",
+            "bitget",
+            "mexc",
+            "kucoin",
+        ]
+        self.cb_auto_dep_exchange.addItems(
+            ["Binance", "Bybit", "OKX", "Gate", "Bitget", "MEXC", "Kucoin"]
+        )
+        self._auto_dep_credentials = self._normalize_auto_dep_credentials(
+            parent.settings
+        )
+        saved_exchange = str(parent.settings.get("auto_dep_exchange", "binance"))
+        try:
+            self.cb_auto_dep_exchange.setCurrentIndex(
+                self._auto_dep_exchange_values.index(saved_exchange)
+            )
+        except Exception:
+            self.cb_auto_dep_exchange.setCurrentIndex(0)
+        self._active_auto_dep_exchange = self._auto_dep_exchange_values[
+            self.cb_auto_dep_exchange.currentIndex()
+        ]
+        self.cb_auto_dep_exchange.currentIndexChanged.connect(
+            self._on_auto_dep_exchange_changed
+        )
+
+        self.cb_auto_dep_market = NoWheelComboBox()
+        self.cb_auto_dep_market.setObjectName("LangCombo")
+        self.cb_auto_dep_market.addItems(
+            [t["auto_dep_market_futures"], t["auto_dep_market_spot"]]
+        )
+        saved_market = str(parent.settings.get("auto_dep_market", "futures")).lower()
+        self.cb_auto_dep_market.setCurrentIndex(1 if saved_market == "spot" else 0)
+
+        self.inp_auto_dep_asset = QLineEdit(
+            str(parent.settings.get("auto_dep_asset", "USDT"))
+        )
+        self.inp_auto_dep_asset.setObjectName("FeeInput")
+
+        self.inp_auto_dep_api_key = QLineEdit(
+            str(parent.settings.get("auto_dep_api_key", ""))
+        )
+        self.inp_auto_dep_api_key.setObjectName("FeeInput")
+
+        self.inp_auto_dep_api_secret = QLineEdit(
+            str(parent.settings.get("auto_dep_api_secret", ""))
+        )
+        self.inp_auto_dep_api_secret.setObjectName("FeeInput")
+        self.inp_auto_dep_api_secret.setEchoMode(QLineEdit.EchoMode.Password)
+
+        self.inp_auto_dep_api_passphrase = QLineEdit(
+            str(parent.settings.get("auto_dep_api_passphrase", ""))
+        )
+        self.inp_auto_dep_api_passphrase.setObjectName("FeeInput")
+        self.inp_auto_dep_api_passphrase.setEchoMode(QLineEdit.EchoMode.Password)
+        self._load_auto_dep_credentials_for_exchange(self._active_auto_dep_exchange)
+
         # Настройки точности
         self.prec_dep = QLineEdit(str(parent.settings.get("prec_dep", 2)))
         self.prec_risk = QLineEdit(str(parent.settings.get("prec_risk", 2)))
@@ -462,6 +539,49 @@ class SettingsDialog(QDialog):
         row += 1
 
         # Разделитель
+        sep_auto = QFrame()
+        sep_auto.setObjectName("Separator")
+        sep_auto.setFrameShape(QFrame.Shape.HLine)
+        grid.addWidget(sep_auto, row, 0, 1, 2)
+        row += 1
+        grid.setRowMinimumHeight(row, 8)
+        row += 1
+
+        # === АВТО-ДЕПОЗИТ ===
+        lbl_auto_dep = QLabel(t["section_auto_deposit"])
+        lbl_auto_dep.setObjectName("SectionHeader")
+        grid.addWidget(lbl_auto_dep, row, 0, 1, 2)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_enabled"]), row, 0)
+        grid.addWidget(self.chk_auto_deposit, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_exchange"]), row, 0)
+        grid.addWidget(self.cb_auto_dep_exchange, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_market"]), row, 0)
+        grid.addWidget(self.cb_auto_dep_market, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_asset"]), row, 0)
+        grid.addWidget(self.inp_auto_dep_asset, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_api_key"]), row, 0)
+        grid.addWidget(self.inp_auto_dep_api_key, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_api_secret"]), row, 0)
+        grid.addWidget(self.inp_auto_dep_api_secret, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel(t["auto_dep_api_passphrase"]), row, 0)
+        grid.addWidget(self.inp_auto_dep_api_passphrase, row, 1)
+        row += 1
+
+        # Разделитель
         sep2 = QFrame()
         sep2.setObjectName("Separator")
         sep2.setFrameShape(QFrame.Shape.HLine)
@@ -489,7 +609,25 @@ class SettingsDialog(QDialog):
         grid.addWidget(self.prec_lev, row, 1)
         # --- КОНЕЦ ЗАМЕНЫ БЛОКА GRID ---
 
-        layout.addLayout(grid)
+        grid_container = QWidget()
+        grid_container.setStyleSheet("background: transparent;")
+        grid_container.setLayout(grid)
+
+        grid_scroll = QScrollArea()
+        grid_scroll.setWidgetResizable(True)
+        grid_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        grid_scroll.setWidget(grid_container)
+        grid_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        grid_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        grid_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollArea > QWidget > QWidget { background: transparent; }"
+            "QScrollBar:vertical { background: #1A1A1A; width: 8px; border: none; }"
+            "QScrollBar::handle:vertical { background: #3A3A3A; min-height: 24px; border-radius: 4px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: #1A1A1A; }"
+        )
+        layout.addWidget(grid_scroll, 1)
 
         # --- КНОПКИ ---
         btns = QHBoxLayout()
@@ -504,6 +642,7 @@ class SettingsDialog(QDialog):
 
         # Применяем начальное состояние полей комиссии
         self.toggle_fee_fields()
+        self._toggle_auto_deposit_fields()
 
         # Верхняя большая кнопка закрытия (правый верхний угол). Не добавляем в layout.
         self.top_close_btn = QPushButton("✕", self)
@@ -550,6 +689,70 @@ class SettingsDialog(QDialog):
         self.lbl_fee_taker.setVisible(is_checked)
         self.inp_fee_taker.setVisible(is_checked)
 
+    def _toggle_auto_deposit_fields(self, *_):
+        is_checked = self.chk_auto_deposit.isChecked()
+        for widget in (
+            self.cb_auto_dep_exchange,
+            self.cb_auto_dep_market,
+            self.inp_auto_dep_asset,
+            self.inp_auto_dep_api_key,
+            self.inp_auto_dep_api_secret,
+            self.inp_auto_dep_api_passphrase,
+        ):
+            widget.setEnabled(is_checked)
+
+    def _normalize_auto_dep_credentials(self, settings):
+        raw = settings.get("auto_dep_credentials", {})
+        if not isinstance(raw, dict):
+            raw = {}
+
+        result = {}
+        for exchange_id in self._auto_dep_exchange_values:
+            source = raw.get(exchange_id, {})
+            if not isinstance(source, dict):
+                source = {}
+            result[exchange_id] = {
+                "api_key": str(source.get("api_key", "") or ""),
+                "api_secret": str(source.get("api_secret", "") or ""),
+                "api_passphrase": str(source.get("api_passphrase", "") or ""),
+            }
+
+        # Миграция старых общих ключей в Binance.
+        if not any(result["binance"].values()):
+            result["binance"] = {
+                "api_key": str(settings.get("auto_dep_api_key", "") or ""),
+                "api_secret": str(settings.get("auto_dep_api_secret", "") or ""),
+                "api_passphrase": str(
+                    settings.get("auto_dep_api_passphrase", "") or ""
+                ),
+            }
+
+        return result
+
+    def _store_current_auto_dep_credentials(self):
+        exchange_id = self._active_auto_dep_exchange
+        self._auto_dep_credentials[exchange_id] = {
+            "api_key": self.inp_auto_dep_api_key.text().strip(),
+            "api_secret": self.inp_auto_dep_api_secret.text().strip(),
+            "api_passphrase": self.inp_auto_dep_api_passphrase.text().strip(),
+        }
+
+    def _load_auto_dep_credentials_for_exchange(self, exchange_id):
+        creds = self._auto_dep_credentials.get(exchange_id, {})
+        self.inp_auto_dep_api_key.setText(str(creds.get("api_key", "") or ""))
+        self.inp_auto_dep_api_secret.setText(str(creds.get("api_secret", "") or ""))
+        self.inp_auto_dep_api_passphrase.setText(
+            str(creds.get("api_passphrase", "") or "")
+        )
+
+    def _on_auto_dep_exchange_changed(self, *_):
+        self._store_current_auto_dep_credentials()
+        new_exchange = self._auto_dep_exchange_values[
+            self.cb_auto_dep_exchange.currentIndex()
+        ]
+        self._active_auto_dep_exchange = new_exchange
+        self._load_auto_dep_credentials_for_exchange(new_exchange)
+
     def _preview_fee_change(self):
         if not self.parent_window:
             return
@@ -595,6 +798,7 @@ class SettingsDialog(QDialog):
         return num
 
     def save_and_close(self):
+        self._store_current_auto_dep_credentials()
         try:
             fee_taker = float(self.inp_fee_taker.text().replace(",", "."))
         except:
@@ -617,6 +821,10 @@ class SettingsDialog(QDialog):
         self.prec_risk.setText(str(prec_risk))
         self.prec_fee.setText(str(prec_fee))
         self.prec_lev.setText(str(prec_lev))
+        selected_exchange = self._auto_dep_exchange_values[
+            self.cb_auto_dep_exchange.currentIndex()
+        ]
+        selected_creds = self._auto_dep_credentials.get(selected_exchange, {})
         self.parent_window.settings.update(
             {
                 "scale": self.scale_actual[self.cb_scale.currentIndex()],
@@ -627,6 +835,18 @@ class SettingsDialog(QDialog):
                 "fee_taker": fee_taker,
                 "fee_maker": fee_maker,
                 "fee_percent": fee_val,
+                "auto_dep_enabled": self.chk_auto_deposit.isChecked(),
+                "auto_dep_exchange": selected_exchange,
+                "auto_dep_market": (
+                    "spot" if self.cb_auto_dep_market.currentIndex() == 1 else "futures"
+                ),
+                "auto_dep_asset": (self.inp_auto_dep_asset.text() or "USDT").strip().upper(),
+                "auto_dep_api_key": str(selected_creds.get("api_key", "") or ""),
+                "auto_dep_api_secret": str(selected_creds.get("api_secret", "") or ""),
+                "auto_dep_api_passphrase": str(
+                    selected_creds.get("api_passphrase", "") or ""
+                ),
+                "auto_dep_credentials": self._auto_dep_credentials,
                 "prec_dep": prec_dep,
                 "prec_risk": prec_risk,
                 "prec_fee": prec_fee,
@@ -640,6 +860,8 @@ class SettingsDialog(QDialog):
         self.parent_window.refresh_labels()
         self.parent_window.apply_styles()
         self.parent_window.rebind_hotkeys()
+        if hasattr(self.parent_window, "_apply_auto_deposit_sync"):
+            self.parent_window._apply_auto_deposit_sync(force_now=True)
         self.parent_window.update_calc()
         self.accept()
 

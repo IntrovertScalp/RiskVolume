@@ -56,7 +56,35 @@ def init_calculator_tab(app):
     app.inp_dep.textChanged.connect(app.schedule_update_calc)
     app.inp_dep.returnPressed.connect(app._commit_input)
     app.inp_dep.installEventFilter(app)
-    main_layout.addWidget(app.inp_dep)
+
+    dep_row = QHBoxLayout()
+    dep_row.setSpacing(4)
+    dep_row.addWidget(app.inp_dep, 1)
+
+    app.btn_dep_refresh = QPushButton(t.get("dep_refresh", "↻"))
+    app.btn_dep_refresh.setFixedSize(24, 24)
+    app.btn_dep_refresh.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    app.btn_dep_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+    app.btn_dep_refresh.setToolTip(
+        t.get("dep_refresh_tip", "Обновить депозит с биржи")
+    )
+    app.btn_dep_refresh.clicked.connect(app.manual_refresh_deposit)
+    app.btn_dep_refresh.setStyleSheet(
+        "QPushButton { background: #1F1F1F; color: #8CB4FF; border: 1px solid #2D2D2D; border-radius: 4px; font-weight: bold; }"
+        "QPushButton:hover { background: #2A2A2A; border: 1px solid #3E6FB8; }"
+        "QPushButton:pressed { background: #183A6D; }"
+    )
+    dep_row.addWidget(app.btn_dep_refresh, 0)
+
+    app.lbl_dep_api_status = QLabel(t.get("dep_api_status_off", "API: выкл"))
+    app.lbl_dep_api_status.setStyleSheet("color: #666; font-size: 8pt;")
+    app.lbl_dep_api_status.setAlignment(
+        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+    )
+    app.lbl_dep_api_status.setMinimumWidth(74)
+    dep_row.addWidget(app.lbl_dep_api_status, 0)
+
+    main_layout.addLayout(dep_row)
 
     app.lbl_hint = QLabel("0")
     app.lbl_hint.setStyleSheet("color: #666; font-size: 8pt;")

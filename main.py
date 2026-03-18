@@ -1,4 +1,4 @@
-﻿import sys, json, os, ctypes, time, threading, keyboard, pyautogui, pyperclip
+﻿import sys, json, os, ctypes, time, threading, importlib, keyboard, pyautogui, pyperclip
 import config
 from PyQt6.QtWidgets import (
     QApplication,
@@ -109,6 +109,10 @@ class HotkeySignaler(QObject):
     apply_sig = pyqtSignal()  # Новый сигнал для применения
 
 
+class AutoDepositSignaler(QObject):
+    fetch_finished = pyqtSignal(object, object)
+
+
 class CellsLabelDarkDelegate(QStyledItemDelegate):
     def __init__(self, app, parent=None):
         super().__init__(parent)
@@ -160,6 +164,8 @@ class RiskVolumeApp(QMainWindow):
         self.signaler.apply_sig.connect(
             self.handle_hotkey_apply
         )  # Единая точка входа для горячей клавиши
+        self._auto_dep_signaler = AutoDepositSignaler()
+        self._auto_dep_signaler.fetch_finished.connect(self._on_auto_dep_fetch_finished)
 
         self.old_pos = None
         self.current_vol = 0.0
@@ -189,6 +195,13 @@ class RiskVolumeApp(QMainWindow):
         self._hotkey_keepalive_timer = QTimer(self)
         self._hotkey_keepalive_timer.timeout.connect(self._keepalive_hotkeys)
         self._hotkey_keepalive_timer.start(5 * 60 * 1000)  # каждые 5 минут
+
+        # Периодическая синхронизация депозита через API (если включено)
+        self._auto_dep_sync_busy = False
+        self._auto_dep_timer = QTimer(self)
+        self._auto_dep_timer.setSingleShot(False)
+        self._auto_dep_timer.timeout.connect(self._sync_deposit_from_exchange)
+        self._apply_auto_deposit_sync(force_now=True)
 
         # Сохраняем настройки при закрытии приложения любым способом
         app = QApplication.instance()
@@ -273,6 +286,14 @@ class RiskVolumeApp(QMainWindow):
             "pos_table_volume_override": 0.0,
             "selected_cells": [0],
             "minimize_after_apply": True,
+            "auto_dep_enabled": False,
+            "auto_dep_exchange": "binance",
+            "auto_dep_market": "futures",
+            "auto_dep_asset": "USDT",
+            "auto_dep_api_key": "",
+            "auto_dep_api_secret": "",
+            "auto_dep_api_passphrase": "",
+            "auto_dep_credentials": {},
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -301,6 +322,35 @@ class RiskVolumeApp(QMainWindow):
             )
             self.save_settings()
 
+        # Миграция к хранению API-ключей по биржам.
+        creds_map = self.settings.get("auto_dep_credentials", {})
+        if not isinstance(creds_map, dict):
+            creds_map = {}
+        migrated = False
+        if "binance" not in creds_map or not isinstance(creds_map.get("binance"), dict):
+            creds_map["binance"] = {}
+            migrated = True
+        binance = creds_map.get("binance", {})
+        if not binance.get("api_key") and self.settings.get("auto_dep_api_key"):
+            binance["api_key"] = str(self.settings.get("auto_dep_api_key", "") or "")
+            migrated = True
+        if not binance.get("api_secret") and self.settings.get("auto_dep_api_secret"):
+            binance["api_secret"] = str(
+                self.settings.get("auto_dep_api_secret", "") or ""
+            )
+            migrated = True
+        if not binance.get("api_passphrase") and self.settings.get(
+            "auto_dep_api_passphrase"
+        ):
+            binance["api_passphrase"] = str(
+                self.settings.get("auto_dep_api_passphrase", "") or ""
+            )
+            migrated = True
+        creds_map["binance"] = binance
+        self.settings["auto_dep_credentials"] = creds_map
+        if migrated:
+            self.save_settings()
+
         # Корректируем масштаб если он выходит за разумные пределы
         scale = self.settings.get("scale", self.base_scale)
         if scale < 130 or scale > 200:
@@ -327,8 +377,217 @@ class RiskVolumeApp(QMainWindow):
             # Настройки уже применяются внутри save_and_close() диалога.
             # Здесь только мягко синхронизируем расчеты/таблицу.
             self.schedule_update_calc()
+            self._apply_auto_deposit_sync(force_now=True)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+
+    def _apply_auto_deposit_sync(self, force_now=False):
+        if not hasattr(self, "_auto_dep_timer"):
+            return
+
+        enabled = bool(self.settings.get("auto_dep_enabled", False))
+        if enabled:
+            # Интервал до 1 минуты: достаточно оперативно и без лишней нагрузки.
+            self._auto_dep_timer.start(45 * 1000)
+            self._set_auto_dep_status("loading")
+            if force_now:
+                QTimer.singleShot(100, self._sync_deposit_from_exchange)
+        else:
+            self._auto_dep_timer.stop()
+            self._set_auto_dep_status("off")
+
+    def _set_auto_dep_status(self, state, message=None):
+        if not hasattr(self, "lbl_dep_api_status"):
+            return
+
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        if state == "ok":
+            text = t.get("dep_api_status_ok", "API: OK")
+            style = "color: #38BE1D; font-size: 8pt;"
+        elif state == "loading":
+            text = t.get("dep_api_status_loading", "API: обновление...")
+            style = "color: #8CB4FF; font-size: 8pt;"
+        elif state == "error":
+            text = t.get("dep_api_status_error", "API: ошибка")
+            style = "color: #FF6B6B; font-size: 8pt;"
+        else:
+            text = t.get("dep_api_status_off", "API: выкл")
+            style = "color: #666; font-size: 8pt;"
+
+        self.lbl_dep_api_status.setText(text)
+        self.lbl_dep_api_status.setStyleSheet(style)
+        if message:
+            self.lbl_dep_api_status.setToolTip(str(message))
+        else:
+            self.lbl_dep_api_status.setToolTip("")
+
+    def manual_refresh_deposit(self):
+        self._sync_deposit_from_exchange(manual=True)
+
+    def _get_auto_dep_credentials(self, exchange_id):
+        creds_map = self.settings.get("auto_dep_credentials", {})
+        if not isinstance(creds_map, dict):
+            creds_map = {}
+
+        ex_creds = creds_map.get(exchange_id, {})
+        if not isinstance(ex_creds, dict):
+            ex_creds = {}
+
+        api_key = str(ex_creds.get("api_key", "") or "").strip()
+        api_secret = str(ex_creds.get("api_secret", "") or "").strip()
+        api_passphrase = str(ex_creds.get("api_passphrase", "") or "").strip()
+
+        # Совместимость со старыми настройками только для Binance.
+        if exchange_id == "binance":
+            if not api_key:
+                api_key = str(self.settings.get("auto_dep_api_key", "") or "").strip()
+            if not api_secret:
+                api_secret = str(self.settings.get("auto_dep_api_secret", "") or "").strip()
+            if not api_passphrase:
+                api_passphrase = str(
+                    self.settings.get("auto_dep_api_passphrase", "") or ""
+                ).strip()
+
+        return api_key, api_secret, api_passphrase
+
+    def _run_auto_dep_fetch(self, exchange_id, api_key, api_secret, market_type, asset, passphrase):
+        try:
+            balance = self._fetch_exchange_balance(
+                exchange_id,
+                api_key,
+                api_secret,
+                market_type,
+                asset,
+                passphrase,
+            )
+            self._auto_dep_signaler.fetch_finished.emit(balance, None)
+        except Exception as exc:
+            self._auto_dep_signaler.fetch_finished.emit(None, str(exc))
+
+    def _on_auto_dep_fetch_finished(self, balance, error_message):
+        try:
+            if error_message:
+                self._set_auto_dep_status("error", error_message)
+                return
+
+            if balance is None:
+                self._set_auto_dep_status("error", "No balance value")
+                return
+
+            if hasattr(self, "inp_dep") and self.inp_dep is not None:
+                new_text = self._format_deposit_input_value(balance)
+                if (self.inp_dep.text() or "").strip() != new_text:
+                    self.inp_dep.setText(new_text)
+            self._set_auto_dep_status("ok")
+        finally:
+            self._auto_dep_sync_busy = False
+
+    def _format_deposit_input_value(self, value):
+        try:
+            num = float(value)
+        except Exception:
+            num = 0.0
+
+        # Максимум 2 знака после запятой для автозаполнения.
+        text = f"{num:.2f}".rstrip("0").rstrip(".")
+        if not text:
+            text = "0"
+        return text.replace(".", ",")
+
+    def _fetch_exchange_balance(
+        self,
+        exchange_id,
+        api_key,
+        api_secret,
+        market_type,
+        asset,
+        passphrase="",
+    ):
+        try:
+            ccxt = importlib.import_module("ccxt")
+        except Exception as exc:
+            raise RuntimeError("ccxt module is not installed") from exc
+
+        ex_class = getattr(ccxt, exchange_id, None)
+        if ex_class is None:
+            raise RuntimeError(f"Unsupported exchange: {exchange_id}")
+
+        options = {}
+        if market_type == "futures":
+            default_map = {
+                "binance": "future",
+                "bybit": "swap",
+                "okx": "swap",
+                "gate": "swap",
+                "bitget": "swap",
+                "mexc": "swap",
+                "kucoin": "swap",
+            }
+            options["defaultType"] = default_map.get(exchange_id, "swap")
+
+        params = {
+            "apiKey": api_key,
+            "secret": api_secret,
+            "enableRateLimit": True,
+            "timeout": 4000,
+            "options": options,
+        }
+        if passphrase:
+            params["password"] = passphrase
+
+        exchange = ex_class(params)
+        exchange.load_markets()
+        balance = exchange.fetch_balance()
+
+        total = balance.get("total", {}) if isinstance(balance, dict) else {}
+        free = balance.get("free", {}) if isinstance(balance, dict) else {}
+        used = balance.get("used", {}) if isinstance(balance, dict) else {}
+
+        if asset in total and total[asset] is not None:
+            return float(total[asset])
+
+        free_val = float(free.get(asset, 0.0) or 0.0)
+        used_val = float(used.get(asset, 0.0) or 0.0)
+        return free_val + used_val
+
+    def _sync_deposit_from_exchange(self, manual=False):
+        if self._auto_dep_sync_busy:
+            return
+        if not bool(self.settings.get("auto_dep_enabled", False)) and not manual:
+            return
+        if not hasattr(self, "inp_dep") or self.inp_dep is None:
+            return
+        if self.inp_dep.hasFocus() and not manual:
+            return
+
+        exchange_id = str(
+            self.settings.get("auto_dep_exchange", "binance") or "binance"
+        ).strip().lower()
+        api_key, api_secret, api_passphrase = self._get_auto_dep_credentials(exchange_id)
+        market_type = str(
+            self.settings.get("auto_dep_market", "futures") or "futures"
+        ).lower()
+        asset = str(self.settings.get("auto_dep_asset", "USDT") or "USDT").strip().upper()
+
+        if not api_key or not api_secret:
+            self._set_auto_dep_status("error", "Empty API key/secret")
+            return
+
+        self._auto_dep_sync_busy = True
+        self._set_auto_dep_status("loading")
+        worker = threading.Thread(
+            target=self._run_auto_dep_fetch,
+            args=(
+                exchange_id,
+                api_key,
+                api_secret,
+                market_type,
+                asset,
+                api_passphrase,
+            ),
+            daemon=True,
+        )
+        worker.start()
 
     def init_ui(self):
         self.central_widget = QWidget()
@@ -562,6 +821,11 @@ class RiskVolumeApp(QMainWindow):
             self.update_cells_labels()
         if hasattr(self, "btn_submit"):
             self.btn_submit.setText(t["calc_apply"])
+        if hasattr(self, "btn_dep_refresh"):
+            self.btn_dep_refresh.setText(t.get("dep_refresh", "↻"))
+            self.btn_dep_refresh.setToolTip(
+                t.get("dep_refresh_tip", "Обновить депозит с биржи")
+            )
         self.update_position_adjustment_info()
         self.update_calibration_status()
 

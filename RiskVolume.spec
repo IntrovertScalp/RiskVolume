@@ -22,6 +22,7 @@ a = Analysis(
         'pymsgbox',
         'pytweening',
         'pyrect',
+        'ccxt',
     ],
     hookspath=[],
     hooksconfig={},
