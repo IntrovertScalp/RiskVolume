@@ -18,6 +18,10 @@
 
 
 
+https://github.com/user-attachments/assets/444e4ff5-3474-4b78-8da7-32e24b981f3f
+
+
+
 
 ## Типы каскадов 🧩
 - **Равномерно**: равные ордера
