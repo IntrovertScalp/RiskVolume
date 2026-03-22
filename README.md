@@ -17,12 +17,6 @@
 <img width="671" height="929" alt="image" src="https://github.com/user-attachments/assets/98b21d9b-7c42-44af-9209-4e106a6fed98" />
 
 
-
-https://github.com/user-attachments/assets/444e4ff5-3474-4b78-8da7-32e24b981f3f
-
-
-
-
 ## Типы каскадов 🧩
 - **Равномерно**: равные ордера
 - **Матрешка x1.2**: рост по множителю 1.2x
