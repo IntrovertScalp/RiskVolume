@@ -736,6 +736,7 @@ class SettingsDialog(QDialog):
         if event.type() == event.Type.KeyPress and event.key() in (
             Qt.Key.Key_Return,
             Qt.Key.Key_Enter,
+            Qt.Key.Key_Escape,
         ):
             if isinstance(obj, (QLineEdit, QAbstractSpinBox)) and not isinstance(
                 obj, HotkeyEdit

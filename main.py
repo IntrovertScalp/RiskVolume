@@ -2007,7 +2007,6 @@ class RiskVolumeApp(QMainWindow):
             QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}
             QLineEdit:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QLineEdit:focus {{ border: 1px solid #FFFFFF; }}
-            QLineEdit[ghostFocus="true"] {{ border: 1px solid #FFFFFF; }}
             QLabel {{ color: #888; border: none; font-size: {max(6, f_main-2)}pt; }}
             QPushButton#HeadBtn {{ color: #555; border: none; background: transparent; font-size: {f_main}pt; font-weight: bold; }}
             QPushButton#HeadBtn:hover {{ color: #38BE1D; }}
@@ -2761,7 +2760,7 @@ class RiskVolumeApp(QMainWindow):
             self.setFixedSize(self.sizeHint())
 
     def on_table_item_clicked(self, item):
-        """Обработчик клика по ячейке: toggle-мультивыбор в колонке 0"""
+        """Обработчик клика по ячейке: toggle-мультивыбор в колонке 0, редактирование в колонке 2"""
         self._clear_ghost_focus()
         if not item:
             return
@@ -2796,6 +2795,45 @@ class RiskVolumeApp(QMainWindow):
         elif item.column() == 1:
             self.cells_table.clearSelection()
             self.cells_table.setCurrentItem(None)
+        elif item.column() == 2:
+            # Percent column: 1-click to edit, 2-click to select all
+            now_ms = int(time.time() * 1000)
+            last_ms = (item.data(Qt.ItemDataRole.UserRole + 1) or 0)
+            click_count = (item.data(Qt.ItemDataRole.UserRole + 2) or 0)
+
+            # Reset click_count if more than 350ms have passed since last click
+            if now_ms - last_ms > 350 or last_ms == 0:
+                click_count = 0
+
+            # Reset click_count for all other items to avoid interference
+            for row in range(self.cells_table.rowCount()):
+                for col in range(self.cells_table.columnCount()):
+                    other_item = self.cells_table.item(row, col)
+                    if other_item is not item:
+                        other_item.setData(Qt.ItemDataRole.UserRole + 2, 0)
+                        other_item.setData(Qt.ItemDataRole.UserRole + 1, 0)
+
+            click_count += 1
+            item.setData(Qt.ItemDataRole.UserRole + 1, now_ms)
+            item.setData(Qt.ItemDataRole.UserRole + 2, click_count)
+
+            if click_count == 1:
+                # First click: start editing
+                self.cells_table.editItem(item)
+            elif click_count == 2:
+                # Second click: get editor and select all
+                editor = self.cells_table.itemWidget(item.row(), item.column())
+                if not editor or not isinstance(editor, QLineEdit):
+                    # If no editor yet, try editItem then selectAll
+                    self.cells_table.editItem(item)
+                    QTimer.singleShot(0, lambda: (
+                        self.cells_table.itemWidget(item.row(), item.column()).selectAll()
+                        if isinstance(self.cells_table.itemWidget(item.row(), item.column()), QLineEdit)
+                        else None
+                    ))
+                else:
+                    editor.selectAll()
+
 
     def on_table_item_changed(self, item):
         """Вызывается когда изменяется ячейка таблицы"""
@@ -3058,15 +3096,9 @@ class RiskVolumeApp(QMainWindow):
             sender.clearFocus()
 
     def _clear_ghost_focus(self, except_obj=None):
-        ghost = self._ghost_input
-        if ghost and ghost is not except_obj:
-            ghost.setProperty("ghostFocus", "false")
-            ghost.style().polish(ghost)
-            ghost.update()
-            ghost.setProperty("click_count", 0)
-            ghost.setProperty("last_click_ms", 0)
-            ghost.setProperty("await_third_click", False)
-            self._ghost_input = None
+        """Очищает свойства фокуса (ghost focus больше не используется, оставлено для совместимости)"""
+        self._ghost_input = None
+
 
     def save_cell_settings(self):
         """Сохраняет настройки ячеек"""
@@ -3165,65 +3197,44 @@ class RiskVolumeApp(QMainWindow):
                 now_ms = int(time.time() * 1000)
                 last_ms = obj.property("last_click_ms") or 0
                 click_count = obj.property("click_count") or 0
-                await_third = obj.property("await_third_click") or False
 
-                if await_third and now_ms - last_ms <= 650:
-                    obj.setProperty("await_third_click", False)
-                    obj.setProperty("click_count", 0)
-                    self._clear_ghost_focus()
+                # Count clicks: if within 350ms, increment; otherwise reset to 1
+                if now_ms - last_ms <= 350:
+                    click_count += 1
+                else:
+                    click_count = 1
+
+                obj.setProperty("last_click_ms", now_ms)
+                obj.setProperty("click_count", click_count)
+
+                if click_count == 1:
+                    # First click: focus + cursor at end, NO select
                     obj.setFocus()
                     obj.deselect()
                     QTimer.singleShot(
                         0, lambda o=obj: o.setCursorPosition(len(o.text()))
                     )
                     return True
-
-                if now_ms - last_ms <= 450:
-                    click_count += 1
-                else:
-                    click_count = 1
-                obj.setProperty("last_click_ms", now_ms)
-                obj.setProperty("click_count", click_count)
-
-                if click_count == 1 and not obj.hasFocus():
-                    self._clear_ghost_focus()
-                    obj.setProperty("ghostFocus", "true")
-                    self._ghost_input = obj
-                    obj.style().polish(obj)
-                    obj.update()
-                    QTimer.singleShot(0, obj.clearFocus)
-                    return True
-                if click_count == 1 and obj.hasFocus():
-                    self._clear_ghost_focus()
-                    obj.setProperty("ghostFocus", "true")
-                    self._ghost_input = obj
-                    obj.style().polish(obj)
-                    obj.update()
-                    QTimer.singleShot(0, lambda: (obj.clearFocus(), obj.deselect()))
-                    return True
-                if click_count == 2:
-                    self._clear_ghost_focus()
-                    obj.setProperty("await_third_click", True)
-                    obj.setProperty("last_click_ms", now_ms)
+                elif click_count == 2:
+                    # Second click: select all
                     obj.setFocus()
                     QTimer.singleShot(0, obj.selectAll)
                     return True
             elif event.type() == event.Type.MouseButtonDblClick:
-                self._clear_ghost_focus()
-                obj.setProperty("await_third_click", True)
-                obj.setProperty("last_click_ms", int(time.time() * 1000))
-                obj.setProperty("click_count", 2)
+                # Double-click: select all
                 obj.setFocus()
                 QTimer.singleShot(0, obj.selectAll)
+                return True
             elif event.type() == event.Type.KeyPress:
                 if event.key() in (
                     Qt.Key.Key_Escape,
                     Qt.Key.Key_Return,
                     Qt.Key.Key_Enter,
                 ):
-                    self._clear_ghost_focus()
                     obj.deselect()
                     obj.clearFocus()
+                    obj.setProperty("click_count", 0)
+                    obj.setProperty("last_click_ms", 0)
                     return True
         if event.type() == event.Type.WindowDeactivate:
             self._clear_ghost_focus()

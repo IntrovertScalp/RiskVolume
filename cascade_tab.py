@@ -20,6 +20,8 @@ from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QSizePolicy,
     QCheckBox,
+    QStyledItemDelegate,
+    QAbstractItemView,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QRegularExpression
 from PyQt6.QtGui import (
@@ -32,6 +34,28 @@ from PyQt6.QtGui import (
     QIcon,
 )
 from translations import TRANS
+
+
+class CascadeTableItemDelegate(QStyledItemDelegate):
+    """Делегат для редактирования ячеек таблицы каскадов с центрированным текстом"""
+    def createEditor(self, parent, option, index):
+        editor = super().createEditor(parent, option, index)
+        if isinstance(editor, QLineEdit):
+            editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            editor.setFrame(False)
+            editor.setFont(option.font)
+            editor.setContentsMargins(0, 0, 0, 0)
+            editor.setStyleSheet("padding: 0px; margin: 0px;")
+            # Add validator for digits only
+            editor.setValidator(
+                QRegularExpressionValidator(QRegularExpression(r"[0-9]*[.,]?[0-9]*"), editor)
+            )
+            # Place cursor at end without selecting (1-click behavior)
+            QTimer.singleShot(0, lambda e=editor: (e.deselect(), e.setCursorPosition(len(e.text()))))
+        return editor
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
 
 
 class CascadeWorker(QThread):
@@ -431,8 +455,23 @@ class CascadeTab(QWidget):
         left_btn.setObjectName("SpinStepBtn")
         right_btn.setObjectName("SpinStepBtn")
 
-        left_btn.clicked.connect(spinbox.stepDown)
-        right_btn.clicked.connect(spinbox.stepUp)
+        # Helper function to step without selecting text
+        def step_without_select(func):
+            def wrapper():
+                # For QSpinBox/QDoubleSpinBox, get lineEdit and deselect it
+                if hasattr(spinbox, 'lineEdit'):
+                    line_edit = spinbox.lineEdit()
+                    if line_edit:
+                        line_edit.deselect()
+                func()
+                if hasattr(spinbox, 'lineEdit'):
+                    line_edit = spinbox.lineEdit()
+                    if line_edit:
+                        line_edit.deselect()
+            return wrapper
+
+        left_btn.clicked.connect(step_without_select(spinbox.stepDown))
+        right_btn.clicked.connect(step_without_select(spinbox.stepUp))
 
         wrap_layout.addWidget(left_btn)
         wrap_layout.addWidget(spinbox)
@@ -831,26 +870,33 @@ class CascadeTab(QWidget):
         self.table.setMinimumHeight(120)
         # Базовый стиль таблицы (точные размеры выставятся в apply_scale)
         self.table.setStyleSheet(
-            "QTableWidget { background: #141414; color: #D0D0D0; alternate-background-color: #141414; gridline-color: #2A2A2A; }"
+            "QTableWidget { background: #141414; color: #D0D0D0; alternate-background-color: #141414; gridline-color: #191919; }"
             "QTableWidget::item { background: #141414; color: #D0D0D0; font-size: 6pt; padding: 0px 2px; }"
-            "QTableWidget::item:focus { outline: none; border: none; }"
+            "QTableWidget::item:focus { outline: none; border: none; background: #141414; }"
+            "QLineEdit { background: #141414 !important; color: white; border: 1px solid #191919 !important; border-radius: 2px; padding: 0px; font-size: 6pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }"
             "QHeaderView { background: #141414; }"
-            "QHeaderView::section:horizontal { background: #1A1A1A; color: #A0A0A0; border: 1px solid #2A2A2A; font-size: 8pt; padding: 2px; }"
-            "QHeaderView::section:vertical { background: #141414; color: #707070; border: 1px solid #2A2A2A; font-size: 8pt; padding: 2px; }"
-            "QTableCornerButton::section { background: #141414; border: 1px solid #2A2A2A; }"
+            "QHeaderView::section:horizontal { background: #1A1A1A; color: #A0A0A0; border: 1px solid #1F1F1F; font-size: 8pt; padding: 2px; }"
+            "QHeaderView::section:vertical { background: #141414; color: #707070; border: 1px solid #1F1F1F; font-size: 8pt; padding: 2px; }"
+            "QTableCornerButton::section { background: #141414; border: 1px solid #1F1F1F; }"
             "QTableWidget QScrollBar:vertical { background: #111111; width: 14px; margin: 0px; border: 1px solid #232323; }"
             "QTableWidget QScrollBar::handle:vertical { background: #3A3A3A; min-height: 24px; border-radius: 4px; border: 1px solid #4A4A4A; }"
             "QTableWidget QScrollBar::add-page:vertical, QTableWidget QScrollBar::sub-page:vertical { background: #111111; }"
-            "QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical { background: #1A1A1A; height: 14px; border: 1px solid #2A2A2A; }"
+            "QTableWidget QScrollBar::add-line:vertical, QTableWidget QScrollBar::sub-line:vertical { background: #1A1A1A; height: 14px; border: 1px solid #1F1F1F; }"
             "QTableWidget QScrollBar:horizontal { background: #111111; height: 14px; margin: 0px; border: 1px solid #232323; }"
             "QTableWidget QScrollBar::handle:horizontal { background: #3A3A3A; min-width: 24px; border-radius: 4px; border: 1px solid #4A4A4A; }"
             "QTableWidget QScrollBar::add-page:horizontal, QTableWidget QScrollBar::sub-page:horizontal { background: #111111; }"
-            "QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal { background: #1A1A1A; width: 14px; border: 1px solid #2A2A2A; }"
+            "QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal { background: #1A1A1A; width: 14px; border: 1px solid #1F1F1F; }"
             "selection-background-color: #38BE1D; selection-color: black;"
         )
+        # Set delegate for both columns and disable default edit triggers
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setItemDelegateForColumn(0, CascadeTableItemDelegate(self.table))
+        self.table.setItemDelegateForColumn(1, CascadeTableItemDelegate(self.table))
+        
         self.table.installEventFilter(self)
         self.table.viewport().installEventFilter(self)
         self.table.cellChanged.connect(self._on_table_cell_changed)
+        self.table.itemClicked.connect(self._on_cascade_table_item_clicked)
         layout.addWidget(self.table, 1)
 
         # --- БЛОК 4: Кнопка выставления ---
@@ -1249,6 +1295,49 @@ class CascadeTab(QWidget):
         self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
         self.main.save_settings()
         self.recalc_table()
+
+    def _on_cascade_table_item_clicked(self, item):
+        """Handle 1-click (edit) and 2-click (select all) for cascade table items"""
+        if not item:
+            return
+
+        now_ms = int(time.time() * 1000)
+        last_ms = (item.data(Qt.ItemDataRole.UserRole + 1) or 0)
+        click_count = (item.data(Qt.ItemDataRole.UserRole + 2) or 0)
+
+        # Reset click_count if more than 350ms have passed since last click
+        if now_ms - last_ms > 350 or last_ms == 0:
+            click_count = 0
+
+        # Reset click_count for all other items to avoid interference
+        for row in range(self.table.rowCount()):
+            for col in range(self.table.columnCount()):
+                other_item = self.table.item(row, col)
+                if other_item is not item:
+                    other_item.setData(Qt.ItemDataRole.UserRole + 2, 0)
+                    other_item.setData(Qt.ItemDataRole.UserRole + 1, 0)
+
+        click_count += 1
+        item.setData(Qt.ItemDataRole.UserRole + 1, now_ms)
+        item.setData(Qt.ItemDataRole.UserRole + 2, click_count)
+
+        if click_count == 1:
+            # First click: start editing
+            self.table.editItem(item)
+        elif click_count == 2:
+            # Second click: get editor and select all
+            editor = self.table.itemWidget(item.row(), item.column())
+            if not editor or not isinstance(editor, QLineEdit):
+                # If no editor yet, try editItem then selectAll with delay
+                self.table.editItem(item)
+                QTimer.singleShot(10, lambda r=item.row(), c=item.column(): (
+                    self.table.itemWidget(r, c).selectAll()
+                    if isinstance(self.table.itemWidget(r, c), QLineEdit)
+                    else None
+                ))
+            else:
+                # Already editing, select all with small delay to ensure it processes
+                QTimer.singleShot(10, editor.selectAll)
 
     def _on_table_cell_changed(self, row, column):
         if column != 1:

@@ -45,7 +45,8 @@ class PercentItemDelegate(QStyledItemDelegate):
                     m.setData(idx, text, Qt.ItemDataRole.EditRole)
 
             editor.textChanged.connect(_push_live_value)
-            QTimer.singleShot(0, editor.selectAll)
+            # Place cursor at end without selecting (1-click behavior)
+            QTimer.singleShot(0, lambda e=editor: (e.deselect(), e.setCursorPosition(len(e.text()))))
         return editor
 
     def updateEditorGeometry(self, editor, option, index):
@@ -394,24 +395,22 @@ def init_calculator_tab(app):
     )
     app.cells_table.verticalHeader().setVisible(False)
     app.cells_table.horizontalHeader().setStretchLastSection(True)
-    app.cells_table.setEditTriggers(
-        QAbstractItemView.EditTrigger.SelectedClicked
-        | QAbstractItemView.EditTrigger.DoubleClicked
-    )
+    # Only allow editing via programmatic editItem(), not direct double-click
+    app.cells_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
     app.cells_table.setStyleSheet(
         """
         QTableWidget { 
             background: #1A1A1A; 
-            gridline-color: #333; 
+            gridline-color: #191919; 
             color: white; 
-            border: 1px solid #333;
+            border: 1px solid #191919;
             border-radius: 4px;
             show-decoration-selected: 0;
         }
         QHeaderView::section { 
             background: #252525; 
             color: #888; 
-            border: 1px solid #333;
+            border: 1px solid #1F1F1F;
             padding: 4px;
             font-size: 8pt;
         }
@@ -426,6 +425,7 @@ def init_calculator_tab(app):
         QTableWidget::item:focus {
             border: none;
             outline: none;
+            background: #1A1A1A;
         }
         QTableWidget::item:selected {
             background: #1A1A1A;
@@ -438,8 +438,8 @@ def init_calculator_tab(app):
         QLineEdit {
             background: #1A1A1A !important;
             color: white;
-            border: 1px solid #333 !important;
-            border-radius: 4px;
+            border: 1px solid #191919 !important;
+            border-radius: 2px;
             padding: 1px;
             font-size: 6pt;
             margin: 0px;
