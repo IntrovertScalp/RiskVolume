@@ -684,11 +684,13 @@ class SettingsDialog(QDialog):
 
         self.cb_apply_terminal = NoWheelComboBox()
         self.cb_apply_terminal.setObjectName("LangCombo")
-        self._apply_terminal_values = ["profit_forge", "tigertrade"]
+        self._apply_terminal_values = ["profit_forge", "metascalp", "tigertrade", "surf"]
         self.cb_apply_terminal.addItem(
             t.get("terminal_profit_forge", "Profit Forge")
         )
+        self.cb_apply_terminal.addItem(t.get("terminal_metascalp", "MetaScalp"))
         self.cb_apply_terminal.addItem(t.get("terminal_tigertrade", "TigerTrade"))
+        self.cb_apply_terminal.addItem(t.get("terminal_surf", "SURF"))
         self._enable_combo_popup_hover_highlight(self.cb_apply_terminal)
 
         saved_terminal = str(

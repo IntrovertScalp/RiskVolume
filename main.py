@@ -375,9 +375,13 @@ class RiskVolumeApp(QMainWindow):
             "auto_dep_asset": "USDT",
             "auto_apply_terminal": "profit_forge",
             "calc_points_profit_forge": [],
+            "calc_points_metascalp": [],
             "calc_points_tigertrade": [],
+            "calc_points_surf": [],
             "tiger_open_point": None,
             "tiger_close_point": None,
+            "surf_open_point": None,
+            "surf_accept_point": None,
             "auto_dep_api_key": "",
             "auto_dep_api_secret": "",
             "auto_dep_api_passphrase": "",
@@ -402,6 +406,26 @@ class RiskVolumeApp(QMainWindow):
             and self.settings.get("points")
         ):
             self.settings["calc_points_profit_forge"] = list(self.settings.get("points", []))
+
+        # Migration: initialize MetaScalp points from Profit Forge once.
+        if (
+            not self.settings.get("calc_points_metascalp")
+            and isinstance(self.settings.get("calc_points_profit_forge", None), list)
+            and self.settings.get("calc_points_profit_forge")
+        ):
+            self.settings["calc_points_metascalp"] = list(
+                self.settings.get("calc_points_profit_forge", [])
+            )
+
+        # Migration: initialize SURF points from Profit Forge once.
+        if (
+            not self.settings.get("calc_points_surf")
+            and isinstance(self.settings.get("calc_points_profit_forge", None), list)
+            and self.settings.get("calc_points_profit_forge")
+        ):
+            self.settings["calc_points_surf"] = list(
+                self.settings.get("calc_points_profit_forge", [])
+            )
 
         self.settings["prec_min_order"] = 0
 
@@ -936,13 +960,67 @@ class RiskVolumeApp(QMainWindow):
             == "tigertrade"
         )
 
+    def _is_metascalp_terminal(self):
+        return (
+            str(self.settings.get("auto_apply_terminal", "profit_forge") or "profit_forge")
+            .strip()
+            .lower()
+            == "metascalp"
+        )
+
+    def _is_surf_terminal(self):
+        return (
+            str(self.settings.get("auto_apply_terminal", "profit_forge") or "profit_forge")
+            .strip()
+            .lower()
+            == "surf"
+        )
+
+    def _menu_terminal_kind(self):
+        if self._is_tigertrade_terminal():
+            return "tiger"
+        if self._is_surf_terminal():
+            return "surf"
+        return None
+
+    def _is_menu_terminal(self):
+        return self._menu_terminal_kind() is not None
+
+    def _get_menu_terminal_point_keys(self):
+        kind = self._menu_terminal_kind()
+        if kind == "tiger":
+            return ("tiger_open_point", "tiger_close_point")
+        if kind == "surf":
+            return ("surf_open_point", "surf_accept_point")
+        return (None, None)
+
     def _get_active_calc_points_key(self):
-        return "calc_points_tigertrade" if self._is_tigertrade_terminal() else "calc_points_profit_forge"
+        if self._is_tigertrade_terminal():
+            return "calc_points_tigertrade"
+        if self._is_surf_terminal():
+            return "calc_points_surf"
+        if self._is_metascalp_terminal():
+            return "calc_points_metascalp"
+        return "calc_points_profit_forge"
 
     def _get_active_calc_points(self):
         key = self._get_active_calc_points_key()
         points = self.settings.get(key, [])
         return points if isinstance(points, list) else []
+
+    def _get_standard_volume_precision(self):
+        try:
+            precision = int(self.settings.get("prec_dep", 2))
+        except Exception:
+            precision = 2
+
+        return max(0, min(6, precision))
+
+    def _get_calc_volume_precision(self):
+        if self._is_tigertrade_terminal():
+            return 0
+
+        return self._get_standard_volume_precision()
 
     def _set_active_calc_points(self, points):
         key = self._get_active_calc_points_key()
@@ -950,9 +1028,12 @@ class RiskVolumeApp(QMainWindow):
 
     def _reset_active_calc_calibration(self):
         self._set_active_calc_points([])
-        if self._is_tigertrade_terminal():
-            self.settings["tiger_open_point"] = None
-            self.settings["tiger_close_point"] = None
+        if self._is_menu_terminal():
+            open_key, close_key = self._get_menu_terminal_point_keys()
+            if open_key:
+                self.settings[open_key] = None
+            if close_key:
+                self.settings[close_key] = None
         self.save_settings()
 
     def _apply_terminal_mode(self):
@@ -967,6 +1048,13 @@ class RiskVolumeApp(QMainWindow):
 
         if not is_pf and self.tabs.currentIndex() == 1:
             self.tabs.setCurrentIndex(0)
+
+        if hasattr(self, "update_calc"):
+            self.update_calc()
+        if hasattr(self, "update_position_adjustment_info"):
+            self.update_position_adjustment_info()
+        if hasattr(self, "update_cell_volumes"):
+            self.update_cell_volumes()
 
     def init_calculator_tab(self):
         init_calculator_tab(self)
@@ -1076,7 +1164,7 @@ class RiskVolumeApp(QMainWindow):
             p_dep = self.settings.get("prec_dep", 2)
             p_risk = self.settings.get("prec_risk", 2)
             p_fee = self.settings.get("prec_fee", 3)
-            p_vol = self.settings.get("prec_dep", 2)
+            p_vol = self._get_standard_volume_precision()
             p_lev = self.settings.get("prec_lev", 1)
 
             d = float(self.inp_dep.text().replace(",", ".") or 0)
@@ -1320,7 +1408,8 @@ class RiskVolumeApp(QMainWindow):
         self.pos_adjust_delta = 0.0
         self.pos_adjust_action = None
 
-        p_vol = self.settings.get("prec_dep", 2)
+        p_vol = self._get_standard_volume_precision()
+        p_adjust_vol = self._get_calc_volume_precision()
         p_risk = self.settings.get("prec_risk", 2)
         p_lev = self.settings.get("prec_lev", 1)
 
@@ -1516,7 +1605,7 @@ class RiskVolumeApp(QMainWindow):
         if delta > 0:
             self.pos_adjust_delta = float(delta)
             self.pos_adjust_action = "add"
-            delta_text = f"{delta:,.{p_vol}f}".replace(",", " ").replace(".", ",")
+            delta_text = f"{delta:,.{p_adjust_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(
                     self._build_position_risk_cash_html(
@@ -1531,7 +1620,7 @@ class RiskVolumeApp(QMainWindow):
         elif delta < 0:
             self.pos_adjust_delta = float(abs(delta))
             self.pos_adjust_action = "reduce"
-            delta_text = f"{abs(delta):,.{p_vol}f}".replace(",", " ").replace(".", ",")
+            delta_text = f"{abs(delta):,.{p_adjust_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(
                     self._build_position_risk_cash_html(
@@ -2511,6 +2600,14 @@ class RiskVolumeApp(QMainWindow):
         # Order already follows the intended row direction
 
         try:
+            abort_requested = False
+
+            def should_abort_apply():
+                try:
+                    return bool(keyboard.is_pressed("esc"))
+                except Exception:
+                    return False
+
             old_clip = pyperclip.paste()
             # capture exact start position to restore later if needed
             try:
@@ -2525,70 +2622,10 @@ class RiskVolumeApp(QMainWindow):
             else:
                 time.sleep(0.02)
 
-            if self._is_tigertrade_terminal():
-                try:
-                    pyautogui.MINIMUM_SLEEP = 0.0005
-                    pyautogui.MINIMUM_DURATION = 0.02
-                    pyautogui.PAUSE = 0.02
-                except Exception:
-                    pass
+            if should_abort_apply():
+                abort_requested = True
 
-                pre_copy_delay = 0.08
-                move_duration = 0.08
-                pre_click_delay = 0.06
-                between_clicks_delay = 0.12
-                post_double_click_delay = 0.14
-                key_step_delay = 0.1
-                post_paste_delay = 0.18
-                post_confirm_delay = 0.22
-                between_cells_delay = 0.34
-
-                t_open = self.settings.get("tiger_open_point")
-                t_close = self.settings.get("tiger_close_point")
-                if (
-                    not isinstance(t_open, (list, tuple))
-                    or len(t_open) != 2
-                    or not isinstance(t_close, (list, tuple))
-                    or len(t_close) != 2
-                ):
-                    t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                    self.lbl_status.setText(t.get("calc_tiger_need_points", t["calc_not_enough_points"]))
-                    self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
-                    return
-
-                pyautogui.moveTo(t_open[0], t_open[1], duration=move_duration)
-                time.sleep(pre_click_delay)
-                pyautogui.click()
-                time.sleep(between_clicks_delay)
-                pyautogui.click()
-                time.sleep(max(post_double_click_delay, 0.16))
-
-                for point_index, vol_to_send in transfers:
-                    pyperclip.copy(vol_to_send)
-                    time.sleep(pre_copy_delay)
-                    pyautogui.moveTo(
-                        points[point_index][0], points[point_index][1], duration=move_duration
-                    )
-                    time.sleep(pre_click_delay)
-                    pyautogui.click()
-                    time.sleep(0.06)
-                    pyautogui.doubleClick(interval=0.03)
-                    time.sleep(post_double_click_delay)
-                    keyboard.press_and_release("ctrl+a")
-                    time.sleep(key_step_delay)
-                    keyboard.press_and_release("backspace")
-                    time.sleep(key_step_delay)
-                    keyboard.press_and_release("ctrl+v")
-                    time.sleep(post_paste_delay)
-                    keyboard.press_and_release("enter")
-                    time.sleep(post_confirm_delay)
-                    time.sleep(between_cells_delay)
-
-                pyautogui.moveTo(t_close[0], t_close[1], duration=move_duration)
-                time.sleep(pre_click_delay)
-                pyautogui.click()
-                time.sleep(between_cells_delay)
-            else:
+            if self._is_menu_terminal() and not abort_requested:
                 try:
                     pyautogui.MINIMUM_SLEEP = 0.0005
                     pyautogui.MINIMUM_DURATION = 0.005
@@ -2596,7 +2633,37 @@ class RiskVolumeApp(QMainWindow):
                 except Exception:
                     pass
 
-                for point_index, vol_to_send in transfers:
+                menu_kind = self._menu_terminal_kind() or "tiger"
+                open_menu_settle_delay = 0.03
+                post_paste_settle_delay = 0.012
+                between_cells_delay = 0.025
+                close_menu_delay = 0.03
+
+                open_key, close_key = self._get_menu_terminal_point_keys()
+                t_open = self.settings.get(open_key)
+                t_close = self.settings.get(close_key)
+                if (
+                    not isinstance(t_open, (list, tuple))
+                    or len(t_open) != 2
+                    or not isinstance(t_close, (list, tuple))
+                    or len(t_close) != 2
+                ):
+                    t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                    need_key = f"calc_{menu_kind}_need_points"
+                    self.lbl_status.setText(t.get(need_key, t["calc_not_enough_points"]))
+                    self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                    return
+
+                pyautogui.moveTo(t_open[0], t_open[1], duration=0.015)
+                pyautogui.click()
+                time.sleep(0.012)
+                pyautogui.doubleClick(interval=0.03)
+                time.sleep(open_menu_settle_delay)
+
+                for transfer_index, (point_index, vol_to_send) in enumerate(transfers):
+                    if should_abort_apply():
+                        abort_requested = True
+                        break
                     pyperclip.copy(vol_to_send)
                     time.sleep(0.01)
                     pyautogui.moveTo(
@@ -2611,9 +2678,61 @@ class RiskVolumeApp(QMainWindow):
                     keyboard.press_and_release("backspace")
                     time.sleep(0.01)
                     keyboard.press_and_release("ctrl+v")
+                    time.sleep(post_paste_settle_delay)
+                    if transfer_index < len(transfers) - 1:
+                        time.sleep(between_cells_delay)
+
+                if not abort_requested:
+                    pyautogui.moveTo(t_close[0], t_close[1], duration=0.015)
+                    pyautogui.click()
+                    time.sleep(close_menu_delay)
+            else:
+                try:
+                    pyautogui.MINIMUM_SLEEP = 0.0005
+                    pyautogui.MINIMUM_DURATION = 0.005
+                    pyautogui.PAUSE = 0.0
+                except Exception:
+                    pass
+
+                is_metascalp = self._is_metascalp_terminal()
+                if is_metascalp:
+                    # MetaScalp: first cell needs a short settle delay before editing starts.
+                    time.sleep(0.06)
+
+                for transfer_index, (point_index, vol_to_send) in enumerate(transfers):
+                    if should_abort_apply():
+                        abort_requested = True
+                        break
+                    pyperclip.copy(vol_to_send)
+                    time.sleep(0.01)
+                    pyautogui.moveTo(
+                        points[point_index][0], points[point_index][1], duration=0.015
+                    )
+                    pyautogui.click()
+                    if is_metascalp and transfer_index == 0:
+                        time.sleep(0.03)
+                    else:
+                        time.sleep(0.012)
+                    pyautogui.doubleClick(interval=0.03)
+                    if is_metascalp and transfer_index == 0:
+                        time.sleep(0.03)
+                    else:
+                        time.sleep(0.012)
+                    keyboard.press_and_release("ctrl+a")
+                    time.sleep(0.01)
+                    keyboard.press_and_release("backspace")
+                    time.sleep(0.01)
+                    keyboard.press_and_release("ctrl+v")
                     time.sleep(0.012)
                     keyboard.press_and_release("enter")
                     time.sleep(0.025)
+
+            if abort_requested:
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_status.setText(
+                    t.get("calc_apply_cancel", "Остановлено пользователем (ESC)")
+                )
+                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
 
             # restore original cursor position if captured
             if start_x is not None and start_y is not None:
@@ -2634,26 +2753,32 @@ class RiskVolumeApp(QMainWindow):
         hk_coords = self.settings.get("hk_coords", "f2").upper()
 
         points = self._get_active_calc_points()
-        tiger_ready = (
-            isinstance(self.settings.get("tiger_open_point"), (list, tuple))
-            and len(self.settings.get("tiger_open_point")) == 2
-            and isinstance(self.settings.get("tiger_close_point"), (list, tuple))
-            and len(self.settings.get("tiger_close_point")) == 2
-        )
+        menu_ready = False
+        menu_kind = self._menu_terminal_kind()
+        if self._is_menu_terminal():
+            open_key, close_key = self._get_menu_terminal_point_keys()
+            menu_ready = (
+                isinstance(self.settings.get(open_key), (list, tuple))
+                and len(self.settings.get(open_key)) == 2
+                and isinstance(self.settings.get(close_key), (list, tuple))
+                and len(self.settings.get(close_key)) == 2
+            )
 
-        if self._is_tigertrade_terminal():
-            if tiger_ready and len(points) >= cells_count:
+        if self._is_menu_terminal():
+            if menu_ready and len(points) >= cells_count:
                 self.calc_calibration_active = False
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                self.lbl_status.setText(t.get("calc_tiger_points_exists", t["calc_calib_exists"]).format(cells=cells_count))
+                exists_key = f"calc_{menu_kind}_points_exists"
+                self.lbl_status.setText(t.get(exists_key, t["calc_calib_exists"]).format(cells=cells_count))
                 self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
                 self.update_calibration_status()
                 return
 
             self.calc_calibration_active = True
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            instruction_key = f"calc_{menu_kind}_calib_instruction"
             instruction = t.get(
-                "calc_tiger_calib_instruction",
+                instruction_key,
                 "Hover the volume selector cells in the order book, choose the first one and press {hotkey}",
             ).format(cells=cells_count, hotkey=hk_coords)
             self.lbl_status.setText(instruction)
@@ -2696,24 +2821,29 @@ class RiskVolumeApp(QMainWindow):
                 configured = int(self.lbl_cells_count.text())
 
             existing_points = self._get_active_calc_points()
-            tiger_ready = (
-                isinstance(self.settings.get("tiger_open_point"), (list, tuple))
-                and len(self.settings.get("tiger_open_point")) == 2
-                and isinstance(self.settings.get("tiger_close_point"), (list, tuple))
-                and len(self.settings.get("tiger_close_point")) == 2
-            )
+            menu_ready = False
+            if self._is_menu_terminal():
+                open_key, close_key = self._get_menu_terminal_point_keys()
+                menu_ready = (
+                    isinstance(self.settings.get(open_key), (list, tuple))
+                    and len(self.settings.get(open_key)) == 2
+                    and isinstance(self.settings.get(close_key), (list, tuple))
+                    and len(self.settings.get(close_key)) == 2
+                )
             should_reset = len(existing_points) >= configured
-            if self._is_tigertrade_terminal():
-                should_reset = should_reset and tiger_ready
+            if self._is_menu_terminal():
+                should_reset = should_reset and menu_ready
 
             if should_reset:
                 self._reset_active_calc_calibration()
                 self.calc_calibration_active = True
                 hk_coords = self.settings.get("hk_coords", "f2").upper()
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                if self._is_tigertrade_terminal():
+                if self._is_menu_terminal():
+                    menu_kind = self._menu_terminal_kind() or "tiger"
+                    reset_key = f"calc_{menu_kind}_points_reset"
                     self.lbl_status.setText(
-                        t.get("calc_tiger_points_reset", t["calc_calib_reset_short"]).format(hotkey=hk_coords)
+                        t.get(reset_key, t["calc_calib_reset_short"]).format(hotkey=hk_coords)
                     )
                 else:
                     self.lbl_status.setText(
@@ -2731,21 +2861,15 @@ class RiskVolumeApp(QMainWindow):
 
         x, y = pyautogui.position()
 
-        if self._is_tigertrade_terminal():
-            tiger_open = self.settings.get("tiger_open_point")
-            tiger_close = self.settings.get("tiger_close_point")
+        if self._is_menu_terminal():
+            open_key, close_key = self._get_menu_terminal_point_keys()
+            menu_open = self.settings.get(open_key)
+            menu_close = self.settings.get(close_key)
             points = self._get_active_calc_points()
 
-            if not (isinstance(tiger_open, (list, tuple)) and len(tiger_open) == 2):
-                self.settings["tiger_open_point"] = [x, y]
+            if not (isinstance(menu_open, (list, tuple)) and len(menu_open) == 2):
+                self.settings[open_key] = [x, y]
                 self.save_settings()
-                try:
-                    pyautogui.moveTo(x, y, duration=0.02)
-                    time.sleep(0.02)
-                    pyautogui.doubleClick(interval=0.03)
-                    time.sleep(0.08)
-                except Exception:
-                    pass
                 self.update_calibration_status()
                 return
 
@@ -2756,8 +2880,8 @@ class RiskVolumeApp(QMainWindow):
                 self.update_calibration_status()
                 return
 
-            if not (isinstance(tiger_close, (list, tuple)) and len(tiger_close) == 2):
-                self.settings["tiger_close_point"] = [x, y]
+            if not (isinstance(menu_close, (list, tuple)) and len(menu_close) == 2):
+                self.settings[close_key] = [x, y]
                 self.save_settings()
                 self.calc_calibration_active = False
 
@@ -2793,31 +2917,39 @@ class RiskVolumeApp(QMainWindow):
         points_count = len(self._get_active_calc_points())
         hk_coords = self.settings.get("hk_coords", "f2").upper()
 
-        if self._is_tigertrade_terminal():
+        if self._is_menu_terminal():
+            menu_kind = self._menu_terminal_kind() or "tiger"
+            open_key, close_key = self._get_menu_terminal_point_keys()
             has_open = (
-                isinstance(self.settings.get("tiger_open_point"), (list, tuple))
-                and len(self.settings.get("tiger_open_point")) == 2
+                isinstance(self.settings.get(open_key), (list, tuple))
+                and len(self.settings.get(open_key)) == 2
             )
             has_close = (
-                isinstance(self.settings.get("tiger_close_point"), (list, tuple))
-                and len(self.settings.get("tiger_close_point")) == 2
+                isinstance(self.settings.get(close_key), (list, tuple))
+                and len(self.settings.get(close_key)) == 2
             )
 
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             if not self.calc_calibration_active and has_open and has_close and points_count >= cells_count:
-                self.lbl_status.setText(t.get("calc_tiger_points_ready", t["calc_calib_ready"]).format(cells=cells_count))
+                ready_key = f"calc_{menu_kind}_points_ready"
+                self.lbl_status.setText(t.get(ready_key, t["calc_calib_ready"]).format(cells=cells_count))
                 self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
                 return
 
             if self.calc_calibration_active:
                 if not has_open:
+                    step_open_key = f"calc_{menu_kind}_step_open"
                     self.lbl_status.setText(
-                        t.get("calc_tiger_step_open", "Наведи на ячейки выбора объема в стакане, выбери 1 ячейку и нажми {hotkey}").format(
+                        t.get(step_open_key, "Наведи на ячейки выбора объема в стакане, выбери 1 ячейку и нажми {hotkey}").format(
                             hotkey=hk_coords
                         )
                     )
                 elif points_count < cells_count:
-                    step_key = "calc_tiger_step_cell_first" if points_count == 0 else "calc_tiger_step_cell_next"
+                    step_key = (
+                        f"calc_{menu_kind}_step_cell_first"
+                        if points_count == 0
+                        else f"calc_{menu_kind}_step_cell_next"
+                    )
                     self.lbl_status.setText(
                         t.get(step_key, "Теперь наведи на {num} ячейку и нажми {hotkey}").format(
                             num=points_count + 1,
@@ -2825,19 +2957,22 @@ class RiskVolumeApp(QMainWindow):
                         )
                     )
                 elif not has_close:
+                    step_close_key = f"calc_{menu_kind}_step_close"
                     self.lbl_status.setText(
-                        t.get("calc_tiger_step_close", "Теперь наведи на крестик закрытия меню и нажми {hotkey}").format(
+                        t.get(step_close_key, "Теперь наведи на крестик закрытия меню и нажми {hotkey}").format(
                             hotkey=hk_coords
                         )
                     )
                 else:
+                    ready_key = f"calc_{menu_kind}_points_ready"
                     self.lbl_status.setText(
-                        t.get("calc_tiger_points_ready", t["calc_calib_ready"]).format(cells=cells_count)
+                        t.get(ready_key, t["calc_calib_ready"]).format(cells=cells_count)
                     )
                 self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             else:
+                need_key = f"calc_{menu_kind}_need_points"
                 self.lbl_status.setText(
-                    t.get("calc_tiger_need_points", "⚠ Точки для выставления TigerTrade не захвачены. Нажми горячую клавишу захвата")
+                    t.get(need_key, "⚠ Точки для выставления терминала не захвачены. Нажми горячую клавишу захвата")
                 )
                 self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
             return
@@ -3435,7 +3570,7 @@ class RiskVolumeApp(QMainWindow):
         """Обновляет объемы в каждой ячейке на основе процентов и минимума"""
         active_rows = set(self._get_active_rows_for_table())
         total_vol = self._get_active_table_total_volume()
-        p_vol = self.settings.get("prec_dep", 2)
+        p_vol = self._get_calc_volume_precision()
         preset_index = (
             int(self.cb_distribution.currentIndex())
             if hasattr(self, "cb_distribution")
