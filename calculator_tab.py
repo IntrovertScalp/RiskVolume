@@ -244,7 +244,7 @@ def init_calculator_tab(app):
 
     pos_stop_col = QVBoxLayout()
     pos_stop_col.setSpacing(1)
-    app.lbl_pos_stop_title = QLabel(t["calc_stop_percent"])
+    app.lbl_pos_stop_title = QLabel(t["calc_stop_percent_entry"])
     app.lbl_pos_stop_title.setStyleSheet("font-size: 8pt;")
     pos_stop_col.addWidget(app.lbl_pos_stop_title)
 
@@ -260,9 +260,28 @@ def init_calculator_tab(app):
     app.inp_pos_stop.textChanged.connect(app.update_position_adjustment_info)
     pos_stop_col.addWidget(app.inp_pos_stop)
 
+    pos_stop_now_col = QVBoxLayout()
+    pos_stop_now_col.setSpacing(1)
+    app.lbl_pos_stop_now_title = QLabel(t["calc_stop_percent_now"])
+    app.lbl_pos_stop_now_title.setStyleSheet("font-size: 8pt;")
+    pos_stop_now_col.addWidget(app.lbl_pos_stop_now_title)
+
+    app.inp_pos_stop_now = QLineEdit(str(app.settings.get("pos_stop_now", app.settings.get("pos_stop", "0"))))
+    app.inp_pos_stop_now.setValidator(v_reg)
+    app.inp_pos_stop_now.setFixedHeight(22)
+    app.inp_pos_stop_now.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.inp_pos_stop_now.setStyleSheet(
+        "font-size: 8pt; padding: 1px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
+    )
+    app.inp_pos_stop_now.returnPressed.connect(app._commit_input)
+    app.inp_pos_stop_now.installEventFilter(app)
+    app.inp_pos_stop_now.textChanged.connect(app.update_position_adjustment_info)
+    pos_stop_now_col.addWidget(app.inp_pos_stop_now)
+
     pos_row.addLayout(pos_vol_col, 1)
     pos_row.addLayout(pos_risk_col, 1)
     pos_row.addLayout(pos_stop_col, 1)
+    pos_row.addLayout(pos_stop_now_col, 1)
     main_layout.addLayout(pos_row)
 
     pos_hints_layout = QVBoxLayout()
@@ -301,8 +320,16 @@ def init_calculator_tab(app):
     )
     app.lbl_pos_warning.setVisible(False)
 
+    app.lbl_pos_stop_delta = QLabel("")
+    app.lbl_pos_stop_delta.setStyleSheet("color: #777; font-size: 7pt;")
+    app.lbl_pos_stop_delta.setAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+    app.lbl_pos_stop_delta.setVisible(False)
+
     pos_hints_layout.addLayout(pos_hints_row)
     pos_hints_layout.addWidget(app.lbl_pos_adjust)
+    pos_hints_layout.addWidget(app.lbl_pos_stop_delta)
     pos_hints_layout.addWidget(app.lbl_pos_warning)
 
     main_layout.addLayout(pos_hints_layout)

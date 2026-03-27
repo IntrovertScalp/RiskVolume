@@ -363,6 +363,7 @@ class RiskVolumeApp(QMainWindow):
             "pos_current_vol": "0",
             "pos_risk": "1",
             "pos_stop": "0",
+            "pos_stop_now": "0",
             "pos_target_cell": 1,
             "pos_mode_enabled": False,
             "pos_table_volume_override": 0.0,
@@ -928,7 +929,9 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "lbl_pos_risk_title"):
             self.lbl_pos_risk_title.setText(t["calc_risk_percent"])
         if hasattr(self, "lbl_pos_stop_title"):
-            self.lbl_pos_stop_title.setText(t["calc_stop_percent"])
+            self.lbl_pos_stop_title.setText(t["calc_stop_percent_entry"])
+        if hasattr(self, "lbl_pos_stop_now_title"):
+            self.lbl_pos_stop_now_title.setText(t["calc_stop_percent_now"])
         if hasattr(self, "lbl_pos_adjust"):
             self.lbl_pos_adjust.setText(t["calc_recommendation"])
         if hasattr(self, "btn_reverse_cells"):
@@ -1239,6 +1242,9 @@ class RiskVolumeApp(QMainWindow):
             if hasattr(self, "lbl_pos_warning"):
                 self.lbl_pos_warning.setText("")
                 self.lbl_pos_warning.setVisible(False)
+            if hasattr(self, "lbl_pos_stop_delta"):
+                self.lbl_pos_stop_delta.setText("")
+                self.lbl_pos_stop_delta.setVisible(False)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
             return
@@ -1268,6 +1274,11 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pos_stop = 0.0
 
+        try:
+            pos_stop_now = float(self.inp_pos_stop_now.text().replace(",", ".") or 0)
+        except Exception:
+            pos_stop_now = 0.0
+
         if pos_risk <= 0:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t["pos_rec_risk"])
@@ -1280,9 +1291,13 @@ class RiskVolumeApp(QMainWindow):
             self.settings["pos_current_vol"] = self.inp_pos_vol.text()
             self.settings["pos_risk"] = self.inp_pos_risk.text()
             self.settings["pos_stop"] = self.inp_pos_stop.text()
+            self.settings["pos_stop_now"] = self.inp_pos_stop_now.text()
             self.save_settings()
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_stop_delta"):
+                self.lbl_pos_stop_delta.setText("")
+                self.lbl_pos_stop_delta.setVisible(False)
             if hasattr(self, "lbl_pos_warning"):
                 self.lbl_pos_warning.setText("")
                 self.lbl_pos_warning.setVisible(False)
@@ -1303,7 +1318,7 @@ class RiskVolumeApp(QMainWindow):
 
         if pos_stop <= 0:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_pos_adjust.setText(t["pos_rec_stop"])
+            self.lbl_pos_adjust.setText(t.get("pos_rec_stop_entry", t["pos_rec_stop"]))
             self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
             if hasattr(self, "lbl_pos_risk_cash"):
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
@@ -1315,6 +1330,30 @@ class RiskVolumeApp(QMainWindow):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_stop_delta"):
+                self.lbl_pos_stop_delta.setText("")
+                self.lbl_pos_stop_delta.setVisible(False)
+            if hasattr(self, "lbl_pos_warning"):
+                self.lbl_pos_warning.setText("")
+                self.lbl_pos_warning.setVisible(False)
+            return
+
+        if pos_stop_now <= 0:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_pos_adjust.setText(t.get("pos_rec_stop_now", t["pos_rec_stop"]))
+            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            if hasattr(self, "lbl_pos_risk_cash"):
+                self.lbl_pos_risk_cash.setText(
+                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                )
+                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            if hasattr(self, "btn_move_adjust_to_cell"):
+                self.btn_move_adjust_to_cell.setEnabled(False)
+            if hasattr(self, "cells_table"):
+                self.update_cell_volumes()
+            if hasattr(self, "lbl_pos_stop_delta"):
+                self.lbl_pos_stop_delta.setText("")
+                self.lbl_pos_stop_delta.setVisible(False)
             if hasattr(self, "lbl_pos_warning"):
                 self.lbl_pos_warning.setText("")
                 self.lbl_pos_warning.setVisible(False)
@@ -1349,10 +1388,11 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_pos_warning.setVisible(False)
             return
 
-        # Целевой объём считаем от ДЕПОЗИТА, а не от текущего объёма позиции
+        # Целевой объём считаем по текущей дистанции до стопа (текущая цена -> стоп),
+        # чтобы рекомендация добора/сокращения отражала текущую ситуацию.
         try:
             _, max_vol_at_stop, _, _ = calculate_risk_data(
-                deposit, pos_risk, pos_stop, f_perc
+                deposit, pos_risk, pos_stop_now, f_perc
             )
         except Exception:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
@@ -1385,8 +1425,24 @@ class RiskVolumeApp(QMainWindow):
             target_vol_text, target_lev_text
         )
         self._update_position_risk_recommendation(
-            pos_risk, pos_stop, target_lev, use_fee
+            pos_risk, pos_stop_now, target_lev, use_fee
         )
+
+        if hasattr(self, "lbl_pos_stop_delta"):
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            entry_text = f"{pos_stop:.2f}".rstrip("0").rstrip(".")
+            now_text = f"{pos_stop_now:.2f}".rstrip("0").rstrip(".")
+            delta_stop = pos_stop - pos_stop_now
+            delta_text = f"{delta_stop:+.2f}".rstrip("0").rstrip(".")
+            self.lbl_pos_stop_delta.setText(
+                t.get("pos_stop_delta", "").format(
+                    entry=entry_text,
+                    now=now_text,
+                    delta=delta_text,
+                )
+            )
+            self.lbl_pos_stop_delta.setStyleSheet("color: #777; font-size: 7pt;")
+            self.lbl_pos_stop_delta.setVisible(True)
 
         delta = max_vol_at_stop - pos_vol
         if delta > 0:
@@ -1433,6 +1489,7 @@ class RiskVolumeApp(QMainWindow):
         self.settings["pos_current_vol"] = self.inp_pos_vol.text()
         self.settings["pos_risk"] = self.inp_pos_risk.text()
         self.settings["pos_stop"] = self.inp_pos_stop.text()
+        self.settings["pos_stop_now"] = self.inp_pos_stop_now.text()
         self.save_settings()
 
         if hasattr(self, "cells_table"):
@@ -1631,13 +1688,16 @@ class RiskVolumeApp(QMainWindow):
             "inp_pos_vol",
             "inp_pos_risk",
             "inp_pos_stop",
+            "inp_pos_stop_now",
             "lbl_pos_vol_title",
             "lbl_pos_risk_title",
             "lbl_pos_stop_title",
+            "lbl_pos_stop_now_title",
             "btn_move_adjust_to_cell",
             "lbl_pos_vol_hint",
             "lbl_pos_risk_cash",
             "lbl_pos_adjust",
+            "lbl_pos_stop_delta",
             "lbl_pos_warning",
         ):
             widget = getattr(self, name, None)
