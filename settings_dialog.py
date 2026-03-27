@@ -30,7 +30,12 @@ from PyQt6.QtGui import (
     QFont,
     QIntValidator,
     QPixmap,
+    QIcon,
 )
+
+import os
+
+TERMINAL_LOGO_PATH = os.path.join(os.path.dirname(__file__), "Logo", "Logo.png")
 
 
 class CustomCheckBox(QCheckBox):
@@ -663,6 +668,40 @@ class SettingsDialog(QDialog):
         row += 1
         grid.addWidget(QLabel(t["prec_lev"]), row, 0)
         grid.addWidget(self.prec_lev, row, 1)
+        row += 1
+
+        # === ТЕРМИНАЛ АВТОВЫСТАВЛЕНИЯ ===
+        lbl_terminal = QLabel(t.get("section_terminal", "ТЕРМИНАЛ АВТОВЫСТАВЛЕНИЯ"))
+        lbl_terminal.setObjectName("SectionHeader")
+        grid.addWidget(lbl_terminal, row, 0, 1, 2)
+        row += 1
+
+        grid.addWidget(
+            QLabel(t.get("auto_apply_terminal", "Терминал автовыставления:")),
+            row,
+            0,
+        )
+
+        self.cb_apply_terminal = NoWheelComboBox()
+        self.cb_apply_terminal.setObjectName("LangCombo")
+        self._apply_terminal_values = ["profit_forge", "tigertrade"]
+        self.cb_apply_terminal.addItem(
+            t.get("terminal_profit_forge", "Profit Forge")
+        )
+        self.cb_apply_terminal.addItem(t.get("terminal_tigertrade", "TigerTrade"))
+        self._enable_combo_popup_hover_highlight(self.cb_apply_terminal)
+
+        saved_terminal = str(
+            parent.settings.get("auto_apply_terminal", "profit_forge") or "profit_forge"
+        ).strip().lower()
+        try:
+            self.cb_apply_terminal.setCurrentIndex(
+                self._apply_terminal_values.index(saved_terminal)
+            )
+        except Exception:
+            self.cb_apply_terminal.setCurrentIndex(0)
+
+        grid.addWidget(self.cb_apply_terminal, row, 1)
         # --- КОНЕЦ ЗАМЕНЫ БЛОКА GRID ---
 
         grid_container = QWidget()
@@ -933,6 +972,9 @@ class SettingsDialog(QDialog):
                     selected_creds.get("api_passphrase", "") or ""
                 ),
                 "auto_dep_credentials": self._auto_dep_credentials,
+                "auto_apply_terminal": self._apply_terminal_values[
+                    self.cb_apply_terminal.currentIndex()
+                ],
                 "prec_dep": prec_dep,
                 "prec_risk": prec_risk,
                 "prec_fee": prec_fee,
@@ -944,6 +986,8 @@ class SettingsDialog(QDialog):
         self.parent_window.save_settings()
         self.parent_window.refresh_labels()
         self.parent_window.apply_styles()
+        if hasattr(self.parent_window, "_apply_terminal_mode"):
+            self.parent_window._apply_terminal_mode()
         self.parent_window.rebind_hotkeys()
         if hasattr(self.parent_window, "_apply_auto_deposit_sync"):
             self.parent_window._apply_auto_deposit_sync(force_now=True)
