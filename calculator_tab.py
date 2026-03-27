@@ -198,7 +198,7 @@ def init_calculator_tab(app):
         "QCheckBox:unchecked { color: #666; }"
         "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; margin: auto; }"
         f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({app._posmode_checkmark_path_css}); }}"
-        "QCheckBox::indicator:unchecked { background: #121212; border: 1px solid #3A3A3A; image: none; }"
+        "QCheckBox::indicator:unchecked { background: #2A2A2A; border: 1px solid #444; image: none; }"
     )
     main_layout.addWidget(app.chk_pos_mode)
 

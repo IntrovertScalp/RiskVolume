@@ -801,7 +801,7 @@ class CascadeTab(QWidget):
         self._create_checkmark_icon()
         self.chk_range_mode.setStyleSheet(
             "QCheckBox { color: #aaa; font-size: 9pt; spacing: 5px; }"
-            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #555; background: #1A1A1A; }"
+            "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #444; background: #2A2A2A; }"
             f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._checkmark_path_css}); }}"
         )
         self.grid_settings.addWidget(self.chk_range_mode, 3, 0)

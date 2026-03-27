@@ -1030,10 +1030,16 @@ class RiskVolumeApp(QMainWindow):
 
             sc = self.settings.get("scale", 100) / 100.0
             color = "#FF3B30" if r >= 10.0 else "#FF9F0A"
-            self.lbl_vol.setStyleSheet(
-                f"color: {color}; font-size: 11pt; font-weight: bold; border: 1px solid #333; "
-                "border-radius: 4px; padding: 4px; background: #1A1A1A;"
-            )
+            if self.settings.get("pos_mode_enabled", False):
+                self.lbl_vol.setStyleSheet(
+                    "color: #555; font-size: 11pt; font-weight: bold; border: 1px solid #222; "
+                    "border-radius: 4px; padding: 4px; background: #0F0F0F;"
+                )
+            else:
+                self.lbl_vol.setStyleSheet(
+                    f"color: {color}; font-size: 11pt; font-weight: bold; border: 1px solid #333; "
+                    "border-radius: 4px; padding: 4px; background: #1A1A1A;"
+                )
 
             if (
                 hasattr(self, "tab_cascade")
@@ -1529,6 +1535,12 @@ class RiskVolumeApp(QMainWindow):
                         )
                 elif isinstance(widget, QLabel):
                     if dim:
+                        if name == "lbl_vol":
+                            widget.setStyleSheet(
+                                "color: #555; font-size: 11pt; font-weight: bold; border: 1px solid #222; "
+                                "border-radius: 4px; padding: 4px; background: #0F0F0F;"
+                            )
+                            continue
                         current_style = widget.styleSheet()
                         import re
 
@@ -1582,14 +1594,10 @@ class RiskVolumeApp(QMainWindow):
                             )
                             widget.setStyleSheet(new_style)
                         elif name == "lbl_vol":
-                            import re
-
-                            new_style = re.sub(
-                                r"color:\s*#[0-9A-Fa-f]{3,6}",
-                                "color: #FF9F0A",
-                                current_style,
+                            widget.setStyleSheet(
+                                "color: #FF9F0A; font-size: 11pt; font-weight: bold; border: 1px solid #333; "
+                                "border-radius: 4px; padding: 4px; background: #1A1A1A;"
                             )
-                            widget.setStyleSheet(new_style)
 
     def on_position_mode_toggled(self, checked, is_startup=False):
         enabled = bool(checked)
@@ -2157,7 +2165,7 @@ class RiskVolumeApp(QMainWindow):
                     "QCheckBox#PosModeToggle:unchecked { color: #666; }"
                     "QCheckBox#PosModeToggle::indicator { width: 14px; height: 14px; border-radius: 3px; margin-right: 6px; }"
                     f"QCheckBox#PosModeToggle::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
-                    "QCheckBox#PosModeToggle::indicator:unchecked { background: #121212; border: 1px solid #3A3A3A; image: none; }"
+                    "QCheckBox#PosModeToggle::indicator:unchecked { background: #2A2A2A; border: 1px solid #444; image: none; }"
                 )
             )
 
