@@ -17,8 +17,6 @@
 <img width="671" height="929" alt="image" src="https://github.com/user-attachments/assets/98b21d9b-7c42-44af-9209-4e106a6fed98" />
 
 
-
-
 ## Типы каскадов 🧩
 - **Равномерно**: равные ордера
 - **Матрешка x1.2**: рост по множителю 1.2x
@@ -38,6 +36,7 @@
 - **Автосохранение**: настройки сохраняются между сессиями
 - **Свернуть после выставления**: опциональная автоматическая минимизация окна
 - **Автозаполнение депозита по API**: получение значения депозита через ключи только для чтения (read-only)
+Для тех, кто часто меняет объемы будет полезно. При добавлении API ключей, выберите в брокере или на бирже вариант только для чтения.
 
 <img width="508" height="499" alt="image" src="https://github.com/user-attachments/assets/3b83f98f-2f96-4749-8454-acda5fac09d4" />
 <img width="502" height="363" alt="image" src="https://github.com/user-attachments/assets/0a3bc8a2-b1ee-48f9-bf7b-1b735c11713f" />
@@ -56,7 +55,7 @@
 
 
 ## Загрузка 💾
-Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.2
+Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.3
 - Загрузите RiskVolume.zip
 Распакуйте архив и запустите .exe файл и можно пользоваться ✅
 
