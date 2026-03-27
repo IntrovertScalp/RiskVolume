@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QStyledItemDelegate,
     QStyleOptionViewItem,
+    QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import (
     Qt,
@@ -378,10 +379,12 @@ class RiskVolumeApp(QMainWindow):
             "calc_points_metascalp": [],
             "calc_points_tigertrade": [],
             "calc_points_surf": [],
+            "calc_points_vataga": [],
             "tiger_open_point": None,
             "tiger_close_point": None,
             "surf_open_point": None,
             "surf_accept_point": None,
+            "vataga_open_point": None,
             "auto_dep_api_key": "",
             "auto_dep_api_secret": "",
             "auto_dep_api_passphrase": "",
@@ -407,25 +410,29 @@ class RiskVolumeApp(QMainWindow):
         ):
             self.settings["calc_points_profit_forge"] = list(self.settings.get("points", []))
 
-        # Migration: initialize MetaScalp points from Profit Forge once.
-        if (
-            not self.settings.get("calc_points_metascalp")
-            and isinstance(self.settings.get("calc_points_profit_forge", None), list)
-            and self.settings.get("calc_points_profit_forge")
-        ):
-            self.settings["calc_points_metascalp"] = list(
-                self.settings.get("calc_points_profit_forge", [])
-            )
+        # One-time fix: clear legacy auto-copied points for non-PF terminals.
+        # They could falsely complete calibration after 1-2 hotkey presses.
+        non_pf_points_fix_changed = False
+        if not bool(self.settings.get("non_pf_points_fix_v1_applied", False)):
+            pf_points = self.settings.get("calc_points_profit_forge", [])
+            if not isinstance(pf_points, list):
+                pf_points = []
 
-        # Migration: initialize SURF points from Profit Forge once.
-        if (
-            not self.settings.get("calc_points_surf")
-            and isinstance(self.settings.get("calc_points_profit_forge", None), list)
-            and self.settings.get("calc_points_profit_forge")
-        ):
-            self.settings["calc_points_surf"] = list(
-                self.settings.get("calc_points_profit_forge", [])
-            )
+            for non_pf_key in [
+                "calc_points_metascalp",
+                "calc_points_surf",
+                "calc_points_vataga",
+            ]:
+                pts = self.settings.get(non_pf_key, [])
+                if isinstance(pts, list) and isinstance(pf_points, list) and pts == pf_points:
+                    self.settings[non_pf_key] = []
+                    non_pf_points_fix_changed = True
+
+            self.settings["non_pf_points_fix_v1_applied"] = True
+            non_pf_points_fix_changed = True
+
+        if non_pf_points_fix_changed:
+            self.save_settings()
 
         self.settings["prec_min_order"] = 0
 
@@ -976,11 +983,21 @@ class RiskVolumeApp(QMainWindow):
             == "surf"
         )
 
+    def _is_vataga_terminal(self):
+        return (
+            str(self.settings.get("auto_apply_terminal", "profit_forge") or "profit_forge")
+            .strip()
+            .lower()
+            == "vataga"
+        )
+
     def _menu_terminal_kind(self):
         if self._is_tigertrade_terminal():
             return "tiger"
         if self._is_surf_terminal():
             return "surf"
+        if self._is_vataga_terminal():
+            return "vataga"
         return None
 
     def _is_menu_terminal(self):
@@ -992,13 +1009,21 @@ class RiskVolumeApp(QMainWindow):
             return ("tiger_open_point", "tiger_close_point")
         if kind == "surf":
             return ("surf_open_point", "surf_accept_point")
+        if kind == "vataga":
+            return ("vataga_open_point", None)
         return (None, None)
+
+    def _menu_terminal_requires_final_point(self):
+        kind = self._menu_terminal_kind()
+        return kind in ("tiger", "surf")
 
     def _get_active_calc_points_key(self):
         if self._is_tigertrade_terminal():
             return "calc_points_tigertrade"
         if self._is_surf_terminal():
             return "calc_points_surf"
+        if self._is_vataga_terminal():
+            return "calc_points_vataga"
         if self._is_metascalp_terminal():
             return "calc_points_metascalp"
         return "calc_points_profit_forge"
@@ -1021,6 +1046,23 @@ class RiskVolumeApp(QMainWindow):
             return 0
 
         return self._get_standard_volume_precision()
+
+    def _scaled_pt(self, base_pt):
+        try:
+            ratio = self.settings.get("scale", self.base_scale) / float(self.base_scale)
+        except Exception:
+            ratio = 1.0
+        return max(7, int(base_pt * ratio))
+
+    def _set_window_size_with_extra_height(self):
+        self.adjustSize()
+        size = self.sizeHint()
+        try:
+            ratio = self.settings.get("scale", self.base_scale) / float(self.base_scale)
+        except Exception:
+            ratio = 1.0
+        extra_h = max(16, int(20 * ratio))
+        self.setFixedSize(size.width(), size.height() + extra_h)
 
     def _set_active_calc_points(self, points):
         key = self._get_active_calc_points_key()
@@ -1291,6 +1333,12 @@ class RiskVolumeApp(QMainWindow):
         warning_text = self._build_risk_warning_text(
             risk_percent, stop_percent, leverage, use_fee
         )
+        try:
+            risk_value = float(risk_percent)
+        except Exception:
+            risk_value = 0.0
+        warn_pt = self._scaled_pt(8.8 if risk_value >= 10.0 else 7.5)
+        self.lbl_risk_warning.setStyleSheet(f"color: #FF6B6B; font-size: {warn_pt}pt;")
         if warning_text:
             self.lbl_risk_warning.setText(warning_text)
             self.lbl_risk_warning.setVisible(True)
@@ -1307,6 +1355,12 @@ class RiskVolumeApp(QMainWindow):
         warning_text = self._build_risk_warning_text(
             risk_percent, stop_percent, leverage, use_fee
         )
+        try:
+            risk_value = float(risk_percent)
+        except Exception:
+            risk_value = 0.0
+        warn_pt = self._scaled_pt(8.8 if risk_value >= 10.0 else 7.5)
+        self.lbl_pos_warning.setStyleSheet(f"color: #FF6B6B; font-size: {warn_pt}pt;")
         if warning_text:
             self.lbl_pos_warning.setText(warning_text)
             self.lbl_pos_warning.setVisible(True)
@@ -1586,20 +1640,8 @@ class RiskVolumeApp(QMainWindow):
         )
 
         if hasattr(self, "lbl_pos_stop_delta"):
-            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            entry_text = f"{pos_stop:.2f}".rstrip("0").rstrip(".")
-            now_text = f"{pos_stop_now:.2f}".rstrip("0").rstrip(".")
-            delta_stop = pos_stop - pos_stop_now
-            delta_text = f"{delta_stop:+.2f}".rstrip("0").rstrip(".")
-            self.lbl_pos_stop_delta.setText(
-                t.get("pos_stop_delta", "").format(
-                    entry=entry_text,
-                    now=now_text,
-                    delta=delta_text,
-                )
-            )
-            self.lbl_pos_stop_delta.setStyleSheet("color: #777; font-size: 7pt;")
-            self.lbl_pos_stop_delta.setVisible(True)
+            self.lbl_pos_stop_delta.setText("")
+            self.lbl_pos_stop_delta.setVisible(False)
 
         delta = max_vol_at_stop - pos_vol
         if delta > 0:
@@ -1887,11 +1929,26 @@ class RiskVolumeApp(QMainWindow):
         for widget in pos_controls:
             widget.setEnabled(enabled)
 
+        dim_opacity = 1.0 if enabled else 0.35
+        for widget in pos_controls:
+            if enabled:
+                widget.setGraphicsEffect(None)
+            else:
+                fx = QGraphicsOpacityEffect(widget)
+                fx.setOpacity(dim_opacity)
+                widget.setGraphicsEffect(fx)
+
         if hasattr(self, "pos_target_cell_buttons"):
             for btn in self.pos_target_cell_buttons:
                 btn.setEnabled(enabled)
                 if not enabled:
                     btn.setChecked(False)
+                if enabled:
+                    btn.setGraphicsEffect(None)
+                else:
+                    fx = QGraphicsOpacityEffect(btn)
+                    fx.setOpacity(dim_opacity)
+                    btn.setGraphicsEffect(fx)
 
             if enabled:
                 selected_cell = int(self.settings.get("pos_target_cell", 1) or 1)
@@ -2099,8 +2156,7 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pass
 
-        self.adjustSize()
-        self.setFixedSize(self.sizeHint())
+        self._set_window_size_with_extra_height()
 
     def apply_position_adjustment_to_cell(self):
         if not bool(self.settings.get("pos_mode_enabled", False)):
@@ -2243,7 +2299,13 @@ class RiskVolumeApp(QMainWindow):
         f_main = max(8, int(base_font * ratio))
         input_font = max(8, int(9 * ratio))
         f_small = max(7, int(8.5 * ratio))
-        pad_main = max(2, int(3 * ratio))
+        # Compress padding growth for large scales to avoid oversized inner gaps.
+        pad_ratio = 1.0 + max(0.0, ratio - 1.0) * 0.55
+        pad_main = max(1, int(3 * pad_ratio))
+        combo_pad = max(1, int(3 * pad_ratio))
+        table_header_pad = max(2, int(4 * pad_ratio))
+        table_item_pad = max(2, int(5 * pad_ratio))
+        table_edit_pad = max(1, int(3 * pad_ratio))
         radius_main = max(4, int(6 * ratio))
         self.central_widget.setStyleSheet(
             f"""
@@ -2258,7 +2320,7 @@ class RiskVolumeApp(QMainWindow):
             QPushButton:disabled {{ background: #0F0F0F; color: #555; border: 1px solid #222; }}
             QPushButton:hover {{ background: #444; border-color: #38BE1D; }}
             QPushButton:pressed {{ background: #38BE1D; color: black; }}
-            QComboBox, QSpinBox, QDoubleSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}
+            QComboBox, QSpinBox, QDoubleSpinBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {combo_pad}px; border-radius: {max(4, int(4*ratio))}px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}
             QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid #FFFFFF; }}
             QComboBox::drop-down {{ border: none; }}
             QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #888; width: 0; height: 0; margin-right: 5px; }}
@@ -2306,17 +2368,29 @@ class RiskVolumeApp(QMainWindow):
         input_height = max(int(28 * ratio), int(12 * ratio + 14))
         if hasattr(self, "inp_dep"):
             self.inp_dep.setFixedHeight(input_height)
+            self.inp_dep.setStyleSheet(
+                f"QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}"
+                "QLineEdit:focus { border: 1px solid #FFFFFF; }"
+            )
         if hasattr(self, "inp_risk"):
             self.inp_risk.setFixedHeight(input_height)
+            self.inp_risk.setStyleSheet(
+                f"QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}"
+                "QLineEdit:focus { border: 1px solid #FFFFFF; }"
+            )
         if hasattr(self, "inp_stop"):
             self.inp_stop.setFixedHeight(input_height)
+            self.inp_stop.setStyleSheet(
+                f"QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; padding: {pad_main}px; border-radius: {radius_main}px; font-size: {input_font}pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}"
+                "QLineEdit:focus { border: 1px solid #FFFFFF; }"
+            )
         if hasattr(self, "lbl_vol"):
             self.lbl_vol.setFixedHeight(max(24, int(36 * ratio)))
 
         if hasattr(self, "cb_distribution"):
             self.cb_distribution.setStyleSheet(
                 f"""
-                QComboBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {max(2, int(3*ratio))}px; border-radius: {max(4, int(4*ratio))}px; font-size: {f_small}pt; }}
+                QComboBox {{ background: #1A1A1A; color: white; border: 1px solid #333; padding: {combo_pad}px; border-radius: {max(4, int(4*ratio))}px; font-size: {f_small}pt; }}
                 """
             )
         if hasattr(self, "tabs"):
@@ -2346,11 +2420,11 @@ class RiskVolumeApp(QMainWindow):
                     background: #252525;
                     color: #888;
                     border: 1px solid #333;
-                    padding: {max(2, int(4*ratio))}px;
+                    padding: {table_header_pad}px;
                     font-size: {f_small}pt;
                 }}
                 QTableWidget::item {{
-                    padding: {max(3, int(5*ratio))}px;
+                    padding: {table_item_pad}px;
                     border: none;
                     color: #A8A8A8;
                     background: #1A1A1A;
@@ -2374,7 +2448,7 @@ class RiskVolumeApp(QMainWindow):
                     color: white;
                     border: 1px solid #333 !important;
                     border-radius: {max(4, int(4*ratio))}px;
-                    padding: {max(2, int(3*ratio))}px;
+                    padding: {table_edit_pad}px;
                     font-size: {max(8, int(9*ratio))}pt;
                     selection-background-color: rgba(90, 205, 80, 150);
                     selection-color: white;
@@ -2406,8 +2480,51 @@ class RiskVolumeApp(QMainWindow):
                 )
             )
 
-        self.adjustSize()
-        self.setFixedSize(self.sizeHint())
+        pos_lbl_pt = max(7, int(8 * ratio))
+        pos_input_pt = max(7, int(8 * ratio))
+        pos_hint_pt = max(7, int(8 * ratio))
+        pos_input_h = max(20, int(22 * ratio))
+
+        for name in (
+            "lbl_pos_vol_title",
+            "lbl_pos_risk_title",
+            "lbl_pos_stop_title",
+            "lbl_pos_stop_now_title",
+            "lbl_min_order_title",
+            "lbl_calc_type_title",
+        ):
+            widget = getattr(self, name, None)
+            if widget:
+                widget.setStyleSheet(f"font-size: {pos_lbl_pt}pt;")
+
+        for name in ("inp_pos_vol", "inp_pos_risk", "inp_pos_stop", "inp_pos_stop_now", "inp_min_order"):
+            widget = getattr(self, name, None)
+            if widget:
+                widget.setFixedHeight(pos_input_h)
+                widget.setStyleSheet(
+                    f"QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; border-radius: {max(4, int(4 * ratio))}px; font-size: {pos_input_pt}pt; padding: {max(1, int(1 * ratio))}px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}"
+                    "QLineEdit:focus { border: 1px solid #FFFFFF; }"
+                )
+
+        for name in ("lbl_pos_vol_hint", "lbl_pos_risk_cash", "lbl_pos_adjust", "lbl_pos_stop_delta"):
+            widget = getattr(self, name, None)
+            if widget:
+                color = "#888"
+                if name == "lbl_pos_vol_hint":
+                    color = "#666"
+                elif name == "lbl_pos_stop_delta":
+                    color = "#777"
+                widget.setStyleSheet(f"color: {color}; font-size: {pos_hint_pt}pt;")
+
+        for name in ("btn_reverse_cells", "btn_move_adjust_to_cell", "btn_toggle_all_cells"):
+            widget = getattr(self, name, None)
+            if widget:
+                widget.setFixedSize(max(28, int(34 * ratio)), max(22, int(25 * ratio)))
+
+        if hasattr(self, "lbl_status"):
+            self.lbl_status.setStyleSheet(f"color: #666; font-size: {self._scaled_pt(7)}pt;")
+
+        self._set_window_size_with_extra_height()
 
         # Обновляем масштаб элементов на вкладке каскадов
         if hasattr(self, "tab_cascade"):
@@ -2430,8 +2547,7 @@ class RiskVolumeApp(QMainWindow):
                 self.update_cells_table_height()
                 self._adapt_window_width_to_content()
                 if self.isVisible():
-                    self.adjustSize()
-                    self.setFixedSize(self.sizeHint())
+                    self._set_window_size_with_extra_height()
             except Exception:
                 pass
 
@@ -2543,7 +2659,9 @@ class RiskVolumeApp(QMainWindow):
             hk_coords = self.settings.get("hk_coords", "f2").upper()
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_status.setText(t["calc_calib_reset"].format(hotkey=hk_coords))
-            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            self.lbl_status.setStyleSheet(
+                f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+            )
             return True
 
         return False
@@ -2583,7 +2701,9 @@ class RiskVolumeApp(QMainWindow):
             if len(points) <= point_index:
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_status.setText(t["calc_not_enough_points"])
-                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(
+                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+                )
                 return
 
             vol_item = self.cells_table.item(row, 1)
@@ -2640,18 +2760,26 @@ class RiskVolumeApp(QMainWindow):
                 close_menu_delay = 0.03
 
                 open_key, close_key = self._get_menu_terminal_point_keys()
+                requires_final_point = self._menu_terminal_requires_final_point()
                 t_open = self.settings.get(open_key)
                 t_close = self.settings.get(close_key)
                 if (
                     not isinstance(t_open, (list, tuple))
                     or len(t_open) != 2
-                    or not isinstance(t_close, (list, tuple))
-                    or len(t_close) != 2
+                    or (
+                        requires_final_point
+                        and (
+                            not isinstance(t_close, (list, tuple))
+                            or len(t_close) != 2
+                        )
+                    )
                 ):
                     t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                     need_key = f"calc_{menu_kind}_need_points"
                     self.lbl_status.setText(t.get(need_key, t["calc_not_enough_points"]))
-                    self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                    self.lbl_status.setStyleSheet(
+                        f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+                    )
                     return
 
                 pyautogui.moveTo(t_open[0], t_open[1], duration=0.015)
@@ -2681,8 +2809,12 @@ class RiskVolumeApp(QMainWindow):
                     time.sleep(post_paste_settle_delay)
                     if transfer_index < len(transfers) - 1:
                         time.sleep(between_cells_delay)
+                    elif menu_kind == "vataga":
+                        # Vataga closes the menu by Enter only after the last edited cell.
+                        keyboard.press_and_release("enter")
+                        time.sleep(close_menu_delay)
 
-                if not abort_requested:
+                if not abort_requested and requires_final_point:
                     pyautogui.moveTo(t_close[0], t_close[1], duration=0.015)
                     pyautogui.click()
                     time.sleep(close_menu_delay)
@@ -2732,7 +2864,9 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_status.setText(
                     t.get("calc_apply_cancel", "Остановлено пользователем (ESC)")
                 )
-                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(
+                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+                )
 
             # restore original cursor position if captured
             if start_x is not None and start_y is not None:
@@ -2751,17 +2885,24 @@ class RiskVolumeApp(QMainWindow):
             self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
         )
         hk_coords = self.settings.get("hk_coords", "f2").upper()
+        status_pt = self._scaled_pt(7)
 
         points = self._get_active_calc_points()
         menu_ready = False
         menu_kind = self._menu_terminal_kind()
         if self._is_menu_terminal():
             open_key, close_key = self._get_menu_terminal_point_keys()
+            requires_final_point = self._menu_terminal_requires_final_point()
             menu_ready = (
                 isinstance(self.settings.get(open_key), (list, tuple))
                 and len(self.settings.get(open_key)) == 2
-                and isinstance(self.settings.get(close_key), (list, tuple))
-                and len(self.settings.get(close_key)) == 2
+                and (
+                    (not requires_final_point)
+                    or (
+                        isinstance(self.settings.get(close_key), (list, tuple))
+                        and len(self.settings.get(close_key)) == 2
+                    )
+                )
             )
 
         if self._is_menu_terminal():
@@ -2770,7 +2911,7 @@ class RiskVolumeApp(QMainWindow):
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 exists_key = f"calc_{menu_kind}_points_exists"
                 self.lbl_status.setText(t.get(exists_key, t["calc_calib_exists"]).format(cells=cells_count))
-                self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
                 self.update_calibration_status()
                 return
 
@@ -2783,7 +2924,7 @@ class RiskVolumeApp(QMainWindow):
             ).format(cells=cells_count, hotkey=hk_coords)
             self.lbl_status.setText(instruction)
             self.lbl_status.setStyleSheet(
-                "color: #FF9F0A; font-size: 7pt;"
+                f"color: cyan; font-size: {status_pt}pt;"
             )
             self.update_calibration_status()
             return
@@ -2792,7 +2933,7 @@ class RiskVolumeApp(QMainWindow):
             self.calc_calibration_active = False
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_status.setText(t["calc_calib_exists"].format(cells=cells_count))
-            self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+            self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
             self.update_calibration_status()
             return
 
@@ -2824,11 +2965,17 @@ class RiskVolumeApp(QMainWindow):
             menu_ready = False
             if self._is_menu_terminal():
                 open_key, close_key = self._get_menu_terminal_point_keys()
+                requires_final_point = self._menu_terminal_requires_final_point()
                 menu_ready = (
                     isinstance(self.settings.get(open_key), (list, tuple))
                     and len(self.settings.get(open_key)) == 2
-                    and isinstance(self.settings.get(close_key), (list, tuple))
-                    and len(self.settings.get(close_key)) == 2
+                    and (
+                        (not requires_final_point)
+                        or (
+                            isinstance(self.settings.get(close_key), (list, tuple))
+                            and len(self.settings.get(close_key)) == 2
+                        )
+                    )
                 )
             should_reset = len(existing_points) >= configured
             if self._is_menu_terminal():
@@ -2849,7 +2996,7 @@ class RiskVolumeApp(QMainWindow):
                     self.lbl_status.setText(
                         t["calc_calib_reset_short"].format(hotkey=hk_coords)
                     )
-                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;")
                 return
 
             self.start_calibration_calc()
@@ -2863,6 +3010,7 @@ class RiskVolumeApp(QMainWindow):
 
         if self._is_menu_terminal():
             open_key, close_key = self._get_menu_terminal_point_keys()
+            requires_final_point = self._menu_terminal_requires_final_point()
             menu_open = self.settings.get(open_key)
             menu_close = self.settings.get(close_key)
             points = self._get_active_calc_points()
@@ -2880,9 +3028,11 @@ class RiskVolumeApp(QMainWindow):
                 self.update_calibration_status()
                 return
 
-            if not (isinstance(menu_close, (list, tuple)) and len(menu_close) == 2):
+            if requires_final_point and not (isinstance(menu_close, (list, tuple)) and len(menu_close) == 2):
                 self.settings[close_key] = [x, y]
                 self.save_settings()
+                self.calc_calibration_active = False
+            elif not requires_final_point:
                 self.calc_calibration_active = False
 
             self.update_calibration_status()
@@ -2916,24 +3066,29 @@ class RiskVolumeApp(QMainWindow):
         )
         points_count = len(self._get_active_calc_points())
         hk_coords = self.settings.get("hk_coords", "f2").upper()
+        status_pt = self._scaled_pt(7)
 
         if self._is_menu_terminal():
             menu_kind = self._menu_terminal_kind() or "tiger"
             open_key, close_key = self._get_menu_terminal_point_keys()
+            requires_final_point = self._menu_terminal_requires_final_point()
             has_open = (
                 isinstance(self.settings.get(open_key), (list, tuple))
                 and len(self.settings.get(open_key)) == 2
             )
             has_close = (
-                isinstance(self.settings.get(close_key), (list, tuple))
-                and len(self.settings.get(close_key)) == 2
+                (not requires_final_point)
+                or (
+                    isinstance(self.settings.get(close_key), (list, tuple))
+                    and len(self.settings.get(close_key)) == 2
+                )
             )
 
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             if not self.calc_calibration_active and has_open and has_close and points_count >= cells_count:
                 ready_key = f"calc_{menu_kind}_points_ready"
                 self.lbl_status.setText(t.get(ready_key, t["calc_calib_ready"]).format(cells=cells_count))
-                self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
                 return
 
             if self.calc_calibration_active:
@@ -2968,20 +3123,20 @@ class RiskVolumeApp(QMainWindow):
                     self.lbl_status.setText(
                         t.get(ready_key, t["calc_calib_ready"]).format(cells=cells_count)
                     )
-                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(f"color: cyan; font-size: {status_pt}pt;")
             else:
                 need_key = f"calc_{menu_kind}_need_points"
                 self.lbl_status.setText(
                     t.get(need_key, "⚠ Точки для выставления терминала не захвачены. Нажми горячую клавишу захвата")
                 )
-                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(f"color: #666; font-size: {status_pt}pt;")
             return
 
         if points_count == 0:
             if self.calc_calibration_active:
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 self.lbl_status.setText(t["calc_calib_active"].format(hotkey=hk_coords))
-                self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+                self.lbl_status.setStyleSheet(f"color: cyan; font-size: {status_pt}pt;")
             else:
                 self.lbl_status.setText("")
         elif points_count < cells_count:
@@ -2989,11 +3144,11 @@ class RiskVolumeApp(QMainWindow):
             self.lbl_status.setText(
                 t["calc_calib_progress"].format(points=points_count, cells=cells_count)
             )
-            self.lbl_status.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {status_pt}pt;")
         else:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_status.setText(t["calc_calib_ready"].format(cells=cells_count))
-            self.lbl_status.setStyleSheet("color: #38BE1D; font-size: 7pt;")
+            self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
 
     def increase_cells(self):
         """Увеличивает количество ячеек"""
@@ -3287,8 +3442,7 @@ class RiskVolumeApp(QMainWindow):
         self.cells_table.setFixedHeight(table_height)
 
         if self.isVisible():
-            self.adjustSize()
-            self.setFixedSize(self.sizeHint())
+            self._set_window_size_with_extra_height()
 
     def on_table_item_clicked(self, item):
         """Обработчик клика по ячейке: toggle-мультивыбор в колонке 0, редактирование в колонке 2"""
@@ -3428,8 +3582,7 @@ class RiskVolumeApp(QMainWindow):
     def finalize_startup_layout(self):
         self.update_cells_table_height()
         self._adapt_window_width_to_content()
-        self.adjustSize()
-        self.setFixedSize(self.sizeHint())
+        self._set_window_size_with_extra_height()
 
     def _apply_preset_values(self, preset_index):
         """Применяет значения выбранного пресета"""

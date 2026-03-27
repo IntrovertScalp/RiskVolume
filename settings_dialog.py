@@ -670,6 +670,15 @@ class SettingsDialog(QDialog):
         grid.addWidget(self.prec_lev, row, 1)
         row += 1
 
+        # Разделитель
+        sep_terminal = QFrame()
+        sep_terminal.setObjectName("Separator")
+        sep_terminal.setFrameShape(QFrame.Shape.HLine)
+        grid.addWidget(sep_terminal, row, 0, 1, 2)
+        row += 1
+        grid.setRowMinimumHeight(row, 8)
+        row += 1
+
         # === ТЕРМИНАЛ АВТОВЫСТАВЛЕНИЯ ===
         lbl_terminal = QLabel(t.get("section_terminal", "ТЕРМИНАЛ АВТОВЫСТАВЛЕНИЯ"))
         lbl_terminal.setObjectName("SectionHeader")
@@ -684,13 +693,14 @@ class SettingsDialog(QDialog):
 
         self.cb_apply_terminal = NoWheelComboBox()
         self.cb_apply_terminal.setObjectName("LangCombo")
-        self._apply_terminal_values = ["profit_forge", "metascalp", "tigertrade", "surf"]
+        self._apply_terminal_values = ["profit_forge", "metascalp", "tigertrade", "surf", "vataga"]
         self.cb_apply_terminal.addItem(
             t.get("terminal_profit_forge", "Profit Forge")
         )
         self.cb_apply_terminal.addItem(t.get("terminal_metascalp", "MetaScalp"))
         self.cb_apply_terminal.addItem(t.get("terminal_tigertrade", "TigerTrade"))
         self.cb_apply_terminal.addItem(t.get("terminal_surf", "SURF"))
+        self.cb_apply_terminal.addItem(t.get("terminal_vataga", "Vataga"))
         self._enable_combo_popup_hover_highlight(self.cb_apply_terminal)
 
         saved_terminal = str(

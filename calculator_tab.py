@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -286,23 +287,27 @@ def init_calculator_tab(app):
 
     pos_hints_layout = QVBoxLayout()
     pos_hints_layout.setSpacing(2)
-    pos_hints_row = QHBoxLayout()
-    pos_hints_row.setSpacing(6)
+    pos_hints_row = QGridLayout()
+    pos_hints_row.setHorizontalSpacing(6)
+    pos_hints_row.setVerticalSpacing(0)
+    pos_hints_row.setColumnStretch(0, 0)
+    pos_hints_row.setColumnStretch(1, 1)
+    pos_hints_row.setColumnStretch(2, 1)
+    pos_hints_row.setColumnStretch(3, 1)
 
     app.lbl_pos_vol_hint = QLabel("0")
     app.lbl_pos_vol_hint.setStyleSheet("color: #666; font-size: 8pt;")
     app.lbl_pos_vol_hint.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
-    pos_hints_row.addWidget(app.lbl_pos_vol_hint, 1)
+    pos_hints_row.addWidget(app.lbl_pos_vol_hint, 0, 0)
 
     app.lbl_pos_risk_cash = QLabel(t["pos_risk_cash_na"])
-    app.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+    app.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt; padding-left: 2px;")
     app.lbl_pos_risk_cash.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
-    pos_hints_row.addWidget(app.lbl_pos_risk_cash, 1)
-    pos_hints_row.addStretch(1)
+    pos_hints_row.addWidget(app.lbl_pos_risk_cash, 0, 1)
 
     app.lbl_pos_adjust = QLabel(t["calc_recommendation"])
     app.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 8pt;")
