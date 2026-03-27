@@ -193,10 +193,12 @@ def init_calculator_tab(app):
     app.chk_pos_mode.setChecked(bool(app.settings.get("pos_mode_enabled", False)))
     app.chk_pos_mode.toggled.connect(app.on_position_mode_toggled)
     app.chk_pos_mode.setStyleSheet(
-        "QCheckBox { color: #aaa; font-size: 9pt; spacing: 6px; margin: 0px; padding: 0px; }"
-        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #3E3E3E; background: #141414; margin: auto; }"
-        f"QCheckBox::indicator:checked {{ background: #1A1A1A; border: 1px solid #38BE1D; image: url({app._posmode_checkmark_path_css}); }}"
-        "QCheckBox::indicator:unchecked { image: none; }"
+        "QCheckBox { font-size: 9pt; spacing: 5px; margin: 0px; padding: 0px; }"
+        "QCheckBox:checked { color: #AAA; }"
+        "QCheckBox:unchecked { color: #666; }"
+        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; margin: auto; }"
+        f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({app._posmode_checkmark_path_css}); }}"
+        "QCheckBox::indicator:unchecked { background: #121212; border: 1px solid #3A3A3A; image: none; }"
     )
     main_layout.addWidget(app.chk_pos_mode)
 

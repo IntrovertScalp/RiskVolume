@@ -281,12 +281,12 @@ class RiskVolumeApp(QMainWindow):
     def _create_posmode_checkmark_icon(self):
         import tempfile
 
-        path = os.path.join(tempfile.gettempdir(), "rv_posmode_checkmark_white.png")
+        path = os.path.join(tempfile.gettempdir(), "rv_posmode_checkmark_black.png")
         if not os.path.exists(path):
             pix = QPixmap(12, 12)
             pix.fill(QColor(0, 0, 0, 0))
             painter = QPainter(pix)
-            pen = QPen(QColor(255, 255, 255))
+            pen = QPen(QColor(0, 0, 0))
             pen.setWidth(2)
             painter.setPen(pen)
             painter.drawLine(2, 6, 5, 9)
@@ -2152,12 +2152,12 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "chk_pos_mode"):
             self.chk_pos_mode.setStyleSheet(
                 (
-                    f"QCheckBox#PosModeToggle {{ color: #9A9A9A; font-size: {f_small}pt; font-weight: bold; padding: {pos_toggle_pad_v}px {btn_pad}px; min-height: {pos_toggle_min_h}px; border-radius: {radius_main}px; background: #2A2A2A; border: 1px solid #3A3A3A; }}"
-                    f"QCheckBox#PosModeToggle:checked {{ background: #38BE1D; color: black; border: 1px solid #38BE1D; }}"
-                    f"QCheckBox#PosModeToggle:unchecked {{ background: #2A2A2A; color: #888; border: 1px solid #3A3A3A; }}"
-                    "QCheckBox#PosModeToggle::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #3E3E3E; background: #141414; margin-right: 6px; }"
-                    f"QCheckBox#PosModeToggle::indicator:checked {{ background: #1A1A1A; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
-                    "QCheckBox#PosModeToggle::indicator:unchecked { image: none; }"
+                    f"QCheckBox#PosModeToggle {{ font-size: {f_small}pt; spacing: 5px; margin: 0px; padding: 0px; background: transparent; border: none; }}"
+                    "QCheckBox#PosModeToggle:checked { color: #AAA; }"
+                    "QCheckBox#PosModeToggle:unchecked { color: #666; }"
+                    "QCheckBox#PosModeToggle::indicator { width: 14px; height: 14px; border-radius: 3px; margin-right: 6px; }"
+                    f"QCheckBox#PosModeToggle::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
+                    "QCheckBox#PosModeToggle::indicator:unchecked { background: #121212; border: 1px solid #3A3A3A; image: none; }"
                 )
             )
 
@@ -2818,21 +2818,32 @@ class RiskVolumeApp(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole + 2, click_count)
 
             if click_count == 1:
-                # First click: start editing
+                # First click: open editor with cursor at end, no selection
                 self.cells_table.editItem(item)
+                # Ensure no text is selected after editor opens
+                def deselect_and_position():
+                    from PyQt6.QtWidgets import QApplication
+                    editor = QApplication.instance().focusWidget()
+                    if isinstance(editor, QLineEdit):
+                        editor.deselect()
+                        editor.setCursorPosition(len(editor.text()))
+                QTimer.singleShot(0, deselect_and_position)
             elif click_count == 2:
-                # Second click: get editor and select all
-                editor = self.cells_table.itemWidget(item.row(), item.column())
+                # Second click: select all text
+                from PyQt6.QtWidgets import QApplication
+                editor = QApplication.instance().focusWidget()
                 if not editor or not isinstance(editor, QLineEdit):
-                    # If no editor yet, try editItem then selectAll
+                    # If no editor yet, open and select with delay
                     self.cells_table.editItem(item)
-                    QTimer.singleShot(0, lambda: (
-                        self.cells_table.itemWidget(item.row(), item.column()).selectAll()
-                        if isinstance(self.cells_table.itemWidget(item.row(), item.column()), QLineEdit)
-                        else None
-                    ))
+                    def select_all_delayed():
+                        ed = QApplication.instance().focusWidget()
+                        if isinstance(ed, QLineEdit):
+                            # Use setSelection() to explicitly select all text
+                            ed.setSelection(0, len(ed.text()))
+                    QTimer.singleShot(15, select_all_delayed)
                 else:
-                    editor.selectAll()
+                    # Already editing, select all text
+                    editor.setSelection(0, len(editor.text()))
 
 
     def on_table_item_changed(self, item):

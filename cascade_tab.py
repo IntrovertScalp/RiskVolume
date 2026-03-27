@@ -50,8 +50,9 @@ class CascadeTableItemDelegate(QStyledItemDelegate):
             editor.setValidator(
                 QRegularExpressionValidator(QRegularExpression(r"[0-9]*[.,]?[0-9]*"), editor)
             )
-            # Place cursor at end without selecting (1-click behavior)
-            QTimer.singleShot(0, lambda e=editor: (e.deselect(), e.setCursorPosition(len(e.text()))))
+            # Immediately place cursor at end without selecting
+            editor.deselect()
+            editor.setCursorPosition(len(editor.text()))
         return editor
 
     def updateEditorGeometry(self, editor, option, index):
@@ -888,15 +889,18 @@ class CascadeTab(QWidget):
             "QTableWidget QScrollBar::add-line:horizontal, QTableWidget QScrollBar::sub-line:horizontal { background: #1A1A1A; width: 14px; border: 1px solid #1F1F1F; }"
             "selection-background-color: #38BE1D; selection-color: black;"
         )
-        # Set delegate for both columns and disable default edit triggers
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        # Set delegate for both columns
         self.table.setItemDelegateForColumn(0, CascadeTableItemDelegate(self.table))
         self.table.setItemDelegateForColumn(1, CascadeTableItemDelegate(self.table))
+        
+        # Use NoEditTriggers to manage editing manually via click handlers
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         
         self.table.installEventFilter(self)
         self.table.viewport().installEventFilter(self)
         self.table.cellChanged.connect(self._on_table_cell_changed)
         self.table.itemClicked.connect(self._on_cascade_table_item_clicked)
+        self.table.itemDoubleClicked.connect(self._on_cascade_table_item_double_clicked)
         layout.addWidget(self.table, 1)
 
         # --- БЛОК 4: Кнопка выставления ---
@@ -1005,16 +1009,7 @@ class CascadeTab(QWidget):
         super().mousePressEvent(event)
 
     def eventFilter(self, obj, event):
-        if obj in (getattr(self, "table", None), getattr(getattr(self, "table", None), "viewport", lambda: None)()):
-            if event.type() == event.Type.KeyPress and event.key() in (
-                Qt.Key.Key_Escape,
-                Qt.Key.Key_Return,
-                Qt.Key.Key_Enter,
-            ):
-                self._clear_table_focus()
-                self._clear_input_focus()
-                event.accept()
-                return True
+        # No special handling needed - let QAbstractItemView manage the editor
         return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
@@ -1297,66 +1292,39 @@ class CascadeTab(QWidget):
         self.recalc_table()
 
     def _on_cascade_table_item_clicked(self, item):
-        """Handle 1-click (edit) and 2-click (select all) for cascade table items"""
+        """1-click: open editor and put cursor to the right without selecting text"""
         if not item:
             return
 
-        now_ms = int(time.time() * 1000)
-        last_ms = (item.data(Qt.ItemDataRole.UserRole + 1) or 0)
-        click_count = (item.data(Qt.ItemDataRole.UserRole + 2) or 0)
+        self.table.editItem(item)
 
-        # Reset click_count if more than 350ms have passed since last click
-        if now_ms - last_ms > 350 or last_ms == 0:
-            click_count = 0
+        def deselect_and_position():
+            from PyQt6.QtWidgets import QApplication
+            editor = QApplication.instance().focusWidget()
+            if isinstance(editor, QLineEdit):
+                editor.deselect()
+                editor.setCursorPosition(len(editor.text()))
 
-        # Reset click_count for all other items to avoid interference
-        for row in range(self.table.rowCount()):
-            for col in range(self.table.columnCount()):
-                other_item = self.table.item(row, col)
-                if other_item is not item:
-                    other_item.setData(Qt.ItemDataRole.UserRole + 2, 0)
-                    other_item.setData(Qt.ItemDataRole.UserRole + 1, 0)
+        QTimer.singleShot(0, deselect_and_position)
 
-        click_count += 1
-        item.setData(Qt.ItemDataRole.UserRole + 1, now_ms)
-        item.setData(Qt.ItemDataRole.UserRole + 2, click_count)
 
-        if click_count == 1:
-            # First click: start editing
-            self.table.editItem(item)
-        elif click_count == 2:
-            # Second click: get editor and select all
-            editor = self.table.itemWidget(item.row(), item.column())
-            if not editor or not isinstance(editor, QLineEdit):
-                # If no editor yet, try editItem then selectAll with delay
-                self.table.editItem(item)
-                QTimer.singleShot(10, lambda r=item.row(), c=item.column(): (
-                    self.table.itemWidget(r, c).selectAll()
-                    if isinstance(self.table.itemWidget(r, c), QLineEdit)
-                    else None
-                ))
-            else:
-                # Already editing, select all with small delay to ensure it processes
-                QTimer.singleShot(10, editor.selectAll)
+    def _on_cascade_table_item_double_clicked(self, item):
+        """2-click: select all text inside active editor"""
+        if not item:
+            return
+
+        def select_all_delayed():
+            from PyQt6.QtWidgets import QApplication
+            editor = QApplication.instance().focusWidget()
+            if isinstance(editor, QLineEdit):
+                editor.setSelection(0, len(editor.text()))
+
+        QTimer.singleShot(0, select_all_delayed)
 
     def _on_table_cell_changed(self, row, column):
-        if column != 1:
-            return
-        if not hasattr(self, "cb_type"):
-            return
-        if self.cb_type.currentIndex() == 3:
-            return
-
-        self.cb_type.blockSignals(True)
-        self.cb_type.setCurrentIndex(3)
-        self.cb_type.blockSignals(False)
-
-        self.sb_manual_k_wrap.setEnabled(True)
-        self.sb_manual_k_wrap.setVisible(True)
-        self.lbl_manual_k.setVisible(True)
-        self.main.settings["cas_type_index"] = 3
-        self.main.settings["cas_manual_k"] = float(self.sb_manual_k.value())
-        self.main.save_settings()
+        # Do not auto-change cascade type when user edits distance values
+        # User should be able to enter values without type changing
+        pass
 
     def on_range_mode_toggled(self, checked):
         """Переключение режима: ширина диапазона vs шаг."""
