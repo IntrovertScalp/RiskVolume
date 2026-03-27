@@ -133,12 +133,24 @@ def _fetch_balance_with_ccxt_process(payload, result_queue):
         free = balance.get("free", {}) if isinstance(balance, dict) else {}
         used = balance.get("used", {}) if isinstance(balance, dict) else {}
 
+        free_val = float(free.get(asset, 0.0) or 0.0)
+        used_val = float(used.get(asset, 0.0) or 0.0)
+
+        # For futures, show only free (available) balance, not total/wallet balance.
+        if market_type == "futures":
+            if asset in free and free[asset] is not None:
+                result_queue.put({"ok": True, "balance": free_val})
+                return
+            if asset in total and total[asset] is not None:
+                result_queue.put({"ok": True, "balance": float(total[asset])})
+                return
+            result_queue.put({"ok": True, "balance": free_val})
+            return
+
         if asset in total and total[asset] is not None:
             result_queue.put({"ok": True, "balance": float(total[asset])})
             return
 
-        free_val = float(free.get(asset, 0.0) or 0.0)
-        used_val = float(used.get(asset, 0.0) or 0.0)
         result_queue.put({"ok": True, "balance": free_val + used_val})
     except Exception as exc:
         result_queue.put({"ok": False, "error": str(exc)})
@@ -171,6 +183,7 @@ def _force_consistent_qt_theme(app: QApplication):
 
 class HotkeySignaler(QObject):
     toggle_sig = pyqtSignal()
+    calibrate_sig = pyqtSignal()
     apply_sig = pyqtSignal()  # Новый сигнал для применения
 
 
@@ -226,6 +239,7 @@ class RiskVolumeApp(QMainWindow):
         self.apply_running = False
         self.signaler = HotkeySignaler()
         self.signaler.toggle_sig.connect(self.toggle_window)
+        self.signaler.calibrate_sig.connect(self.handle_hotkey_calibration)
         self.signaler.apply_sig.connect(
             self.handle_hotkey_apply
         )  # Единая точка входа для горячей клавиши
@@ -245,6 +259,7 @@ class RiskVolumeApp(QMainWindow):
         self._cells_count_before_target_mode = None
         self._ghost_input = None
         self.calc_calibration_active = False
+        self._hotkey_ids = {}
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -259,7 +274,7 @@ class RiskVolumeApp(QMainWindow):
         # Периодически перерегистрируем keyboard-хуки (Windows убивает их при простое/сне)
         self._hotkey_keepalive_timer = QTimer(self)
         self._hotkey_keepalive_timer.timeout.connect(self._keepalive_hotkeys)
-        self._hotkey_keepalive_timer.start(5 * 60 * 1000)  # каждые 5 минут
+        self._hotkey_keepalive_timer.start(60 * 1000)  # каждые 60 секунд
 
         # Периодическая синхронизация депозита через API (если включено)
         self._auto_dep_sync_busy = False
@@ -661,6 +676,9 @@ class RiskVolumeApp(QMainWindow):
             assets = data.get("assets", []) if isinstance(data, dict) else []
             for row in assets:
                 if str(row.get("asset", "")).upper() == asset:
+                    available = row.get("availableBalance", None)
+                    if available is not None:
+                        return float(available or 0.0)
                     return float(row.get("walletBalance", 0.0) or 0.0)
             return 0.0
 
@@ -2177,30 +2195,47 @@ class RiskVolumeApp(QMainWindow):
             self.tab_cascade.apply_scale()
 
     # --- УПРАВЛЕНИЕ ГОРЯЧИМИ КЛАВИШАМИ (ИСПРАВЛЕНО) ---
+    def _clear_registered_hotkeys(self):
+        for _, hotkey_id in list(self._hotkey_ids.items()):
+            try:
+                keyboard.remove_hotkey(hotkey_id)
+            except Exception:
+                pass
+        self._hotkey_ids = {}
+
+    def _register_hotkey(self, key_name, hotkey_text, callback, fallback):
+        try:
+            hotkey_id = keyboard.add_hotkey(hotkey_text, callback)
+            self._hotkey_ids[key_name] = hotkey_id
+            self.settings[key_name] = hotkey_text
+            return
+        except Exception:
+            pass
+
+        hotkey_id = keyboard.add_hotkey(fallback, callback)
+        self._hotkey_ids[key_name] = hotkey_id
+        self.settings[key_name] = fallback
+
     def rebind_hotkeys(self):
         def normalize_hotkey(hotkey_value, fallback):
             value = str(hotkey_value or "").strip().lower()
             value = value.replace(" ", "")
             return value or fallback
 
-        keyboard.unhook_all()
+        self._clear_registered_hotkeys()
+
         # F1 - Скрыть/Показать
         hk_show = normalize_hotkey(self.settings.get("hk_show", "f1"), "f1")
-        try:
-            keyboard.add_hotkey(hk_show, self.signaler.toggle_sig.emit)
-            self.settings["hk_show"] = hk_show
-        except Exception:
-            keyboard.add_hotkey("f1", self.signaler.toggle_sig.emit)
-            self.settings["hk_show"] = "f1"
+        self._register_hotkey(
+            "hk_show", hk_show, self.signaler.toggle_sig.emit, "f1"
+        )
 
         # F2 - Калибровка (в зависимости от активной вкладки)
         hk_coords = normalize_hotkey(self.settings.get("hk_coords", "f2"), "f2")
-        try:
-            keyboard.add_hotkey(hk_coords, self.handle_hotkey_calibration)
-            self.settings["hk_coords"] = hk_coords
-        except Exception:
-            keyboard.add_hotkey("f2", self.handle_hotkey_calibration)
-            self.settings["hk_coords"] = "f2"
+        self._register_hotkey(
+            "hk_coords", hk_coords, self.signaler.calibrate_sig.emit, "f2"
+        )
+
         # F3 - ОТПРАВИТЬ - ОТКЛЮЧЕНО, теперь только через кнопку
         # keyboard.add_hotkey(
         #     self.settings.get("hk_send", "f3"), self.signaler.apply_sig.emit
@@ -3305,6 +3340,10 @@ class RiskVolumeApp(QMainWindow):
     def _on_app_about_to_quit(self):
         """Сохраняет настройки при завершении приложения"""
         try:
+            try:
+                self._clear_registered_hotkeys()
+            except Exception:
+                pass
             self.settings["window_pos"] = [self.x(), self.y()]
             self.settings["pos_table_volume_override"] = float(
                 getattr(self, "table_volume_override", 0.0) or 0.0

@@ -867,6 +867,27 @@ class SettingsDialog(QDialog):
 
     def save_and_close(self):
         self._store_current_auto_dep_credentials()
+        selected_market_is_spot = self.cb_auto_dep_market.currentIndex() == 1
+        preserve_calc_state = (
+            self.chk_auto_deposit.isChecked() and selected_market_is_spot
+        )
+
+        preserved_dist_index = None
+        preserved_manual_texts = None
+        if preserve_calc_state and self.parent_window:
+            if hasattr(self.parent_window, "cb_distribution"):
+                try:
+                    preserved_dist_index = int(
+                        self.parent_window.cb_distribution.currentIndex()
+                    )
+                except Exception:
+                    preserved_dist_index = None
+            if hasattr(self.parent_window, "cells_table"):
+                preserved_manual_texts = []
+                for i in range(5):
+                    item = self.parent_window.cells_table.item(i, 2)
+                    preserved_manual_texts.append((item.text() if item else "") or "")
+
         try:
             fee_taker = float(self.inp_fee_taker.text().replace(",", "."))
         except:
@@ -927,6 +948,44 @@ class SettingsDialog(QDialog):
         if hasattr(self.parent_window, "_apply_auto_deposit_sync"):
             self.parent_window._apply_auto_deposit_sync(force_now=True)
         self.parent_window.update_calc()
+
+        if preserve_calc_state and self.parent_window:
+            if (
+                preserved_dist_index is not None
+                and hasattr(self.parent_window, "cb_distribution")
+            ):
+                safe_index = max(0, min(2, int(preserved_dist_index)))
+                self.parent_window.cb_distribution.blockSignals(True)
+                self.parent_window.cb_distribution.setCurrentIndex(safe_index)
+                self.parent_window.cb_distribution.blockSignals(False)
+                self.parent_window.settings["scalp_distribution_type"] = safe_index
+
+            if (
+                preserved_manual_texts is not None
+                and preserved_dist_index == 2
+                and hasattr(self.parent_window, "cells_table")
+                and hasattr(self.parent_window, "on_table_item_changed")
+            ):
+                try:
+                    self.parent_window.cells_table.itemChanged.disconnect(
+                        self.parent_window.on_table_item_changed
+                    )
+                except Exception:
+                    pass
+
+                for i, text in enumerate(preserved_manual_texts):
+                    item = self.parent_window.cells_table.item(i, 2)
+                    if item:
+                        item.setText(text)
+
+                self.parent_window.cells_table.itemChanged.connect(
+                    self.parent_window.on_table_item_changed
+                )
+
+                self.parent_window._capture_current_manual_distribution()
+                self.parent_window.update_cell_volumes()
+                self.parent_window.save_cell_settings()
+
         self.accept()
 
     def mousePressEvent(self, event):
