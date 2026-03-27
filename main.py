@@ -260,6 +260,7 @@ class RiskVolumeApp(QMainWindow):
         self._ghost_input = None
         self.calc_calibration_active = False
         self._hotkey_ids = {}
+        self._cells_layout_reflow_pending = False
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -2194,6 +2195,30 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "tab_cascade"):
             self.tab_cascade.apply_scale()
 
+        # Второй проход после применения стилей/DPI-метрик,
+        # чтобы таблица калькулятора гарантированно не заходила под кнопку.
+        self._schedule_cells_layout_reflow()
+
+    def _schedule_cells_layout_reflow(self):
+        if self._cells_layout_reflow_pending:
+            return
+        self._cells_layout_reflow_pending = True
+
+        def _run():
+            self._cells_layout_reflow_pending = False
+            if not hasattr(self, "cells_table"):
+                return
+            try:
+                self.update_cells_table_height()
+                self._adapt_window_width_to_content()
+                if self.isVisible():
+                    self.adjustSize()
+                    self.setFixedSize(self.sizeHint())
+            except Exception:
+                pass
+
+        QTimer.singleShot(0, _run)
+
     # --- УПРАВЛЕНИЕ ГОРЯЧИМИ КЛАВИШАМИ (ИСПРАВЛЕНО) ---
     def _clear_registered_hotkeys(self):
         for _, hotkey_id in list(self._hotkey_ids.items()):
@@ -2768,12 +2793,14 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "cells_table"):
             return
 
-        # Отключаем скроллбар
+        # Всегда отключаем скроллбары для таблицы калькулятора:
+        # горизонтальный скролл может появляться на некоторых масштабах и "съедать"
+        # высоту последней строки, из-за чего визуально таблица заходит под кнопку.
         self.cells_table.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self.cells_table.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
 
         # Рассчитываем высоту строки по реальному sizeHint
@@ -2793,8 +2820,17 @@ class RiskVolumeApp(QMainWindow):
 
         header = self.cells_table.horizontalHeader()
         header_height = max(header.height(), header.sizeHint().height())
+
+        # Берем фактическую длину вертикального хедера после установки высот строк.
+        # Это надежнее, чем row_height * N на разных DPI/масштабах/шрифтах.
+        rows_height = self.cells_table.verticalHeader().length()
+
+        # Добавляем небольшой буфер, чтобы нижняя строка никогда не обрезалась.
         table_height = (
-            header_height + (row_height * 5) + (self.cells_table.frameWidth() * 2)
+            header_height
+            + rows_height
+            + (self.cells_table.frameWidth() * 2)
+            + 4
         )
         self.cells_table.setFixedHeight(table_height)
 
