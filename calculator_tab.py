@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QStyledItemDelegate,
     QCheckBox,
+    QWidget,
 )
 from PyQt6.QtCore import Qt, QRegularExpression, QTimer
 from PyQt6.QtGui import QRegularExpressionValidator
@@ -548,12 +549,101 @@ def init_calculator_tab(app):
     main_layout.addWidget(app.cells_table)
 
     # --- КНОПКА ВЫСТАВИТЬ ---
+    apply_row = QHBoxLayout()
+    apply_row.setContentsMargins(0, 0, 0, 0)
+    apply_row.setSpacing(6)
+
     app.btn_submit = QPushButton(t["calc_apply"])
     app.btn_submit.setStyleSheet(
         "background: #38BE1D; color: black; font-weight: bold; padding: 6px 16px 6px 24px;"
     )
     app.btn_submit.clicked.connect(app.send_volume_to_terminal)
-    main_layout.addWidget(app.btn_submit)
+    apply_row.addWidget(app.btn_submit, 1)
+
+    app.btn_pf_preview = QPushButton(t.get("calc_preview_btn", "ПРЕВЬЮ"))
+    app.btn_pf_preview.setToolTip(t.get("calc_show_frames", "Показать рамку"))
+    app.btn_pf_preview.clicked.connect(app._on_pf_preview_clicked)
+    apply_row.addWidget(app.btn_pf_preview, 0)
+
+    main_layout.addLayout(apply_row)
+
+    app.pf_controls_widget = QWidget()
+    pf_controls_layout = QVBoxLayout(app.pf_controls_widget)
+    pf_controls_layout.setContentsMargins(0, 0, 0, 0)
+    pf_controls_layout.setSpacing(2)
+
+    pf_controls_top_row = QHBoxLayout()
+    pf_controls_top_row.setContentsMargins(0, 0, 0, 0)
+    pf_controls_top_row.setSpacing(6)
+
+    app.lbl_pf_glasses_title = QLabel(t.get("calc_glasses_count", "Стаканов:"))
+    pf_controls_top_row.addWidget(app.lbl_pf_glasses_title)
+
+    app.inp_pf_glasses_count = QLineEdit(
+        str(int(app.settings.get("pf_glasses_count", 1) or 1))
+    )
+    app.inp_pf_glasses_count.setValidator(
+        QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
+    )
+    app.inp_pf_glasses_count.setFixedWidth(50)
+    app.inp_pf_glasses_count.setFixedHeight(22)
+    app.inp_pf_glasses_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.inp_pf_glasses_count.setStyleSheet(
+        "font-size: 8pt; padding: 2px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
+    )
+    app.inp_pf_glasses_count.installEventFilter(app)
+    app.inp_pf_glasses_count.editingFinished.connect(
+        app._on_pf_glasses_count_editing_finished
+    )
+    pf_controls_top_row.addWidget(app.inp_pf_glasses_count)
+
+    app.lbl_pf_calib_glass_title = QLabel(
+        t.get("calc_calib_glass", "Калибровать стакан:")
+    )
+    pf_controls_top_row.addWidget(app.lbl_pf_calib_glass_title)
+
+    app.cb_pf_calib_glass = QComboBox()
+    app.cb_pf_calib_glass.installEventFilter(app)
+    app.cb_pf_calib_glass.currentIndexChanged.connect(app._on_pf_calibration_glass_changed)
+    pf_controls_top_row.addWidget(app.cb_pf_calib_glass)
+
+    pf_controls_top_row.addStretch(1)
+
+    app.chk_pf_show_frames = QCheckBox(t.get("calc_show_frames", "Показать рамку"))
+    app.chk_pf_show_frames.setChecked(bool(app.settings.get("pf_show_preview_frames", False)))
+    app.chk_pf_show_frames.toggled.connect(app._on_pf_preview_toggle_changed)
+    pf_controls_top_row.addWidget(app.chk_pf_show_frames)
+
+    pf_controls_layout.addLayout(pf_controls_top_row)
+
+    pf_targets_row = QHBoxLayout()
+    pf_targets_row.setContentsMargins(0, 0, 0, 0)
+    pf_targets_row.setSpacing(6)
+
+    app.lbl_pf_targets_title = QLabel(t.get("calc_targets", "Выставить в:"))
+    pf_targets_row.addWidget(app.lbl_pf_targets_title)
+
+    app.pf_targets_widget = QWidget()
+    app.pf_targets_layout = QGridLayout(app.pf_targets_widget)
+    app.pf_targets_layout.setContentsMargins(0, 0, 0, 0)
+    app.pf_targets_layout.setHorizontalSpacing(4)
+    app.pf_targets_layout.setVerticalSpacing(2)
+    pf_targets_row.addWidget(app.pf_targets_widget, 1)
+
+    pf_controls_layout.addLayout(pf_targets_row)
+
+    pf_controls_bottom_row = QHBoxLayout()
+    pf_controls_bottom_row.setContentsMargins(0, 0, 0, 0)
+    pf_controls_bottom_row.setSpacing(6)
+    pf_controls_bottom_row.addStretch(1)
+    app.lbl_pf_targets_summary = QLabel("")
+    app.lbl_pf_targets_summary.setAlignment(
+        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+    )
+    pf_controls_bottom_row.addWidget(app.lbl_pf_targets_summary)
+    pf_controls_layout.addLayout(pf_controls_bottom_row)
+
+    main_layout.addWidget(app.pf_controls_widget)
 
     # --- СТАТУС (ВНИЗУ) ---
     app.lbl_status = QLabel("")
@@ -569,5 +659,6 @@ def init_calculator_tab(app):
     app.on_cells_changed()
     app.update_calibration_status()
     app.update_position_adjustment_info()
+    app._update_pf_multi_glass_ui()
     # Вызываем один раз при инициализации для показа статуса
     QTimer.singleShot(100, app._update_status_text)

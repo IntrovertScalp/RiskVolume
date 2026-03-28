@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QComboBox,
+    QCheckBox,
     QSpinBox,
     QDoubleSpinBox,
     QAbstractItemView,
@@ -224,6 +225,33 @@ class CellsLabelDarkDelegate(QStyledItemDelegate):
         super().paint(painter, option, index)
 
 
+class GlassPreviewFrame(QWidget):
+    """Overlay window that draws a highlighted rectangle over a calibrated glass area."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._border_color = QColor(56, 190, 29, 230)
+        self._fill_color = QColor(56, 190, 29, 30)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = self.rect().adjusted(2, 2, -2, -2)
+        painter.fillRect(rect, self._fill_color)
+        pen = QPen(self._border_color)
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawRoundedRect(rect, 6, 6)
+
+
 class RiskVolumeApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -275,6 +303,8 @@ class RiskVolumeApp(QMainWindow):
         self._cells_layout_reflow_pending = False
         self._api_read_only_check_cache = {}
         self._status_neutral_token = 0
+        self._pf_preview_frames = []
+        self._pf_preview_token = 0
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -396,6 +426,11 @@ class RiskVolumeApp(QMainWindow):
             "calc_points_tigertrade": [],
             "calc_points_surf": [],
             "calc_points_vataga": [],
+            "pf_glasses_count": 1,
+            "pf_glasses_points": {},
+            "pf_active_glass": 1,
+            "pf_selected_glasses": [1],
+            "pf_show_preview_frames": False,
             "tiger_open_point": None,
             "tiger_close_point": None,
             "surf_open_point": None,
@@ -418,6 +453,8 @@ class RiskVolumeApp(QMainWindow):
             if key not in self.settings:
                 self.settings[key] = val
 
+        pf_settings_changed = self._normalize_pf_multi_glass_settings()
+
         # Migration: preserve existing calculator calibration points as Profit Forge points.
         if (
             not self.settings.get("calc_points_profit_forge")
@@ -425,6 +462,7 @@ class RiskVolumeApp(QMainWindow):
             and self.settings.get("points")
         ):
             self.settings["calc_points_profit_forge"] = list(self.settings.get("points", []))
+            pf_settings_changed = self._normalize_pf_multi_glass_settings() or pf_settings_changed
 
         # One-time fix: clear legacy auto-copied points for non-PF terminals.
         # They could falsely complete calibration after 1-2 hotkey presses.
@@ -447,7 +485,7 @@ class RiskVolumeApp(QMainWindow):
             self.settings["non_pf_points_fix_v1_applied"] = True
             non_pf_points_fix_changed = True
 
-        if non_pf_points_fix_changed:
+        if non_pf_points_fix_changed or pf_settings_changed:
             self.save_settings()
 
         self.settings["prec_min_order"] = 0
@@ -1200,6 +1238,200 @@ class RiskVolumeApp(QMainWindow):
         kind = self._menu_terminal_kind()
         return kind in ("tiger", "surf")
 
+    def _normalize_calc_points(self, points):
+        normalized = []
+        if not isinstance(points, list):
+            return normalized
+        for point in points:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                continue
+            try:
+                x = int(point[0])
+                y = int(point[1])
+            except Exception:
+                continue
+            normalized.append([x, y])
+        return normalized
+
+    def _clamp_pf_glasses_count(self, value):
+        try:
+            value = int(value)
+        except Exception:
+            value = 1
+        return max(1, min(8, value))
+
+    def _normalize_pf_multi_glass_settings(self):
+        changed = False
+
+        count = self._clamp_pf_glasses_count(self.settings.get("pf_glasses_count", 1))
+        if self.settings.get("pf_glasses_count") != count:
+            self.settings["pf_glasses_count"] = count
+            changed = True
+
+        raw_map = self.settings.get("pf_glasses_points", {})
+        points_map = {}
+        if isinstance(raw_map, dict):
+            for raw_key, raw_points in raw_map.items():
+                try:
+                    glass = int(raw_key)
+                except Exception:
+                    continue
+                if glass < 1 or glass > 8:
+                    continue
+                points_map[str(glass)] = self._normalize_calc_points(raw_points)
+
+        if not points_map:
+            legacy_points = self._normalize_calc_points(
+                self.settings.get("calc_points_profit_forge", [])
+            )
+            if legacy_points:
+                points_map = {"1": legacy_points}
+                changed = True
+
+        if self.settings.get("pf_glasses_points") != points_map:
+            self.settings["pf_glasses_points"] = points_map
+            changed = True
+
+        active_glass = self._clamp_pf_glasses_count(
+            self.settings.get("pf_active_glass", 1)
+        )
+        active_glass = min(active_glass, count)
+        if self.settings.get("pf_active_glass") != active_glass:
+            self.settings["pf_active_glass"] = active_glass
+            changed = True
+
+        raw_selected = self.settings.get("pf_selected_glasses", [])
+        selected = []
+        if isinstance(raw_selected, list):
+            for raw_glass in raw_selected:
+                try:
+                    glass = int(raw_glass)
+                except Exception:
+                    continue
+                if 1 <= glass <= count and glass not in selected:
+                    selected.append(glass)
+
+        if self.settings.get("pf_selected_glasses") != selected:
+            self.settings["pf_selected_glasses"] = selected
+            changed = True
+
+        active_points = self._normalize_calc_points(
+            self.settings.get("pf_glasses_points", {}).get(str(active_glass), [])
+        )
+        if self.settings.get("calc_points_profit_forge") != active_points:
+            self.settings["calc_points_profit_forge"] = list(active_points)
+            changed = True
+
+        if not isinstance(self.settings.get("pf_show_preview_frames", False), bool):
+            self.settings["pf_show_preview_frames"] = bool(
+                self.settings.get("pf_show_preview_frames")
+            )
+            changed = True
+
+        return changed
+
+    def _get_pf_glasses_count(self):
+        return self._clamp_pf_glasses_count(self.settings.get("pf_glasses_count", 1))
+
+    def _get_pf_active_glass(self):
+        count = self._get_pf_glasses_count()
+        active = self._clamp_pf_glasses_count(self.settings.get("pf_active_glass", 1))
+        return min(active, count)
+
+    def _set_pf_active_glass(self, glass, save=False):
+        count = self._get_pf_glasses_count()
+        glass = max(1, min(count, self._clamp_pf_glasses_count(glass)))
+        self.settings["pf_active_glass"] = glass
+        self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(glass)
+        if save:
+            self.save_settings()
+
+    def _get_pf_selected_glasses(self):
+        count = self._get_pf_glasses_count()
+        selected = []
+        raw = self.settings.get("pf_selected_glasses", [])
+        if isinstance(raw, list):
+            for item in raw:
+                try:
+                    glass = int(item)
+                except Exception:
+                    continue
+                if 1 <= glass <= count and glass not in selected:
+                    selected.append(glass)
+        return selected
+
+    def _set_pf_selected_glasses(self, glasses, save=False):
+        count = self._get_pf_glasses_count()
+        selected = []
+        for item in (glasses or []):
+            try:
+                glass = int(item)
+            except Exception:
+                continue
+            if 1 <= glass <= count and glass not in selected:
+                selected.append(glass)
+        self.settings["pf_selected_glasses"] = selected
+        if save:
+            self.save_settings()
+
+    def _get_pf_points_for_glass(self, glass):
+        try:
+            glass = int(glass)
+        except Exception:
+            glass = 1
+        points_map = self.settings.get("pf_glasses_points", {})
+        if not isinstance(points_map, dict):
+            points_map = {}
+        return self._normalize_calc_points(points_map.get(str(glass), []))
+
+    def _set_pf_points_for_glass(self, glass, points):
+        try:
+            glass = int(glass)
+        except Exception:
+            glass = 1
+        normalized_points = self._normalize_calc_points(points)
+
+        points_map = self.settings.get("pf_glasses_points", {})
+        if not isinstance(points_map, dict):
+            points_map = {}
+        points_map = dict(points_map)
+        points_map[str(glass)] = normalized_points
+        self.settings["pf_glasses_points"] = points_map
+
+        if glass == self._get_pf_active_glass():
+            self.settings["calc_points_profit_forge"] = list(normalized_points)
+
+    def _get_pf_required_cells_count(self):
+        try:
+            if hasattr(self, "lbl_cells_count"):
+                return max(
+                    1,
+                    int(
+                        self.settings.get(
+                            "scalp_cells_count", self.lbl_cells_count.text()
+                        )
+                    ),
+                )
+        except Exception:
+            pass
+        try:
+            return max(1, int(self.settings.get("scalp_cells_count", 5)))
+        except Exception:
+            return 5
+
+    def _is_pf_glass_calibrated(self, glass):
+        points = self._get_pf_points_for_glass(glass)
+        return len(points) >= self._get_pf_required_cells_count()
+
+    def _get_pf_uncalibrated_glasses(self, count=None):
+        if count is None:
+            count = self._get_pf_glasses_count()
+        uncalibrated = []
+        for glass in range(1, int(count) + 1):
+            if not self._is_pf_glass_calibrated(glass):
+                uncalibrated.append(glass)
+        return uncalibrated
+
     def _get_active_calc_points_key(self):
         if self._is_tigertrade_terminal():
             return "calc_points_tigertrade"
@@ -1212,9 +1444,11 @@ class RiskVolumeApp(QMainWindow):
         return "calc_points_profit_forge"
 
     def _get_active_calc_points(self):
+        if self._is_profit_forge_terminal():
+            return self._get_pf_points_for_glass(self._get_pf_active_glass())
         key = self._get_active_calc_points_key()
         points = self.settings.get(key, [])
-        return points if isinstance(points, list) else []
+        return self._normalize_calc_points(points)
 
     def _get_standard_volume_precision(self):
         try:
@@ -1412,6 +1646,9 @@ class RiskVolumeApp(QMainWindow):
         self._adapt_window_width_to_content(grow_only=False, smooth=True)
 
     def _set_active_calc_points(self, points):
+        if self._is_profit_forge_terminal():
+            self._set_pf_points_for_glass(self._get_pf_active_glass(), points)
+            return
         key = self._get_active_calc_points_key()
         self.settings[key] = list(points)
 
@@ -1444,6 +1681,359 @@ class RiskVolumeApp(QMainWindow):
             self.update_position_adjustment_info()
         if hasattr(self, "update_cell_volumes"):
             self.update_cell_volumes()
+        self._update_pf_multi_glass_ui()
+
+    def _pf_glass_label(self, glass_num):
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        return t.get("calc_glass_short", "Стакан {n}").format(n=int(glass_num))
+
+    def _update_pf_multi_glass_ui(self):
+        if not hasattr(self, "pf_controls_widget"):
+            return
+
+        pf_enabled = self._is_profit_forge_terminal()
+        self.pf_controls_widget.setVisible(pf_enabled)
+        if hasattr(self, "btn_pf_preview"):
+            self.btn_pf_preview.setVisible(pf_enabled)
+
+        if not pf_enabled:
+            self._clear_pf_preview_frames()
+            self._schedule_smooth_content_resize(force=True)
+            return
+
+        settings_changed = self._normalize_pf_multi_glass_settings()
+        if settings_changed:
+            self.save_settings()
+
+        count = self._get_pf_glasses_count()
+        active_glass = self._get_pf_active_glass()
+        selected_glasses = self._get_pf_selected_glasses()
+
+        if hasattr(self, "inp_pf_glasses_count") and not self.inp_pf_glasses_count.hasFocus():
+            self.inp_pf_glasses_count.setText(str(int(count)))
+
+        if hasattr(self, "cb_pf_calib_glass"):
+            self.cb_pf_calib_glass.blockSignals(True)
+            self.cb_pf_calib_glass.clear()
+            for glass in range(1, count + 1):
+                self.cb_pf_calib_glass.addItem(self._pf_glass_label(glass), glass)
+            self.cb_pf_calib_glass.setCurrentIndex(max(0, active_glass - 1))
+            self.cb_pf_calib_glass.blockSignals(False)
+
+        if hasattr(self, "pf_targets_layout"):
+            while self.pf_targets_layout.count():
+                item = self.pf_targets_layout.takeAt(0)
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
+
+            self._pf_target_checkboxes = {}
+            cols = 4
+            required_cells = self._get_pf_required_cells_count()
+            actual_selected = []
+            for glass in range(1, count + 1):
+                checkbox = QCheckBox(str(glass))
+                is_calibrated = self._is_pf_glass_calibrated(glass)
+                label = self._pf_glass_label(glass)
+                if is_calibrated:
+                    checkbox.setToolTip(label)
+                else:
+                    t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                    checkbox.setToolTip(
+                        t.get(
+                            "calc_glass_need_calib",
+                            "{glass}: сначала откалибруй {cells} ячеек",
+                        ).format(glass=label, cells=required_cells)
+                    )
+                checked = bool(glass in selected_glasses and is_calibrated)
+                checkbox.setChecked(checked)
+                checkbox.setEnabled(is_calibrated)
+                if checked:
+                    actual_selected.append(glass)
+                checkbox.toggled.connect(
+                    lambda checked, g=glass: self._on_pf_target_glass_toggled(g, checked)
+                )
+                row = (glass - 1) // cols
+                col = (glass - 1) % cols
+                self.pf_targets_layout.addWidget(checkbox, row, col)
+                self._pf_target_checkboxes[glass] = checkbox
+            self.pf_targets_layout.setColumnStretch(cols, 1)
+
+            if actual_selected != selected_glasses:
+                self.settings["pf_selected_glasses"] = list(actual_selected)
+                selected_glasses = list(actual_selected)
+
+        self._update_pf_targets_summary(selected=len(selected_glasses), total=count)
+
+        if hasattr(self, "chk_pf_show_frames"):
+            self.chk_pf_show_frames.blockSignals(True)
+            self.chk_pf_show_frames.setChecked(
+                bool(self.settings.get("pf_show_preview_frames", False))
+            )
+            self.chk_pf_show_frames.blockSignals(False)
+
+        self._style_pf_multi_glass_controls()
+        self._schedule_smooth_content_resize(force=True)
+
+    def _update_pf_targets_summary(self, selected=None, total=None):
+        if not hasattr(self, "lbl_pf_targets_summary"):
+            return
+
+        if total is None:
+            total = self._get_pf_glasses_count()
+        if selected is None:
+            selected = len(self._get_pf_selected_glasses())
+
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        text = t.get(
+            "calc_targets_selected",
+            "Включено стаканов: {selected}/{total}",
+        ).format(selected=int(selected), total=int(total))
+
+        uncalibrated = self._get_pf_uncalibrated_glasses(total)
+        if uncalibrated:
+            text += " | " + t.get(
+                "calc_targets_need_calib_short",
+                "Не откалиброваны: {glasses}",
+            ).format(glasses=", ".join(str(g) for g in uncalibrated))
+
+        self.lbl_pf_targets_summary.setText(text)
+
+    def _style_pf_multi_glass_controls(self):
+        scale = self.settings.get("scale", self.base_scale)
+        scale = max(80, min(200, int(scale)))
+        ratio = scale / float(self.base_scale)
+        label_pt = max(7, int(8 * ratio))
+        input_pt = max(7, int(8 * ratio))
+        radius = max(4, int(4 * ratio))
+
+        for name in (
+            "lbl_pf_glasses_title",
+            "lbl_pf_calib_glass_title",
+            "lbl_pf_targets_title",
+            "lbl_pf_targets_summary",
+        ):
+            widget = getattr(self, name, None)
+            if widget:
+                color = "#666" if name == "lbl_pf_targets_summary" else "#888"
+                widget.setStyleSheet(f"color: {color}; font-size: {label_pt}pt;")
+
+        if hasattr(self, "inp_pf_glasses_count"):
+            self.inp_pf_glasses_count.setStyleSheet(
+                f"QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; border-radius: {radius}px; font-size: {input_pt}pt; padding: {max(1, int(1 * ratio))}px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}"
+                "QLineEdit:focus { border: 1px solid #FFFFFF; }"
+            )
+
+        if hasattr(self, "cb_pf_calib_glass"):
+            self.cb_pf_calib_glass.setStyleSheet(
+                f"QComboBox {{ background: #1A1A1A; color: white; border: 1px solid #333; border-radius: {radius}px; font-size: {input_pt}pt; padding: 1px 4px; }}"
+                "QComboBox:focus { border: 1px solid #FFFFFF; }"
+                "QComboBox::drop-down { border: none; }"
+            )
+
+        if hasattr(self, "chk_pf_show_frames"):
+            self.chk_pf_show_frames.setStyleSheet(
+                f"QCheckBox {{ color: #888; font-size: {label_pt}pt; spacing: 5px; }}"
+                "QCheckBox::indicator { width: 12px; height: 12px; border-radius: 2px; border: 1px solid #444; background: #1A1A1A; }"
+                "QCheckBox::indicator:checked { background: #38BE1D; border: 1px solid #38BE1D; }"
+            )
+
+        if hasattr(self, "btn_pf_preview"):
+            self.btn_pf_preview.setStyleSheet(
+                f"background: #2A2A2A; color: #8E8E8E; border: 1px solid #3A3A3A; border-radius: {radius}px; font-size: {label_pt}pt; padding: 2px 6px;"
+            )
+
+        for checkbox in getattr(self, "_pf_target_checkboxes", {}).values():
+            if checkbox:
+                checkbox.setStyleSheet(
+                    f"QCheckBox {{ color: #888; font-size: {label_pt}pt; spacing: 4px; }}"
+                    "QCheckBox::indicator { width: 12px; height: 12px; border-radius: 2px; border: 1px solid #444; background: #1A1A1A; }"
+                    "QCheckBox::indicator:checked { background: #38BE1D; border: 1px solid #38BE1D; }"
+                )
+
+    def _on_pf_glasses_count_changed(self, value):
+        count = self._clamp_pf_glasses_count(value)
+        self.settings["pf_glasses_count"] = count
+
+        active_glass = self._get_pf_active_glass()
+        if active_glass > count:
+            active_glass = count
+            self.settings["pf_active_glass"] = active_glass
+
+        selected = [g for g in self._get_pf_selected_glasses() if g <= count]
+        if not selected:
+            selected = [active_glass]
+        self.settings["pf_selected_glasses"] = selected
+
+        self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(active_glass)
+        self.save_settings()
+
+        self._update_pf_multi_glass_ui()
+        self.update_calibration_status()
+        self._schedule_smooth_content_resize(force=True)
+        if bool(self.settings.get("pf_show_preview_frames", False)):
+            self._flash_pf_preview_frames(self._get_pf_selected_glasses())
+
+    def _on_pf_glasses_count_editing_finished(self):
+        if not hasattr(self, "inp_pf_glasses_count"):
+            return
+        raw = str(self.inp_pf_glasses_count.text() or "").strip()
+        if not raw:
+            value = self._get_pf_glasses_count()
+        else:
+            try:
+                value = int(raw)
+            except Exception:
+                value = self._get_pf_glasses_count()
+        value = self._clamp_pf_glasses_count(value)
+        self.inp_pf_glasses_count.setText(str(value))
+        self._on_pf_glasses_count_changed(value)
+
+    def _on_pf_calibration_glass_changed(self, index):
+        if not hasattr(self, "cb_pf_calib_glass"):
+            return
+        glass = self.cb_pf_calib_glass.currentData()
+        if glass is None:
+            glass = index + 1
+        self._set_pf_active_glass(glass, save=True)
+        self.update_calibration_status()
+
+        if bool(self.settings.get("pf_show_preview_frames", False)):
+            self._flash_pf_preview_frames([int(glass)])
+
+    def _on_pf_target_glass_toggled(self, glass, checked):
+        checkboxes = getattr(self, "_pf_target_checkboxes", {})
+        selected = [g for g, cb in checkboxes.items() if cb and cb.isChecked()]
+
+        if not selected:
+            cb = checkboxes.get(glass)
+            if cb is not None:
+                cb.blockSignals(True)
+                cb.setChecked(True)
+                cb.blockSignals(False)
+            selected = [int(glass)]
+
+        self._set_pf_selected_glasses(selected, save=True)
+        self._update_pf_targets_summary(selected=len(selected), total=self._get_pf_glasses_count())
+        self._schedule_smooth_content_resize(force=True)
+
+        if bool(self.settings.get("pf_show_preview_frames", False)):
+            self._flash_pf_preview_frames(selected)
+
+    def _on_pf_preview_toggle_changed(self, checked):
+        self.settings["pf_show_preview_frames"] = bool(checked)
+        self.save_settings()
+        if checked:
+            self._flash_pf_preview_frames(self._get_pf_selected_glasses())
+        else:
+            self._clear_pf_preview_frames()
+
+    def _clear_pf_preview_frames(self):
+        self._pf_preview_token += 1
+        for frame in self._pf_preview_frames:
+            try:
+                frame.hide()
+            except Exception:
+                pass
+
+    def _native_to_qt_global(self, x, y):
+        try:
+            px = float(x)
+            py = float(y)
+        except Exception:
+            return int(x), int(y)
+
+        try:
+            for screen in QApplication.screens() or []:
+                geom = screen.geometry()
+                dpr = float(screen.devicePixelRatio() or 1.0)
+                native_x = geom.x() * dpr
+                native_y = geom.y() * dpr
+                native_w = geom.width() * dpr
+                native_h = geom.height() * dpr
+                if (
+                    native_x <= px <= native_x + native_w
+                    and native_y <= py <= native_y + native_h
+                ):
+                    qx = geom.x() + (px - native_x) / max(0.1, dpr)
+                    qy = geom.y() + (py - native_y) / max(0.1, dpr)
+                    return int(round(qx)), int(round(qy))
+        except Exception:
+            pass
+
+        try:
+            screen = QApplication.primaryScreen()
+            geom = screen.geometry() if screen is not None else None
+            native = pyautogui.size()
+            if geom and native and geom.width() > 0 and geom.height() > 0:
+                ratio_x = float(native.width) / float(geom.width())
+                ratio_y = float(native.height) / float(geom.height())
+                qx = float(geom.x()) + px / max(0.1, ratio_x)
+                qy = float(geom.y()) + py / max(0.1, ratio_y)
+                return int(round(qx)), int(round(qy))
+        except Exception:
+            pass
+
+        return int(round(px)), int(round(py))
+
+    def _flash_pf_preview_frames(self, glasses=None):
+        if not self._is_profit_forge_terminal():
+            return
+
+        target_glasses = [int(g) for g in (glasses or []) if str(g).isdigit()]
+        if not target_glasses:
+            target_glasses = self._get_pf_selected_glasses()
+
+        geometries = []
+        for glass in target_glasses:
+            points = self._get_pf_points_for_glass(glass)
+            if not points:
+                continue
+            qt_points = [self._native_to_qt_global(int(p[0]), int(p[1])) for p in points]
+            xs = [int(p[0]) for p in qt_points]
+            ys = [int(p[1]) for p in qt_points]
+            min_x, max_x = min(xs), max(xs)
+            min_y, max_y = min(ys), max(ys)
+            pad_x = 8
+            pad_y = 6
+            x = min_x - pad_x
+            y = min_y - pad_y
+            w = max(24, (max_x - min_x) + pad_x * 2)
+            h = max(14, (max_y - min_y) + pad_y * 2)
+            geometries.append((x, y, w, h))
+
+        if not geometries:
+            return
+
+        while len(self._pf_preview_frames) < len(geometries):
+            self._pf_preview_frames.append(GlassPreviewFrame())
+
+        token = self._pf_preview_token + 1
+        self._pf_preview_token = token
+
+        def _toggle(show):
+            if token != self._pf_preview_token:
+                return
+            for idx, frame in enumerate(self._pf_preview_frames):
+                if idx < len(geometries):
+                    if show:
+                        x, y, w, h = geometries[idx]
+                        frame.setGeometry(int(x), int(y), int(w), int(h))
+                        frame.show()
+                        frame.raise_()
+                    else:
+                        frame.hide()
+                else:
+                    frame.hide()
+
+        blink_pattern = [True, False, True, False, True, False]
+        delay_step = 130
+        for idx, visible in enumerate(blink_pattern):
+            QTimer.singleShot(idx * delay_step, lambda v=visible: _toggle(v))
+        QTimer.singleShot(len(blink_pattern) * delay_step + 50, lambda: _toggle(False))
+
+    def _on_pf_preview_clicked(self):
+        self._flash_pf_preview_frames(self._get_pf_selected_glasses())
 
     def init_calculator_tab(self):
         init_calculator_tab(self)
@@ -1516,11 +2106,28 @@ class RiskVolumeApp(QMainWindow):
             self.update_cells_labels()
         if hasattr(self, "btn_submit"):
             self.btn_submit.setText(t["calc_apply"])
+        if hasattr(self, "lbl_pf_glasses_title"):
+            self.lbl_pf_glasses_title.setText(t.get("calc_glasses_count", "Стаканов:"))
+        if hasattr(self, "lbl_pf_calib_glass_title"):
+            self.lbl_pf_calib_glass_title.setText(
+                t.get("calc_calib_glass", "Калибровать стакан:")
+            )
+        if hasattr(self, "lbl_pf_targets_title"):
+            self.lbl_pf_targets_title.setText(t.get("calc_targets", "Выставить в:"))
+        if hasattr(self, "lbl_pf_targets_summary"):
+            self._update_pf_targets_summary()
+        if hasattr(self, "chk_pf_show_frames"):
+            self.chk_pf_show_frames.setText(
+                t.get("calc_show_frames", "Показать рамку")
+            )
+        if hasattr(self, "btn_pf_preview"):
+            self.btn_pf_preview.setText(t.get("calc_preview_btn", "ПРЕВЬЮ"))
         if hasattr(self, "btn_dep_refresh"):
             self.btn_dep_refresh.setText(t.get("dep_refresh", "↻"))
             self.btn_dep_refresh.setToolTip(
                 t.get("dep_refresh_tip", "Обновить депозит с биржи")
             )
+        self._update_pf_multi_glass_ui()
         self.update_position_adjustment_info()
         self.update_calibration_status()
 
@@ -3008,7 +3615,14 @@ class RiskVolumeApp(QMainWindow):
                 else:
                     widget.setStyleSheet(f"font-size: {pos_lbl_pt}pt;")
 
-        for name in ("inp_pos_vol", "inp_pos_risk", "inp_pos_stop", "inp_pos_stop_now", "inp_min_order"):
+        for name in (
+            "inp_pos_vol",
+            "inp_pos_risk",
+            "inp_pos_stop",
+            "inp_pos_stop_now",
+            "inp_min_order",
+            "inp_pf_glasses_count",
+        ):
             widget = getattr(self, name, None)
             if widget:
                 widget.setFixedHeight(pos_input_h)
@@ -3039,6 +3653,8 @@ class RiskVolumeApp(QMainWindow):
 
         if hasattr(self, "lbl_status"):
             self.lbl_status.setStyleSheet(f"color: #666; font-size: {self._scaled_pt(7)}pt;")
+
+        self._style_pf_multi_glass_controls()
 
         self._set_window_size_with_extra_height()
 
@@ -3197,7 +3813,7 @@ class RiskVolumeApp(QMainWindow):
 
     def send_volume_to_terminal(self):
         """Отправляет объемы ячеек в терминал"""
-        points = self._get_active_calc_points()
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
         active_rows = sorted(self._get_active_rows_for_table())
         is_reversed = self.settings.get("cells_reversed", False)
         if is_reversed:
@@ -3208,28 +3824,78 @@ class RiskVolumeApp(QMainWindow):
 
         transfers = []
         for row in active_rows:
-            point_index = row
-            if len(points) <= point_index:
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                self.lbl_status.setText(t["calc_not_enough_points"])
-                self.lbl_status.setStyleSheet(
-                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
-                )
-                return
-
             vol_item = self.cells_table.item(row, 1)
             vol_to_send = (
                 vol_item.text().replace(" ", "").replace(",", ".")
                 if vol_item and vol_item.text()
                 else "0"
             )
-            transfers.append((point_index, vol_to_send))
+            transfers.append((row, vol_to_send))
 
         if not transfers:
             return
 
+        target_batches = []
+        skipped_glasses = []
+
+        if self._is_profit_forge_terminal():
+            selected_glasses = self._get_pf_selected_glasses()
+            if not selected_glasses:
+                self.lbl_status.setText(
+                    t.get("calc_no_target_glasses", "Выберите хотя бы один стакан для выставления")
+                )
+                self.lbl_status.setStyleSheet(
+                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+                )
+                return
+
+            for glass in selected_glasses:
+                points = self._get_pf_points_for_glass(glass)
+                has_all_points = all(len(points) > point_index for point_index, _ in transfers)
+                if has_all_points:
+                    target_batches.append((int(glass), points))
+                else:
+                    skipped_glasses.append(int(glass))
+
+            if not target_batches:
+                missing = ", ".join(self._pf_glass_label(g) for g in skipped_glasses)
+                self.lbl_status.setText(
+                    t.get(
+                        "calc_status_missing_glasses",
+                        "Не откалиброваны стаканы: {glasses}",
+                    ).format(glasses=missing)
+                )
+                self.lbl_status.setStyleSheet(
+                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+                )
+                return
+
+            if skipped_glasses:
+                skipped_text = ", ".join(self._pf_glass_label(g) for g in skipped_glasses)
+                self._set_transient_status_then_neutral(
+                    t.get(
+                        "calc_status_skip_missing_glasses",
+                        "Пропускаю не откалиброванные стаканы: {glasses}",
+                    ).format(glasses=skipped_text),
+                    self.lbl_status.text() if hasattr(self, "lbl_status") else "",
+                    status_color="#FF9F0A",
+                    delay_ms=4200,
+                )
+        else:
+            points = self._get_active_calc_points()
+            has_all_points = all(len(points) > point_index for point_index, _ in transfers)
+            if not has_all_points:
+                self.lbl_status.setText(t["calc_not_enough_points"])
+                self.lbl_status.setStyleSheet(
+                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
+                )
+                return
+            target_batches.append((None, points))
+
         # Order already follows the intended row direction
 
+        old_clip = ""
+        start_x, start_y = None, None
         try:
             old_clip = pyperclip.paste()
             # capture exact start position to restore later if needed
@@ -3246,6 +3912,7 @@ class RiskVolumeApp(QMainWindow):
                 time.sleep(0.02)
 
             if self._is_menu_terminal():
+                _, points = target_batches[0]
                 try:
                     pyautogui.MINIMUM_SLEEP = 0.0005
                     pyautogui.MINIMUM_DURATION = 0.005
@@ -3324,58 +3991,94 @@ class RiskVolumeApp(QMainWindow):
                     pass
 
                 is_metascalp = self._is_metascalp_terminal()
-                if is_metascalp:
-                    # MetaScalp: first cell needs a short settle delay before editing starts.
-                    time.sleep(0.06)
 
-                for transfer_index, (point_index, vol_to_send) in enumerate(transfers):
-                    pyperclip.copy(vol_to_send)
-                    time.sleep(0.01)
-                    pyautogui.moveTo(
-                        points[point_index][0], points[point_index][1], duration=0.015
-                    )
-                    is_metascalp_first_calibrated = is_metascalp and point_index == 0
-                    pyautogui.click()
-                    if is_metascalp_first_calibrated:
-                        # First captured MetaScalp cell: use live double click
-                        # (two real clicks with pauses) for stable focus.
-                        time.sleep(0.07)
+                for batch_index, (glass, points) in enumerate(target_batches):
+                    if (
+                        self._is_profit_forge_terminal()
+                        and len(target_batches) > 1
+                        and glass is not None
+                    ):
+                        self.lbl_status.setText(
+                            t.get(
+                                "calc_status_applying_glass",
+                                "Выставляю в {glass} ({idx}/{total})...",
+                            ).format(
+                                glass=self._pf_glass_label(glass),
+                                idx=batch_index + 1,
+                                total=len(target_batches),
+                            )
+                        )
+                        self.lbl_status.setStyleSheet(
+                            f"color: cyan; font-size: {self._scaled_pt(7)}pt;"
+                        )
+                        QApplication.processEvents()
+
+                    if is_metascalp:
+                        # MetaScalp: first cell needs a short settle delay before editing starts.
+                        time.sleep(0.06)
+
+                    for transfer_index, (point_index, vol_to_send) in enumerate(transfers):
+                        pyperclip.copy(vol_to_send)
+                        time.sleep(0.01)
+                        pyautogui.moveTo(
+                            points[point_index][0], points[point_index][1], duration=0.015
+                        )
+                        is_metascalp_first_calibrated = is_metascalp and point_index == 0
                         pyautogui.click()
-                        time.sleep(0.07)
-                    elif is_metascalp:
-                        time.sleep(0.012)
-                    else:
-                        time.sleep(0.012)
-                    if is_metascalp_first_calibrated:
-                        pass
-                    else:
-                        pyautogui.doubleClick(interval=0.03)
+                        if is_metascalp_first_calibrated:
+                            # First captured MetaScalp cell: use live double click
+                            # (two real clicks with pauses) for stable focus.
+                            time.sleep(0.07)
+                            pyautogui.click()
+                            time.sleep(0.07)
+                        elif is_metascalp:
+                            time.sleep(0.012)
+                        else:
+                            time.sleep(0.012)
+                        if not is_metascalp_first_calibrated:
+                            pyautogui.doubleClick(interval=0.03)
 
-                    if is_metascalp_first_calibrated:
-                        time.sleep(0.03)
-                    elif is_metascalp:
+                        if is_metascalp_first_calibrated:
+                            time.sleep(0.03)
+                        elif is_metascalp:
+                            time.sleep(0.012)
+                        else:
+                            time.sleep(0.012)
+                        keyboard.press_and_release("ctrl+a")
+                        time.sleep(0.01)
+                        keyboard.press_and_release("backspace")
+                        time.sleep(0.01)
+                        keyboard.press_and_release("ctrl+v")
                         time.sleep(0.012)
-                    else:
-                        time.sleep(0.012)
-                    keyboard.press_and_release("ctrl+a")
-                    time.sleep(0.01)
-                    keyboard.press_and_release("backspace")
-                    time.sleep(0.01)
-                    keyboard.press_and_release("ctrl+v")
-                    time.sleep(0.012)
-                    keyboard.press_and_release("enter")
-                    time.sleep(0.025)
+                        keyboard.press_and_release("enter")
+                        time.sleep(0.025)
 
+                    if batch_index < len(target_batches) - 1:
+                        time.sleep(0.04)
+
+            if self._is_profit_forge_terminal() and target_batches:
+                applied_text = t.get(
+                    "calc_status_done_glasses",
+                    "✓ Выставлено в {count} стакан(а)",
+                ).format(count=len(target_batches))
+                self._set_ready_status_with_neutral_timeout(applied_text, delay_ms=3200)
+
+                if bool(self.settings.get("pf_show_preview_frames", False)):
+                    self._flash_pf_preview_frames([glass for glass, _ in target_batches if glass])
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
             # restore original cursor position if captured
             if start_x is not None and start_y is not None:
                 try:
                     pyautogui.moveTo(start_x, start_y)
                 except Exception:
                     pass
-            pyperclip.copy(old_clip)
+            try:
+                pyperclip.copy(old_clip)
+            except Exception:
+                pass
             # Окно остается свернутым - не разворачиваем автоматически
-        except Exception as e:
-            print(f"Error: {e}")
 
     def start_calibration_calc(self):
         """Начинает калибровку - очищает точки и показывает инструкции"""
@@ -3430,7 +4133,13 @@ class RiskVolumeApp(QMainWindow):
         if len(points) >= cells_count:
             self.calc_calibration_active = False
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            ready_text = t["calc_calib_exists"].format(cells=cells_count)
+            if self._is_profit_forge_terminal() and self._get_pf_glasses_count() > 1:
+                ready_text = t.get(
+                    "calc_calib_exists_glass",
+                    "✓ Калибровка уже есть: {cells} ячеек ({glass})",
+                ).format(cells=cells_count, glass=self._pf_glass_label(self._get_pf_active_glass()))
+            else:
+                ready_text = t["calc_calib_exists"].format(cells=cells_count)
             self._set_ready_status_with_neutral_timeout(ready_text)
             self.update_calibration_status()
             return
@@ -3439,9 +4148,19 @@ class RiskVolumeApp(QMainWindow):
 
         # Показываем подробную инструкцию
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-        instruction = t["calc_calib_instruction"].format(
-            cells=cells_count, hotkey=hk_coords
-        )
+        if self._is_profit_forge_terminal() and self._get_pf_glasses_count() > 1:
+            instruction = t.get(
+                "calc_calib_instruction_glass",
+                "Калибровка активирована для {glass}.\n\nЗахвати {cells} ячейку(ек), нажимая {hotkey} на полях объема.",
+            ).format(
+                glass=self._pf_glass_label(self._get_pf_active_glass()),
+                cells=cells_count,
+                hotkey=hk_coords,
+            )
+        else:
+            instruction = t["calc_calib_instruction"].format(
+                cells=cells_count, hotkey=hk_coords
+            )
 
         self.lbl_status.setText(instruction)
         self.lbl_status.setStyleSheet(
@@ -3564,6 +4283,15 @@ class RiskVolumeApp(QMainWindow):
 
         if len(points) >= cells_count:
             self.calc_calibration_active = False
+            if self._is_profit_forge_terminal() and bool(
+                self.settings.get("pf_show_preview_frames", False)
+            ):
+                QTimer.singleShot(
+                    40,
+                    lambda g=self._get_pf_active_glass(): self._flash_pf_preview_frames(
+                        [g]
+                    ),
+                )
 
         self.update_calibration_status()
 
@@ -3622,6 +4350,14 @@ class RiskVolumeApp(QMainWindow):
         points_count = len(self._get_active_calc_points())
         hk_coords = self.settings.get("hk_coords", "f2").upper()
         status_pt = self._scaled_pt(7)
+        pf_status_suffix = ""
+        if self._is_profit_forge_terminal() and self._get_pf_glasses_count() > 1:
+            pf_status_suffix = "  |  " + self._pf_glass_label(self._get_pf_active_glass())
+
+        def _with_pf_suffix(text):
+            if not pf_status_suffix:
+                return text
+            return f"{text}{pf_status_suffix}"
 
         if self._is_menu_terminal():
             menu_kind = self._menu_terminal_kind() or "tiger"
@@ -3695,6 +4431,7 @@ class RiskVolumeApp(QMainWindow):
                         "calc_calib_step_first",
                         "Наведи на 1 ячейку объема и нажми {hotkey}",
                     ).format(hotkey=hk_coords)
+                    + (pf_status_suffix if pf_status_suffix else "")
                 )
                 self.lbl_status.setStyleSheet(f"color: cyan; font-size: {status_pt}pt;")
             else:
@@ -3704,31 +4441,38 @@ class RiskVolumeApp(QMainWindow):
                         "calc_need_start",
                         "Нужно выполнить калибровку, для начала нажми {hotkey}",
                     ).format(hotkey=hk_coords)
+                    + (pf_status_suffix if pf_status_suffix else "")
                 )
                 self.lbl_status.setStyleSheet(f"color: #666; font-size: {status_pt}pt;")
         elif points_count < cells_count:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             if self.calc_calibration_active:
                 self.lbl_status.setText(
-                    t.get(
+                    _with_pf_suffix(
+                        t.get(
                         "calc_calib_step_next",
                         "Наведи на {num} ячейку объема и нажми {hotkey} ({points} из {cells})",
-                    ).format(
-                        num=points_count + 1,
-                        hotkey=hk_coords,
-                        points=points_count,
-                        cells=cells_count,
+                        ).format(
+                            num=points_count + 1,
+                            hotkey=hk_coords,
+                            points=points_count,
+                            cells=cells_count,
+                        )
                     )
                 )
                 self.lbl_status.setStyleSheet(f"color: cyan; font-size: {status_pt}pt;")
             else:
                 self.lbl_status.setText(
-                    t["calc_calib_progress"].format(points=points_count, cells=cells_count)
+                    _with_pf_suffix(
+                        t["calc_calib_progress"].format(
+                            points=points_count, cells=cells_count
+                        )
+                    )
                 )
                 self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {status_pt}pt;")
         else:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            ready_text = t["calc_calib_ready"].format(cells=cells_count)
+            ready_text = _with_pf_suffix(t["calc_calib_ready"].format(cells=cells_count))
             self._set_ready_status_with_neutral_timeout(ready_text)
 
     def increase_cells(self):
@@ -4453,6 +5197,7 @@ class RiskVolumeApp(QMainWindow):
                     QLineEdit,
                     QPushButton,
                     QComboBox,
+                    QCheckBox,
                     QTableWidget,
                     QSpinBox,
                     QDoubleSpinBox,
@@ -4482,6 +5227,10 @@ class RiskVolumeApp(QMainWindow):
     def eventFilter(self, obj, event):
         """Перехватывает события мыши на вкладках для перетаскивания"""
         if isinstance(obj, QLineEdit):
+            if event.type() == event.Type.Wheel:
+                parent_widget = obj.parentWidget()
+                if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox)):
+                    return True
             if event.type() == event.Type.MouseButtonPress:
                 now_ms = int(time.time() * 1000)
                 last_ms = obj.property("last_click_ms") or 0
@@ -4520,6 +5269,12 @@ class RiskVolumeApp(QMainWindow):
                     Qt.Key.Key_Return,
                     Qt.Key.Key_Enter,
                 ):
+                    parent_widget = obj.parentWidget()
+                    if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox)):
+                        try:
+                            parent_widget.interpretText()
+                        except Exception:
+                            pass
                     obj.deselect()
                     obj.clearFocus()
                     obj.setProperty("click_count", 0)
@@ -4537,6 +5292,23 @@ class RiskVolumeApp(QMainWindow):
                     obj.hidePopup()
                     obj.clearFocus()
                     return True
+        if isinstance(obj, QSpinBox):
+            if event.type() == event.Type.Wheel:
+                return True
+            if event.type() == event.Type.KeyPress and event.key() in (
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+                Qt.Key.Key_Escape,
+            ):
+                try:
+                    obj.interpretText()
+                except Exception:
+                    pass
+                line = obj.lineEdit()
+                if line is not None:
+                    line.deselect()
+                obj.clearFocus()
+                return True
         if (
             hasattr(self, "tab_calculator")
             and hasattr(self, "tab_cascade")
@@ -4551,6 +5323,7 @@ class RiskVolumeApp(QMainWindow):
                     QLineEdit,
                     QPushButton,
                     QComboBox,
+                    QCheckBox,
                     QTableWidget,
                     QSpinBox,
                     QDoubleSpinBox,
@@ -4562,6 +5335,7 @@ class RiskVolumeApp(QMainWindow):
 
     def closeEvent(self, event):
         """Сохраняет позицию окна при закрытии"""
+        self._clear_pf_preview_frames()
         self.settings["window_pos"] = [self.x(), self.y()]
         self.settings["pos_table_volume_override"] = float(
             getattr(self, "table_volume_override", 0.0) or 0.0
@@ -4579,6 +5353,7 @@ class RiskVolumeApp(QMainWindow):
                 self._clear_registered_hotkeys()
             except Exception:
                 pass
+            self._clear_pf_preview_frames()
             self.settings["window_pos"] = [self.x(), self.y()]
             self.settings["pos_table_volume_override"] = float(
                 getattr(self, "table_volume_override", 0.0) or 0.0
