@@ -294,13 +294,16 @@ def init_calculator_tab(app):
     pos_hints_row.setVerticalSpacing(0)
     pos_hints_row.setColumnStretch(0, 0)
     pos_hints_row.setColumnStretch(1, 0)
-    pos_hints_row.setColumnStretch(2, 0)
-    pos_hints_row.setColumnStretch(3, 1)
+    pos_hints_row.setColumnStretch(2, 1)
 
     app.lbl_pos_vol_hint = QLabel("0")
     app.lbl_pos_vol_hint.setStyleSheet("color: #666; font-size: 8pt;")
     app.lbl_pos_vol_hint.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+    app.lbl_pos_vol_hint.setSizePolicy(
+        QSizePolicy.Policy.Maximum,
+        QSizePolicy.Policy.Fixed,
     )
     pos_hints_row.addWidget(app.lbl_pos_vol_hint, 0, 0)
 
@@ -330,7 +333,6 @@ def init_calculator_tab(app):
         QSizePolicy.Policy.Fixed,
     )
     app.lbl_pos_action_chip.setVisible(False)
-    pos_hints_row.addWidget(app.lbl_pos_action_chip, 0, 2)
     pos_hints_row.addItem(
         QSpacerItem(
             0,
@@ -339,7 +341,7 @@ def init_calculator_tab(app):
             QSizePolicy.Policy.Minimum,
         ),
         0,
-        3,
+        2,
     )
 
     app.lbl_pos_adjust = QLabel(t["calc_recommendation"])
@@ -349,6 +351,10 @@ def init_calculator_tab(app):
     )
     app.lbl_pos_adjust.setWordWrap(False)
     app.lbl_pos_adjust.setMinimumHeight(16)
+    app.lbl_pos_adjust.setSizePolicy(
+        QSizePolicy.Policy.Maximum,
+        QSizePolicy.Policy.Fixed,
+    )
 
     app.lbl_pos_warning = QLabel("")
     app.lbl_pos_warning.setStyleSheet("color: #FF6B6B; font-size: 7pt;")
@@ -365,8 +371,19 @@ def init_calculator_tab(app):
     )
     app.lbl_pos_stop_delta.setVisible(False)
 
+    pos_adjust_row = QHBoxLayout()
+    pos_adjust_row.setContentsMargins(0, 0, 0, 0)
+    pos_adjust_row.setSpacing(0)
+    pos_adjust_row.addWidget(app.lbl_pos_adjust, 0)
+    pos_adjust_row.addWidget(
+        app.lbl_pos_action_chip,
+        0,
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+    )
+    pos_adjust_row.addStretch(1)
+
     pos_hints_layout.addLayout(pos_hints_row)
-    pos_hints_layout.addWidget(app.lbl_pos_adjust)
+    pos_hints_layout.addLayout(pos_adjust_row)
     pos_hints_layout.addWidget(app.lbl_pos_stop_delta)
     pos_hints_layout.addWidget(app.lbl_pos_warning)
 

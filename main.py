@@ -28,6 +28,8 @@ from PyQt6.QtCore import (
     Qt,
     QRegularExpression,
     QTimer,
+    QEasingCurve,
+    QVariantAnimation,
     pyqtSignal,
     QObject,
     QSharedMemory,
@@ -249,6 +251,14 @@ class RiskVolumeApp(QMainWindow):
         self._auto_dep_signaler.fetch_finished.connect(self._on_auto_dep_fetch_finished)
 
         self.old_pos = None
+        self._startup_window_size = None
+        self._lock_dynamic_resize = False
+        self._window_size_anim = None
+        self._window_size_anim_target = None
+        self._resize_len_baseline = {}
+        self._resize_step_chars = 5
+        self._last_applied_resize_pressure = 0
+        self._force_resize_pending = False
         self.current_vol = 0.0
         self.position_target_volume = 0.0
         self.table_volume_override = float(
@@ -273,6 +283,9 @@ class RiskVolumeApp(QMainWindow):
         self._min_order_live_timer = QTimer(self)
         self._min_order_live_timer.setSingleShot(True)
         self._min_order_live_timer.timeout.connect(self._apply_min_order_live)
+        self._smooth_resize_idle_timer = QTimer(self)
+        self._smooth_resize_idle_timer.setSingleShot(True)
+        self._smooth_resize_idle_timer.timeout.connect(self._apply_idle_smooth_resize)
         self.rebind_hotkeys()
         self.update_calc()
 
@@ -1253,15 +1266,66 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "lbl_vol_title"):
             return
         ratio = self._scale_ratio()
-        font_pt = max(7, int(9 * ratio))
+        font_pt = max(6, int(8 * ratio))
         margin_top = max(1, int(2 * ratio))
-        color = "#FF9F0A" if not dimmed else "#B36D05"
+        color = "#FF9F0A" if not dimmed else "#555"
         self.lbl_vol_title.setText(self._volume_title_text())
         self.lbl_vol_title.setStyleSheet(
             f"color: {color}; font-size: {font_pt}pt; font-weight: 700; margin-top: {margin_top}px;"
         )
 
-    def _set_window_size_with_extra_height(self, grow_only=False):
+    def _animate_window_size(self, target_w, target_h, duration_ms=180):
+        target_w = int(target_w)
+        target_h = int(target_h)
+        cur_w = int(self.width())
+        cur_h = int(self.height())
+        target_key = (target_w, target_h)
+
+        if self._window_size_anim is not None and self._window_size_anim_target == target_key:
+            return
+
+        if cur_w == target_w and cur_h == target_h:
+            self.setFixedSize(target_w, target_h)
+            self._window_size_anim_target = None
+            return
+
+        if self._window_size_anim is not None:
+            old_anim = self._window_size_anim
+            self._window_size_anim = None
+            self._window_size_anim_target = None
+            try:
+                old_anim.stop()
+            except Exception:
+                pass
+
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(max(60, min(180, int(duration_ms))))
+        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        def _apply(progress):
+            if self._window_size_anim is not anim:
+                return
+            k = float(progress)
+            nw = int(cur_w + (target_w - cur_w) * k)
+            nh = int(cur_h + (target_h - cur_h) * k)
+            self.setFixedSize(nw, nh)
+
+        def _finish():
+            if self._window_size_anim is not anim:
+                return
+            self.setFixedSize(target_w, target_h)
+            self._window_size_anim = None
+            self._window_size_anim_target = None
+
+        anim.valueChanged.connect(_apply)
+        anim.finished.connect(_finish)
+        self._window_size_anim = anim
+        self._window_size_anim_target = target_key
+        anim.start()
+
+    def _set_window_size_with_extra_height(self, grow_only=False, smooth=False):
         self.adjustSize()
         size = self.sizeHint()
         try:
@@ -1280,14 +1344,72 @@ class RiskVolumeApp(QMainWindow):
             screen = self.screen() or QApplication.primaryScreen()
             if screen is not None:
                 available = screen.availableGeometry()
-                max_w = max(360, int(available.width()) - 12)
-                max_h = max(240, int(available.height()) - 12)
+                if self.isVisible():
+                    x = int(self.x())
+                    y = int(self.y())
+                    right_space = int(available.right()) - x + 1 - 6
+                    bottom_space = int(available.bottom()) - y + 1 - 6
+                    max_w = max(180, right_space)
+                    max_h = max(160, bottom_space)
+                else:
+                    max_w = max(360, int(available.width()) - 12)
+                    max_h = max(240, int(available.height()) - 12)
                 target_w = min(target_w, max_w)
                 target_h = min(target_h, max_h)
         except Exception:
             pass
 
-        self.setFixedSize(target_w, target_h)
+        if smooth and self.isVisible():
+            self._animate_window_size(target_w, target_h)
+        else:
+            self.setFixedSize(target_w, target_h)
+
+    def _schedule_smooth_content_resize(self, force=False):
+        if getattr(self, "_lock_dynamic_resize", False):
+            return
+        if force:
+            self._force_resize_pending = True
+        # Resize after a short pause, not on every keystroke.
+        if hasattr(self, "_smooth_resize_idle_timer"):
+            self._smooth_resize_idle_timer.start(80)
+        else:
+            self._apply_idle_smooth_resize()
+
+    def _current_resize_pressure_chars(self):
+        if not self._resize_len_baseline:
+            return 0
+        extra_chars = 0
+        for name, base_len in self._resize_len_baseline.items():
+            widget = getattr(self, name, None)
+            if not widget:
+                continue
+            cur_len = len((widget.text() or "").strip())
+            extra_chars = max(extra_chars, max(0, cur_len - int(base_len)))
+        return int(extra_chars)
+
+    def _apply_idle_smooth_resize(self):
+        pressure = self._current_resize_pressure_chars()
+        step = max(1, int(getattr(self, "_resize_step_chars", 5) or 1))
+
+        force = bool(getattr(self, "_force_resize_pending", False))
+        if force:
+            self._force_resize_pending = False
+
+        # Quantize pressure to step boundaries so window jumps only every N chars
+        quantized = (pressure // step) * step
+        last_quantized = (self._last_applied_resize_pressure // step) * step
+
+        force_back_to_base = (
+            pressure == 0 and self._last_applied_resize_pressure != 0
+        )
+        if (
+            not force_back_to_base
+            and quantized == last_quantized
+        ):
+            return
+
+        self._last_applied_resize_pressure = pressure
+        self._adapt_window_width_to_content(grow_only=False, smooth=True)
 
     def _set_active_calc_points(self, points):
         key = self._get_active_calc_points_key()
@@ -1495,7 +1617,7 @@ class RiskVolumeApp(QMainWindow):
                 self.tab_cascade.recalc_table()
 
             self.update_position_adjustment_info()
-            self._adapt_window_width_to_content(grow_only=True)
+            self._schedule_smooth_content_resize()
 
             self.settings.update({"deposit": d, "risk": r, "stop": s})
             self.save_settings()
@@ -2030,7 +2152,7 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "cells_table"):
             self.update_cell_volumes()
 
-        self._adapt_window_width_to_content(grow_only=True)
+        self._schedule_smooth_content_resize(force=True)
 
     def select_position_target_cell(self, cell_num):
         if not hasattr(self, "pos_target_cell_buttons"):
@@ -2143,6 +2265,7 @@ class RiskVolumeApp(QMainWindow):
                         widget.setEnabled(True)
                         widget.setStyleSheet(
                             "QLineEdit { background: #1A1A1A; color: white; border: 1px solid #252525; padding: 3px; border-radius: 4px; font-size: 9pt; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }"
+                            "QLineEdit:focus { border: 1px solid #FFFFFF; }"
                         )
                 elif isinstance(widget, QLabel):
                     if dim:
@@ -2214,6 +2337,7 @@ class RiskVolumeApp(QMainWindow):
         # Сохраняем текущий размер окна перед изменениями
         if not is_startup:
             current_size = self.size()
+            self._lock_dynamic_resize = True
 
         pos_controls = []
         for name in (
@@ -2330,7 +2454,11 @@ class RiskVolumeApp(QMainWindow):
 
         # Восстанавливаем исходный размер окна, чтобы избежать "прыжков"
         if not is_startup:
-            self.setFixedSize(current_size)
+            if isinstance(self._startup_window_size, tuple) and len(self._startup_window_size) == 2:
+                self.setFixedSize(int(self._startup_window_size[0]), int(self._startup_window_size[1]))
+            else:
+                self.setFixedSize(current_size)
+            QTimer.singleShot(120, lambda: setattr(self, "_lock_dynamic_resize", False))
 
     def _get_active_rows_for_table(self):
         selected_rows = sorted(
@@ -2407,7 +2535,9 @@ class RiskVolumeApp(QMainWindow):
                     item.setFlags(Qt.ItemFlag.NoItemFlags)
         self.cells_table.blockSignals(prev_block_state)
 
-    def _adapt_window_width_to_content(self, grow_only=False):
+    def _adapt_window_width_to_content(self, grow_only=False, smooth=False):
+        if getattr(self, "_lock_dynamic_resize", False):
+            return
         if not self.isVisible():
             return
 
@@ -2459,7 +2589,6 @@ class RiskVolumeApp(QMainWindow):
             "lbl_info",
             "lbl_status",
             "lbl_hint",
-            "lbl_pos_vol_hint",
             "lbl_pos_risk_cash",
             "lbl_pos_adjust",
         ):
@@ -2473,6 +2602,18 @@ class RiskVolumeApp(QMainWindow):
                 if grow_only:
                     desired_w = max(int(label.minimumWidth()), desired_w)
                 label.setMinimumWidth(desired_w)
+            except Exception:
+                pass
+
+        pos_vol_hint = getattr(self, "lbl_pos_vol_hint", None)
+        if pos_vol_hint:
+            try:
+                text = _metric_text(pos_vol_hint.text())
+                desired = pos_vol_hint.fontMetrics().horizontalAdvance(text) + 10
+                desired_w = max(20, min(max(80, int(120 * ratio)), desired))
+                if grow_only:
+                    desired_w = max(int(pos_vol_hint.minimumWidth()), desired_w)
+                pos_vol_hint.setMinimumWidth(desired_w)
             except Exception:
                 pass
 
@@ -2504,13 +2645,21 @@ class RiskVolumeApp(QMainWindow):
             base_min_window = max(620, int(620 * ratio))
             target_min_window = max(base_min_window, hints_required + int(90 * ratio))
             target_min_window = min(target_min_window, max(980, int(1450 * ratio)))
+
+            if smooth:
+                char_step_px = max(3, int(5 * ratio))
+                extra_chars = self._current_resize_pressure_chars()
+                step = max(1, int(getattr(self, "_resize_step_chars", 5) or 1))
+                quantized = (extra_chars // step) * step
+                target_min_window += quantized * char_step_px
+
             if grow_only:
                 target_min_window = max(int(self.minimumWidth()), int(target_min_window))
             self.setMinimumWidth(int(target_min_window))
         except Exception:
             pass
 
-        self._set_window_size_with_extra_height(grow_only=grow_only)
+        self._set_window_size_with_extra_height(grow_only=grow_only, smooth=smooth)
 
     def apply_position_adjustment_to_cell(self):
         if not bool(self.settings.get("pos_mode_enabled", False)):
@@ -2912,9 +3061,7 @@ class RiskVolumeApp(QMainWindow):
                 return
             try:
                 self.update_cells_table_height()
-                self._adapt_window_width_to_content()
-                if self.isVisible():
-                    self._set_window_size_with_extra_height()
+                self._schedule_smooth_content_resize(force=True)
             except Exception:
                 pass
 
@@ -3982,7 +4129,7 @@ class RiskVolumeApp(QMainWindow):
             self._capture_current_manual_distribution()
             self.update_cell_volumes()
             self.save_cell_settings()
-            self._adapt_window_width_to_content(grow_only=True)
+            self._schedule_smooth_content_resize(force=True)
 
     def toggle_all_transfer_rows(self):
         if not hasattr(self, "cells_table"):
@@ -4017,6 +4164,23 @@ class RiskVolumeApp(QMainWindow):
         self.update_cells_table_height()
         self._adapt_window_width_to_content()
         self._set_window_size_with_extra_height()
+        if self._startup_window_size is None:
+            self._startup_window_size = (int(self.width()), int(self.height()))
+        if not self._resize_len_baseline:
+            for name in (
+                "inp_dep",
+                "inp_risk",
+                "inp_stop",
+                "inp_pos_vol",
+                "inp_pos_risk",
+                "inp_pos_stop",
+                "inp_pos_stop_now",
+                "inp_min_order",
+            ):
+                widget = getattr(self, name, None)
+                if widget:
+                    self._resize_len_baseline[name] = len((widget.text() or "").strip())
+            self._last_applied_resize_pressure = self._current_resize_pressure_chars()
 
     def _apply_preset_values(self, preset_index):
         """Применяет значения выбранного пресета"""
@@ -4214,7 +4378,7 @@ class RiskVolumeApp(QMainWindow):
 
     def _apply_min_order_live(self):
         self.update_cell_volumes()
-        self._adapt_window_width_to_content()
+        self._schedule_smooth_content_resize()
         self.save_cell_settings()
 
     def _commit_input(self):
