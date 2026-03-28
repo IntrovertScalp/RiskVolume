@@ -264,6 +264,7 @@ class RiskVolumeApp(QMainWindow):
         self._hotkey_ids = {}
         self._cells_layout_reflow_pending = False
         self._api_read_only_check_cache = {}
+        self._status_neutral_token = 0
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -2837,9 +2838,6 @@ class RiskVolumeApp(QMainWindow):
 
     # Обработка нажатия Enter на клавиатуре (когда фокус в программе)
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape and self._cancel_active_calibration():
-            event.accept()
-            return
         super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
@@ -2889,14 +2887,6 @@ class RiskVolumeApp(QMainWindow):
         # Order already follows the intended row direction
 
         try:
-            abort_requested = False
-
-            def should_abort_apply():
-                try:
-                    return bool(keyboard.is_pressed("esc"))
-                except Exception:
-                    return False
-
             old_clip = pyperclip.paste()
             # capture exact start position to restore later if needed
             try:
@@ -2911,10 +2901,7 @@ class RiskVolumeApp(QMainWindow):
             else:
                 time.sleep(0.02)
 
-            if should_abort_apply():
-                abort_requested = True
-
-            if self._is_menu_terminal() and not abort_requested:
+            if self._is_menu_terminal():
                 try:
                     pyautogui.MINIMUM_SLEEP = 0.0005
                     pyautogui.MINIMUM_DURATION = 0.005
@@ -2958,9 +2945,6 @@ class RiskVolumeApp(QMainWindow):
                 time.sleep(open_menu_settle_delay)
 
                 for transfer_index, (point_index, vol_to_send) in enumerate(transfers):
-                    if should_abort_apply():
-                        abort_requested = True
-                        break
                     pyperclip.copy(vol_to_send)
                     time.sleep(0.01)
                     pyautogui.moveTo(
@@ -2983,7 +2967,7 @@ class RiskVolumeApp(QMainWindow):
                         keyboard.press_and_release("enter")
                         time.sleep(close_menu_delay)
 
-                if not abort_requested and requires_final_point:
+                if requires_final_point:
                     pyautogui.moveTo(t_close[0], t_close[1], duration=0.015)
                     pyautogui.click()
                     time.sleep(close_menu_delay)
@@ -3001,22 +2985,32 @@ class RiskVolumeApp(QMainWindow):
                     time.sleep(0.06)
 
                 for transfer_index, (point_index, vol_to_send) in enumerate(transfers):
-                    if should_abort_apply():
-                        abort_requested = True
-                        break
                     pyperclip.copy(vol_to_send)
                     time.sleep(0.01)
                     pyautogui.moveTo(
                         points[point_index][0], points[point_index][1], duration=0.015
                     )
+                    is_metascalp_first_calibrated = is_metascalp and point_index == 0
                     pyautogui.click()
-                    if is_metascalp and transfer_index == 0:
-                        time.sleep(0.03)
+                    if is_metascalp_first_calibrated:
+                        # First captured MetaScalp cell: use live double click
+                        # (two real clicks with pauses) for stable focus.
+                        time.sleep(0.07)
+                        pyautogui.click()
+                        time.sleep(0.07)
+                    elif is_metascalp:
+                        time.sleep(0.012)
                     else:
                         time.sleep(0.012)
-                    pyautogui.doubleClick(interval=0.03)
-                    if is_metascalp and transfer_index == 0:
+                    if is_metascalp_first_calibrated:
+                        pass
+                    else:
+                        pyautogui.doubleClick(interval=0.03)
+
+                    if is_metascalp_first_calibrated:
                         time.sleep(0.03)
+                    elif is_metascalp:
+                        time.sleep(0.012)
                     else:
                         time.sleep(0.012)
                     keyboard.press_and_release("ctrl+a")
@@ -3027,15 +3021,6 @@ class RiskVolumeApp(QMainWindow):
                     time.sleep(0.012)
                     keyboard.press_and_release("enter")
                     time.sleep(0.025)
-
-            if abort_requested:
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                self.lbl_status.setText(
-                    t.get("calc_apply_cancel", "Остановлено пользователем (ESC)")
-                )
-                self.lbl_status.setStyleSheet(
-                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
-                )
 
             # restore original cursor position if captured
             if start_x is not None and start_y is not None:
@@ -3079,8 +3064,8 @@ class RiskVolumeApp(QMainWindow):
                 self.calc_calibration_active = False
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 exists_key = f"calc_{menu_kind}_points_exists"
-                self.lbl_status.setText(t.get(exists_key, t["calc_calib_exists"]).format(cells=cells_count))
-                self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
+                ready_text = t.get(exists_key, t["calc_calib_exists"]).format(cells=cells_count)
+                self._set_ready_status_with_neutral_timeout(ready_text)
                 self.update_calibration_status()
                 return
 
@@ -3101,8 +3086,8 @@ class RiskVolumeApp(QMainWindow):
         if len(points) >= cells_count:
             self.calc_calibration_active = False
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_status.setText(t["calc_calib_exists"].format(cells=cells_count))
-            self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
+            ready_text = t["calc_calib_exists"].format(cells=cells_count)
+            self._set_ready_status_with_neutral_timeout(ready_text)
             self.update_calibration_status()
             return
 
@@ -3152,19 +3137,16 @@ class RiskVolumeApp(QMainWindow):
 
             if should_reset:
                 self._reset_active_calc_calibration()
-                self.calc_calibration_active = True
+                self.calc_calibration_active = False
                 hk_coords = self.settings.get("hk_coords", "f2").upper()
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 if self._is_menu_terminal():
                     menu_kind = self._menu_terminal_kind() or "tiger"
                     reset_key = f"calc_{menu_kind}_points_reset"
-                    self.lbl_status.setText(
-                        t.get(reset_key, t["calc_calib_reset_short"]).format(hotkey=hk_coords)
-                    )
+                    reset_text = t.get(reset_key, t["calc_calib_reset_short"]).format(hotkey=hk_coords)
                 else:
-                    self.lbl_status.setText(
-                        t["calc_calib_reset_short"].format(hotkey=hk_coords)
-                    )
+                    reset_text = t["calc_calib_reset_short"].format(hotkey=hk_coords)
+                self.lbl_status.setText(reset_text)
                 self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;")
                 return
 
@@ -3194,6 +3176,8 @@ class RiskVolumeApp(QMainWindow):
                 points.append([x, y])
                 self._set_active_calc_points(points)
                 self.save_settings()
+                if len(points) >= cells_count and not requires_final_point:
+                    self.calc_calibration_active = False
                 self.update_calibration_status()
                 return
 
@@ -3213,6 +3197,23 @@ class RiskVolumeApp(QMainWindow):
         if len(points) >= cells_count:
             return
 
+        if self._is_metascalp_terminal() and len(points) == 0:
+            # Save the first MetaScalp point only when user is on explicit step 1 prompt.
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            hk_coords = self.settings.get("hk_coords", "f2").upper()
+            expected_first_prompt = t.get(
+                "calc_calib_step_first",
+                "Наведи на 1 ячейку объема и нажми {hotkey}",
+            ).format(hotkey=hk_coords)
+            current_prompt = self.lbl_status.text() if hasattr(self, "lbl_status") else ""
+            if str(current_prompt or "").strip() != str(expected_first_prompt).strip():
+                if hasattr(self, "lbl_status"):
+                    self.lbl_status.setText(expected_first_prompt)
+                    self.lbl_status.setStyleSheet(
+                        f"color: cyan; font-size: {self._scaled_pt(7)}pt;"
+                    )
+                return
+
         points.append([x, y])
         self._set_active_calc_points(points)
         self.save_settings()
@@ -3227,6 +3228,47 @@ class RiskVolumeApp(QMainWindow):
         # Обновляем только если мы на вкладке калькулятора
         if hasattr(self, "tabs") and self.tabs.currentIndex() == 0:
             self._update_status_text()
+
+    def _set_ready_status_with_neutral_timeout(self, text, ready_color="#38BE1D", delay_ms=5000):
+        status_pt = self._scaled_pt(7)
+        self.lbl_status.setText(text)
+        self.lbl_status.setStyleSheet(f"color: {ready_color}; font-size: {status_pt}pt;")
+
+        self._status_neutral_token += 1
+        token = self._status_neutral_token
+
+        def _neutralize():
+            if token != self._status_neutral_token:
+                return
+            if getattr(self, "calc_calibration_active", False):
+                return
+            if not hasattr(self, "lbl_status"):
+                return
+            if self.lbl_status.text() != text:
+                return
+            self.lbl_status.setStyleSheet(f"color: #666; font-size: {self._scaled_pt(7)}pt;")
+
+        QTimer.singleShot(int(delay_ms), _neutralize)
+
+    def _set_transient_status_then_neutral(self, status_text, neutral_text, status_color="#FF9F0A", delay_ms=5000):
+        status_pt = self._scaled_pt(7)
+        self.lbl_status.setText(status_text)
+        self.lbl_status.setStyleSheet(f"color: {status_color}; font-size: {status_pt}pt;")
+
+        self._status_neutral_token += 1
+        token = self._status_neutral_token
+
+        def _neutralize():
+            if token != self._status_neutral_token:
+                return
+            if getattr(self, "calc_calibration_active", False):
+                return
+            if not hasattr(self, "lbl_status"):
+                return
+            self.lbl_status.setText(neutral_text)
+            self.lbl_status.setStyleSheet(f"color: #666; font-size: {self._scaled_pt(7)}pt;")
+
+        QTimer.singleShot(int(delay_ms), _neutralize)
 
     def _update_status_text(self):
         """Внутренний метод для обновления текста статуса"""
@@ -3256,8 +3298,8 @@ class RiskVolumeApp(QMainWindow):
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             if not self.calc_calibration_active and has_open and has_close and points_count >= cells_count:
                 ready_key = f"calc_{menu_kind}_points_ready"
-                self.lbl_status.setText(t.get(ready_key, t["calc_calib_ready"]).format(cells=cells_count))
-                self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
+                ready_text = t.get(ready_key, t["calc_calib_ready"]).format(cells=cells_count)
+                self._set_ready_status_with_neutral_timeout(ready_text)
                 return
 
             if self.calc_calibration_active:
@@ -3304,20 +3346,46 @@ class RiskVolumeApp(QMainWindow):
         if points_count == 0:
             if self.calc_calibration_active:
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                self.lbl_status.setText(t["calc_calib_active"].format(hotkey=hk_coords))
+                self.lbl_status.setText(
+                    t.get(
+                        "calc_calib_step_first",
+                        "Наведи на 1 ячейку объема и нажми {hotkey}",
+                    ).format(hotkey=hk_coords)
+                )
                 self.lbl_status.setStyleSheet(f"color: cyan; font-size: {status_pt}pt;")
             else:
-                self.lbl_status.setText("")
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_status.setText(
+                    t.get(
+                        "calc_need_start",
+                        "Нужно выполнить калибровку, для начала нажми {hotkey}",
+                    ).format(hotkey=hk_coords)
+                )
+                self.lbl_status.setStyleSheet(f"color: #666; font-size: {status_pt}pt;")
         elif points_count < cells_count:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_status.setText(
-                t["calc_calib_progress"].format(points=points_count, cells=cells_count)
-            )
-            self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {status_pt}pt;")
+            if self.calc_calibration_active:
+                self.lbl_status.setText(
+                    t.get(
+                        "calc_calib_step_next",
+                        "Наведи на {num} ячейку объема и нажми {hotkey} ({points} из {cells})",
+                    ).format(
+                        num=points_count + 1,
+                        hotkey=hk_coords,
+                        points=points_count,
+                        cells=cells_count,
+                    )
+                )
+                self.lbl_status.setStyleSheet(f"color: cyan; font-size: {status_pt}pt;")
+            else:
+                self.lbl_status.setText(
+                    t["calc_calib_progress"].format(points=points_count, cells=cells_count)
+                )
+                self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {status_pt}pt;")
         else:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            self.lbl_status.setText(t["calc_calib_ready"].format(cells=cells_count))
-            self.lbl_status.setStyleSheet(f"color: #38BE1D; font-size: {status_pt}pt;")
+            ready_text = t["calc_calib_ready"].format(cells=cells_count)
+            self._set_ready_status_with_neutral_timeout(ready_text)
 
     def increase_cells(self):
         """Увеличивает количество ячеек"""
@@ -4052,10 +4120,6 @@ class RiskVolumeApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         """Перехватывает события мыши на вкладках для перетаскивания"""
-        if event.type() == event.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
-            if self._cancel_active_calibration():
-                return True
-
         if isinstance(obj, QLineEdit):
             if event.type() == event.Type.MouseButtonPress:
                 now_ms = int(time.time() * 1000)
