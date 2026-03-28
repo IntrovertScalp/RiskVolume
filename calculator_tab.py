@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
     QGridLayout,
+    QSpacerItem,
+    QSizePolicy,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -173,9 +175,9 @@ def init_calculator_tab(app):
     main_layout.addWidget(app.lbl_risk_warning)
 
     # --- ОБЪЁМ (ПОСЛЕ ИНФОРМАЦИИ) ---
-    app.lbl_vol_title = QLabel(t["vol"])
+    app.lbl_vol_title = QLabel(str(t["vol"]).upper())
     app.lbl_vol_title.setStyleSheet(
-        "color: #888; font-size: 9pt; font-weight: 600; margin-top: 2px;"
+        "color: #FF9F0A; font-size: 9pt; font-weight: 700; margin-top: 2px;"
     )
     main_layout.addWidget(app.lbl_vol_title)
 
@@ -288,11 +290,11 @@ def init_calculator_tab(app):
     pos_hints_layout = QVBoxLayout()
     pos_hints_layout.setSpacing(2)
     pos_hints_row = QGridLayout()
-    pos_hints_row.setHorizontalSpacing(6)
+    pos_hints_row.setHorizontalSpacing(4)
     pos_hints_row.setVerticalSpacing(0)
     pos_hints_row.setColumnStretch(0, 0)
-    pos_hints_row.setColumnStretch(1, 1)
-    pos_hints_row.setColumnStretch(2, 1)
+    pos_hints_row.setColumnStretch(1, 0)
+    pos_hints_row.setColumnStretch(2, 0)
     pos_hints_row.setColumnStretch(3, 1)
 
     app.lbl_pos_vol_hint = QLabel("0")
@@ -303,11 +305,42 @@ def init_calculator_tab(app):
     pos_hints_row.addWidget(app.lbl_pos_vol_hint, 0, 0)
 
     app.lbl_pos_risk_cash = QLabel(t["pos_risk_cash_na"])
-    app.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt; padding-left: 2px;")
+    app.lbl_pos_risk_cash.setStyleSheet(
+        "color: #888; font-size: 8pt; padding-left: 0px; padding-right: 8px;"
+    )
     app.lbl_pos_risk_cash.setAlignment(
         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
     )
+    app.lbl_pos_risk_cash.setWordWrap(False)
+    app.lbl_pos_risk_cash.setSizePolicy(
+        QSizePolicy.Policy.Preferred,
+        QSizePolicy.Policy.Fixed,
+    )
     pos_hints_row.addWidget(app.lbl_pos_risk_cash, 0, 1)
+
+    app.lbl_pos_action_chip = QLabel("")
+    app.lbl_pos_action_chip.setStyleSheet(
+        "font-size: 8pt; border: 1px solid #666; border-radius: 3px; padding: 0px 4px;"
+    )
+    app.lbl_pos_action_chip.setAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+    app.lbl_pos_action_chip.setSizePolicy(
+        QSizePolicy.Policy.Maximum,
+        QSizePolicy.Policy.Fixed,
+    )
+    app.lbl_pos_action_chip.setVisible(False)
+    pos_hints_row.addWidget(app.lbl_pos_action_chip, 0, 2)
+    pos_hints_row.addItem(
+        QSpacerItem(
+            0,
+            0,
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Minimum,
+        ),
+        0,
+        3,
+    )
 
     app.lbl_pos_adjust = QLabel(t["calc_recommendation"])
     app.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 8pt;")
@@ -508,6 +541,7 @@ def init_calculator_tab(app):
     # --- СТАТУС (ВНИЗУ) ---
     app.lbl_status = QLabel("")
     app.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.lbl_status.setWordWrap(True)
     app.lbl_status.setStyleSheet("color: #666; font-size: 8pt;")
     main_layout.addWidget(app.lbl_status)
 

@@ -18,6 +18,95 @@ def calculate_risk_data(deposit, risk_percent, stop_percent, fee_percent=0.1):
     return cash_risk, volume, leverage, comm_usd
 
 
+def calculate_position_adjustment(
+    deposit,
+    target_risk_percent,
+    current_volume,
+    stop_entry_percent,
+    stop_now_percent,
+    fee_percent=0.0,
+    tolerance_cash=1e-9,
+):
+    """Return robust position-adjustment metrics for in-position mode.
+
+    All percentages are provided as plain percent values, e.g. 1.5 for 1.5%.
+    Returns a dict with:
+      - target_risk_cash
+      - current_risk_cash
+      - current_risk_percent
+            - effective_entry_loss_percent
+            - effective_now_loss_percent
+      - target_volume
+      - delta_volume
+      - delta_abs
+      - action in {'add', 'reduce', 'in_limit'}
+    """
+    dep = float(deposit or 0.0)
+    risk_pct = float(target_risk_percent or 0.0)
+    cur_vol = float(current_volume or 0.0)
+    stop_pct_entry = abs(float(stop_entry_percent or 0.0))
+    stop_pct_now = abs(float(stop_now_percent or 0.0))
+    fee_pct = max(0.0, float(fee_percent or 0.0))
+
+    if dep <= 0:
+        raise ValueError("deposit must be > 0")
+    if risk_pct <= 0:
+        raise ValueError("target_risk_percent must be > 0")
+    if stop_pct_entry <= 0:
+        raise ValueError("stop_entry_percent must be > 0")
+    if stop_pct_now <= 0:
+        raise ValueError("stop_now_percent must be > 0")
+
+    # Existing position risk is fixed by average-entry distance to stop.
+    effective_entry_loss_percent = stop_pct_entry + fee_pct
+    effective_now_loss_percent = stop_pct_now + fee_pct
+    if effective_entry_loss_percent <= 0 or effective_now_loss_percent <= 0:
+        raise ValueError("effective loss percent must be > 0")
+
+    target_risk_cash = dep * (risk_pct / 100.0)
+
+    entry_loss_factor = effective_entry_loss_percent / 100.0
+    now_loss_factor = effective_now_loss_percent / 100.0
+
+    cur_vol = max(0.0, cur_vol)
+    current_risk_cash = cur_vol * entry_loss_factor
+    current_risk_percent = (current_risk_cash / dep) * 100.0 if dep > 0 else 0.0
+
+    delta_risk_cash = target_risk_cash - current_risk_cash
+
+    if abs(delta_risk_cash) <= float(tolerance_cash or 0.0):
+        action = "in_limit"
+        target_volume = cur_vol
+        delta_volume = 0.0
+        delta_abs = 0.0
+    elif delta_risk_cash > 0:
+        # To increase risk, new size is added from current price level,
+        # therefore we use current distance-to-stop for incremental volume.
+        action = "add"
+        delta_volume = delta_risk_cash / now_loss_factor
+        target_volume = cur_vol + delta_volume
+        delta_abs = float(delta_volume)
+    else:
+        # To reduce risk, we cut existing position whose risk profile
+        # is defined by entry-to-stop distance.
+        action = "reduce"
+        delta_volume = delta_risk_cash / entry_loss_factor
+        target_volume = max(0.0, cur_vol + delta_volume)
+        delta_abs = float(abs(delta_volume))
+
+    return {
+        "target_risk_cash": float(target_risk_cash),
+        "current_risk_cash": float(current_risk_cash),
+        "current_risk_percent": float(current_risk_percent),
+        "effective_entry_loss_percent": float(effective_entry_loss_percent),
+        "effective_now_loss_percent": float(effective_now_loss_percent),
+        "target_volume": float(target_volume),
+        "delta_volume": float(delta_volume),
+        "delta_abs": float(delta_abs),
+        "action": action,
+    }
+
+
 def smart_format(value, precision=2):
     """Для отображения в окне: пробелы-тысячные и запятая"""
     try:

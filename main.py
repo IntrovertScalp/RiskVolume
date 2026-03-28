@@ -45,7 +45,7 @@ from PyQt6.QtGui import (
 
 from config import *
 from settings_dialog import SettingsDialog
-from logic import calculate_risk_data, get_info_html
+from logic import calculate_risk_data, calculate_position_adjustment, get_info_html
 from translations import TRANS
 from cascade_tab import CascadeTab
 from calculator_tab import init_calculator_tab
@@ -1224,7 +1224,44 @@ class RiskVolumeApp(QMainWindow):
             ratio = 1.0
         return max(7, int(base_pt * ratio))
 
-    def _set_window_size_with_extra_height(self):
+    def _scale_ratio(self):
+        try:
+            return self.settings.get("scale", self.base_scale) / float(self.base_scale)
+        except Exception:
+            return 1.0
+
+    def _top_info_font_pt(self):
+        return self._scaled_pt(8)
+
+    def _position_hint_font_pt(self, base_pt=8):
+        return self._scaled_pt(base_pt)
+
+    def _position_hint_style(self, color="#888", base_pt=8, with_padding=False):
+        style = f"color: {color}; font-size: {self._position_hint_font_pt(base_pt)}pt;"
+        if with_padding:
+            ratio = self._scale_ratio()
+            pad_left = 0
+            pad_right = max(6, int(8 * ratio))
+            style += f" padding-left: {pad_left}px; padding-right: {pad_right}px;"
+        return style
+
+    def _volume_title_text(self):
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        return str(t.get("vol", "")).upper()
+
+    def _apply_volume_title_style(self, dimmed=False):
+        if not hasattr(self, "lbl_vol_title"):
+            return
+        ratio = self._scale_ratio()
+        font_pt = max(7, int(9 * ratio))
+        margin_top = max(1, int(2 * ratio))
+        color = "#FF9F0A" if not dimmed else "#B36D05"
+        self.lbl_vol_title.setText(self._volume_title_text())
+        self.lbl_vol_title.setStyleSheet(
+            f"color: {color}; font-size: {font_pt}pt; font-weight: 700; margin-top: {margin_top}px;"
+        )
+
+    def _set_window_size_with_extra_height(self, grow_only=False):
         self.adjustSize()
         size = self.sizeHint()
         try:
@@ -1232,7 +1269,25 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             ratio = 1.0
         extra_h = max(16, int(20 * ratio))
-        self.setFixedSize(size.width(), size.height() + extra_h)
+        target_w = int(size.width())
+        target_h = int(size.height() + extra_h)
+
+        if grow_only:
+            target_w = max(int(self.width()), target_w)
+            target_h = max(int(self.height()), target_h)
+
+        try:
+            screen = self.screen() or QApplication.primaryScreen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                max_w = max(360, int(available.width()) - 12)
+                max_h = max(240, int(available.height()) - 12)
+                target_w = min(target_w, max_w)
+                target_h = min(target_h, max_h)
+        except Exception:
+            pass
+
+        self.setFixedSize(target_w, target_h)
 
     def _set_active_calc_points(self, points):
         key = self._get_active_calc_points_key()
@@ -1281,7 +1336,9 @@ class RiskVolumeApp(QMainWindow):
         self.lbl_dep_title.setText(t["dep"])
         self.lbl_risk_title.setText(t["risk"])
         self.lbl_stop_title.setText(t["stop"])
-        self.lbl_vol_title.setText(t["vol"])
+        self._apply_volume_title_style(
+            dimmed=bool(self.settings.get("pos_mode_enabled", False))
+        )
         self.tabs.setTabText(0, t.get("tab_calc", "Калькулятор"))
         self.tabs.setTabText(1, t.get("tab_casc", "Каскады"))
         self.refresh_calculator_labels()
@@ -1383,10 +1440,7 @@ class RiskVolumeApp(QMainWindow):
             r = float(self.inp_risk.text().replace(",", ".") or 0)
             s = float(self.inp_stop.text().replace(",", ".") or 0)
 
-            fee_taker = self.settings.get("fee_taker", 0.05)
-            fee_maker = self.settings.get("fee_maker", 0.05)
-            use_fee = self.settings.get("use_fee", True)
-            f_perc = (fee_taker + fee_maker) if use_fee else 0.0
+            f_perc, use_fee = self._get_effective_fee_percent()
             cash_risk, vol, lev, comm_usd = calculate_risk_data(d, r, s, f_perc)
 
             self.current_vol = vol
@@ -1399,6 +1453,7 @@ class RiskVolumeApp(QMainWindow):
 
             t = TRANS[self.settings.get("lang", "ru")]
             dimmed = self.settings.get("pos_mode_enabled", False)
+            info_font_pt = self._top_info_font_pt()
             self.lbl_info.setText(
                 get_info_html(
                     cash_risk,
@@ -1408,6 +1463,7 @@ class RiskVolumeApp(QMainWindow):
                     p_risk,
                     p_fee,
                     p_lev,
+                    font_size=info_font_pt,
                     dimmed=dimmed,
                     fee_enabled=use_fee,
                 )
@@ -1439,12 +1495,31 @@ class RiskVolumeApp(QMainWindow):
                 self.tab_cascade.recalc_table()
 
             self.update_position_adjustment_info()
-            self._adapt_window_width_to_content()
+            self._adapt_window_width_to_content(grow_only=True)
 
             self.settings.update({"deposit": d, "risk": r, "stop": s})
             self.save_settings()
         except Exception as e:
             print(f"Error: {e}")
+
+    def _get_effective_fee_percent(self):
+        use_fee = bool(self.settings.get("use_fee", True))
+        if not use_fee:
+            return 0.0, False
+
+        try:
+            fee_taker = float(self.settings.get("fee_taker", 0.0) or 0.0)
+        except Exception:
+            fee_taker = 0.0
+
+        try:
+            fee_maker = float(self.settings.get("fee_maker", 0.0) or 0.0)
+        except Exception:
+            fee_maker = 0.0
+
+        fee_taker = max(0.0, fee_taker)
+        fee_maker = max(0.0, fee_maker)
+        return fee_taker + fee_maker, True
 
     def _build_risk_warning_text(self, risk_percent, stop_percent, leverage, use_fee):
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
@@ -1538,45 +1613,76 @@ class RiskVolumeApp(QMainWindow):
             self.lbl_pos_warning.setText("")
             self.lbl_pos_warning.setVisible(False)
 
-    def _build_position_risk_cash_html(self, risk_cash_text, status, delta_text=""):
+    def _build_position_risk_cash_html(
+        self,
+        target_risk_cash_text,
+        current_risk_cash_text="",
+        current_risk_pct_text="",
+    ):
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        font_pt = self._position_hint_font_pt(8)
         label_color = "#FFFFFF"
         risk_value_color = "#FF453A"
+        current_risk_value_color = "#FF453A"
         sep_color = "#666"
 
         risk_label = t.get("pos_risk_cash_label", "Риск сделки в $:")
+        current_risk_label = t.get("pos_current_risk_label", "Текущий риск:")
 
-        if status == "add":
-            status_label = t.get("pos_add_label", "Добор:")
-            status_value_color = "#38BE1D"
-            right_html = (
-                f"<span style='color: {label_color}; font-size: 8pt;'>{status_label} </span>"
-                f"<b style='color: {status_value_color}; font-size: 8pt;'>{delta_text}</b>"
-            )
-        elif status == "reduce":
-            status_label = t.get("pos_reduce_label", "Сокращение:")
-            status_value_color = "#FF453A"
-            right_html = (
-                f"<span style='color: {label_color}; font-size: 8pt;'>{status_label} </span>"
-                f"<b style='color: {status_value_color}; font-size: 8pt;'>{delta_text}</b>"
+        if current_risk_cash_text:
+            current_risk_right = f"${current_risk_cash_text}"
+            if current_risk_pct_text:
+                current_risk_right += f" ({current_risk_pct_text}%)"
+            left_html = (
+                f"<span style='color: {label_color}; font-size: {font_pt}pt;'>{risk_label} </span>"
+                f"<b style='color: {risk_value_color}; font-size: {font_pt}pt;'>${target_risk_cash_text}</b>"
+                f"<span style='color: {sep_color};'>  |  </span>"
+                f"<span style='color: {label_color}; font-size: {font_pt}pt;'>{current_risk_label} </span>"
+                f"<b style='color: {current_risk_value_color}; font-size: {font_pt}pt;'>{current_risk_right}</b>"
             )
         else:
-            in_limit_label = t.get("pos_in_limit_label", "Позиция в лимите риска")
-            right_html = (
-                f"<span style='color: {label_color}; font-size: 8pt;'>{in_limit_label}</span>"
+            left_html = (
+                f"<span style='color: {label_color}; font-size: {font_pt}pt;'>{risk_label} </span>"
+                f"<b style='color: {risk_value_color}; font-size: {font_pt}pt;'>${target_risk_cash_text}</b>"
             )
 
         return (
             "<div style='line-height: 120%; white-space: nowrap;'>"
-            f"<span style='color: {label_color}; font-size: 8pt;'>{risk_label} </span>"
-            f"<b style='color: {risk_value_color}; font-size: 8pt;'>${risk_cash_text}</b>"
-            f"<span style='color: {sep_color};'>  |  </span>"
-            f"{right_html}"
+            f"{left_html}"
             "</div>"
         )
 
+    def _set_position_action_chip(self, action=None, delta_text=""):
+        if not hasattr(self, "lbl_pos_action_chip"):
+            return
+
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        ratio = self._scale_ratio()
+        font_pt = self._position_hint_font_pt(8)
+        border_radius = max(3, int(3 * ratio))
+        pad_h = max(3, int(4 * ratio))
+
+        if action == "add":
+            label = t.get("pos_add_label", "Добор:")
+            color = "#38BE1D"
+        elif action == "reduce":
+            label = t.get("pos_reduce_label", "Сокращение:")
+            color = "#FF453A"
+        else:
+            self.lbl_pos_action_chip.setText("")
+            self.lbl_pos_action_chip.setVisible(False)
+            return
+
+        self.lbl_pos_action_chip.setText(f"{label} {delta_text}")
+        self.lbl_pos_action_chip.setStyleSheet(
+            f"color: {color}; font-size: {font_pt}pt; border: 1px solid {color}; "
+            f"border-radius: {border_radius}px; padding: 0px {pad_h}px;"
+        )
+        self.lbl_pos_action_chip.setVisible(True)
+
     def _build_position_target_html(self, target_vol_text, target_lev_text):
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        font_pt = self._position_hint_font_pt(8)
         label_color = "#FFFFFF"
         target_value_color = "#FF9F0A"
         leverage_value_color = "#B388FF"
@@ -1587,11 +1693,11 @@ class RiskVolumeApp(QMainWindow):
 
         return (
             "<div style='line-height: 120%; white-space: nowrap;'>"
-            f"<span style='color: {label_color}; font-size: 8pt;'>{target_label} </span>"
-            f"<b style='color: {target_value_color}; font-size: 8pt;'>{target_vol_text}</b>"
+            f"<span style='color: {label_color}; font-size: {font_pt}pt;'>{target_label} </span>"
+            f"<b style='color: {target_value_color}; font-size: {font_pt}pt;'>{target_vol_text}</b>"
             f"<span style='color: {sep_color};'>  |  </span>"
-            f"<span style='color: {label_color}; font-size: 8pt;'>{leverage_label} </span>"
-            f"<b style='color: {leverage_value_color}; font-size: 8pt;'>{target_lev_text}x</b>"
+            f"<span style='color: {label_color}; font-size: {font_pt}pt;'>{leverage_label} </span>"
+            f"<b style='color: {leverage_value_color}; font-size: {font_pt}pt;'>{target_lev_text}x</b>"
             "</div>"
         )
 
@@ -1613,10 +1719,15 @@ class RiskVolumeApp(QMainWindow):
             self.pos_adjust_action = None
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t["pos_mode_off"])
-            self.lbl_pos_adjust.setStyleSheet("color: #555; font-size: 7pt;")
+            self.lbl_pos_adjust.setStyleSheet(
+                self._position_hint_style("#555", base_pt=7)
+            )
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(t["pos_risk_cash_na"])
-                self.lbl_pos_risk_cash.setStyleSheet("color: #555; font-size: 7pt;")
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style("#555", base_pt=7, with_padding=True)
+                )
+            self._set_position_action_chip(None)
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "lbl_pos_warning"):
@@ -1660,13 +1771,25 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pos_stop_now = 0.0
 
+        try:
+            deposit = float(self.inp_dep.text().replace(",", ".") or 0)
+        except Exception:
+            deposit = 0.0
+
+        pos_vol = max(0.0, float(pos_vol))
+
         if pos_risk <= 0:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t["pos_rec_risk"])
-            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            self.lbl_pos_adjust.setStyleSheet(
+                self._position_hint_style("#888", base_pt=7)
+            )
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(t["pos_risk_cash_need"])
-                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style("#888", base_pt=8, with_padding=True)
+                )
+            self._set_position_action_chip(None)
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             self.settings["pos_current_vol"] = self.inp_pos_vol.text()
@@ -1684,29 +1807,18 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_pos_warning.setVisible(False)
             return
 
-        # Риск в $ считаем от ДЕПОЗИТА
-        try:
-            deposit_for_risk = float(self.inp_dep.text().replace(",", ".") or 0)
-        except Exception:
-            deposit_for_risk = 0.0
-
-        risk_cash = (
-            deposit_for_risk * (pos_risk / 100.0)
-            if deposit_for_risk > 0
-            else pos_vol * (pos_risk / 100.0)
-        )
-        risk_cash_text = f"{risk_cash:,.{p_risk}f}".replace(",", " ").replace(".", ",")
-
         if pos_stop <= 0:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t.get("pos_rec_stop_entry", t["pos_rec_stop"]))
-            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            self.lbl_pos_adjust.setStyleSheet(
+                self._position_hint_style("#888", base_pt=7)
+            )
             if hasattr(self, "lbl_pos_risk_cash"):
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                self.lbl_pos_risk_cash.setText(
-                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                self.lbl_pos_risk_cash.setText(t["pos_risk_cash_need"])
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style("#888", base_pt=8, with_padding=True)
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            self._set_position_action_chip(None)
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
@@ -1722,12 +1834,15 @@ class RiskVolumeApp(QMainWindow):
         if pos_stop_now <= 0:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t.get("pos_rec_stop_now", t["pos_rec_stop"]))
-            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            self.lbl_pos_adjust.setStyleSheet(
+                self._position_hint_style("#888", base_pt=7)
+            )
             if hasattr(self, "lbl_pos_risk_cash"):
-                self.lbl_pos_risk_cash.setText(
-                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                self.lbl_pos_risk_cash.setText(t["pos_risk_cash_need"])
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style("#888", base_pt=8, with_padding=True)
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            self._set_position_action_chip(None)
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
@@ -1740,26 +1855,20 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_pos_warning.setVisible(False)
             return
 
-        fee_taker = self.settings.get("fee_taker", 0.05)
-        fee_maker = self.settings.get("fee_maker", 0.05)
-        use_fee = self.settings.get("use_fee", True)
-        f_perc = (fee_taker + fee_maker) if use_fee else 0.0
-
-        # Берём депозит из основного поля калькулятора
-        try:
-            deposit = float(self.inp_dep.text().replace(",", ".") or 0)
-        except Exception:
-            deposit = 0.0
+        f_perc, use_fee = self._get_effective_fee_percent()
 
         if deposit <= 0:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t.get("pos_need_deposit", "Укажите депозит"))
-            self.lbl_pos_adjust.setStyleSheet("color: #888; font-size: 7pt;")
+            self.lbl_pos_adjust.setStyleSheet(
+                self._position_hint_style("#888", base_pt=7)
+            )
             if hasattr(self, "lbl_pos_risk_cash"):
-                self.lbl_pos_risk_cash.setText(
-                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                self.lbl_pos_risk_cash.setText(t["pos_risk_cash_need"])
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style("#888", base_pt=8, with_padding=True)
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            self._set_position_action_chip(None)
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
@@ -1769,22 +1878,34 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_pos_warning.setVisible(False)
             return
 
-        # Целевой объём считаем по текущей дистанции до стопа (текущая цена -> стоп),
-        # чтобы рекомендация добора/сокращения отражала текущую ситуацию.
+        tolerance = max(1e-9, 10 ** (-(max(0, int(p_risk)) + 1)))
+
+        # Deterministic in-position model:
+        # - current risk is estimated by entry->stop distance
+        # - add sizing is estimated by current->stop distance
+        # - reduce sizing cuts existing position risk profile
         try:
-            _, max_vol_at_stop, _, _ = calculate_risk_data(
-                deposit, pos_risk, pos_stop_now, f_perc
+            pos_calc = calculate_position_adjustment(
+                deposit=deposit,
+                target_risk_percent=pos_risk,
+                current_volume=pos_vol,
+                stop_entry_percent=pos_stop,
+                stop_now_percent=pos_stop_now,
+                fee_percent=f_perc,
+                tolerance_cash=tolerance,
             )
         except Exception:
             t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
             self.lbl_pos_adjust.setText(t["pos_calc_error"])
-            self.lbl_pos_adjust.setStyleSheet("color: #FF9F0A; font-size: 7pt;")
+            self.lbl_pos_adjust.setStyleSheet(
+                self._position_hint_style("#FF9F0A", base_pt=7)
+            )
             if hasattr(self, "lbl_pos_risk_cash"):
-                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-                self.lbl_pos_risk_cash.setText(
-                    t["pos_risk_cash"].format(risk_cash=risk_cash_text)
+                self.lbl_pos_risk_cash.setText(t["pos_risk_cash_need"])
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style("#888", base_pt=8, with_padding=True)
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("color: #888; font-size: 8pt;")
+            self._set_position_action_chip(None)
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
             if hasattr(self, "cells_table"):
@@ -1793,6 +1914,19 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_pos_warning.setText("")
                 self.lbl_pos_warning.setVisible(False)
             return
+
+        risk_cash = float(pos_calc.get("target_risk_cash", 0.0) or 0.0)
+        current_risk_cash = float(pos_calc.get("current_risk_cash", 0.0) or 0.0)
+        current_risk_percent = float(pos_calc.get("current_risk_percent", 0.0) or 0.0)
+        max_vol_at_stop = float(pos_calc.get("target_volume", 0.0) or 0.0)
+        action = str(pos_calc.get("action", "in_limit") or "in_limit")
+        delta_abs = float(pos_calc.get("delta_abs", 0.0) or 0.0)
+
+        risk_cash_text = f"{risk_cash:,.{p_risk}f}".replace(",", " ").replace(".", ",")
+        current_risk_cash_text = f"{current_risk_cash:,.{p_risk}f}".replace(",", " ").replace(".", ",")
+        current_risk_pct_text = (
+            f"{current_risk_percent:,.2f}".replace(",", " ").replace(".", ",")
+        )
 
         self.position_target_volume = float(max_vol_at_stop)
         target_vol_text = f"{max_vol_at_stop:,.{p_vol}f}".replace(",", " ").replace(
@@ -1810,48 +1944,80 @@ class RiskVolumeApp(QMainWindow):
         )
 
         if hasattr(self, "lbl_pos_stop_delta"):
-            self.lbl_pos_stop_delta.setText("")
-            self.lbl_pos_stop_delta.setVisible(False)
+            if pos_stop > 0:
+                entry_text = f"{pos_stop:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+                now_text = f"{pos_stop_now:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+                delta_stop = abs(float(pos_stop_now) - float(pos_stop))
+                delta_text = f"{delta_stop:.2f}".rstrip("0").rstrip(".").replace(".", ",")
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self.lbl_pos_stop_delta.setText(
+                    t.get(
+                        "pos_stop_delta",
+                        "Дистанция до стопа: средняя {entry}% | текущая {now}% | разница {delta}%",
+                    ).format(entry=entry_text, now=now_text, delta=delta_text)
+                )
+                self.lbl_pos_stop_delta.setVisible(True)
+            else:
+                self.lbl_pos_stop_delta.setText("")
+                self.lbl_pos_stop_delta.setVisible(False)
 
-        delta = max_vol_at_stop - pos_vol
-        if delta > 0:
-            self.pos_adjust_delta = float(delta)
+        if action == "add":
+            self.pos_adjust_delta = float(delta_abs)
             self.pos_adjust_action = "add"
-            delta_text = f"{delta:,.{p_adjust_vol}f}".replace(",", " ").replace(".", ",")
+            delta_text = f"{delta_abs:,.{p_adjust_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(
                     self._build_position_risk_cash_html(
-                        risk_cash_text, "add", delta_text
+                        risk_cash_text,
+                        current_risk_cash_text,
+                        current_risk_pct_text,
                     )
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style(with_padding=True)
+                )
+            self._set_position_action_chip("add", delta_text)
             self.lbl_pos_adjust.setText(target_with_lev_text)
-            self.lbl_pos_adjust.setStyleSheet("font-size: 8pt;")
+            self.lbl_pos_adjust.setStyleSheet(self._position_hint_style())
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
-        elif delta < 0:
-            self.pos_adjust_delta = float(abs(delta))
+        elif action == "reduce":
+            self.pos_adjust_delta = float(delta_abs)
             self.pos_adjust_action = "reduce"
-            delta_text = f"{abs(delta):,.{p_adjust_vol}f}".replace(",", " ").replace(".", ",")
+            delta_text = f"{delta_abs:,.{p_adjust_vol}f}".replace(",", " ").replace(".", ",")
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(
                     self._build_position_risk_cash_html(
-                        risk_cash_text, "reduce", delta_text
+                        risk_cash_text,
+                        current_risk_cash_text,
+                        current_risk_pct_text,
                     )
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style(with_padding=True)
+                )
+            self._set_position_action_chip("reduce", delta_text)
             self.lbl_pos_adjust.setText(target_with_lev_text)
-            self.lbl_pos_adjust.setStyleSheet("font-size: 8pt;")
+            self.lbl_pos_adjust.setStyleSheet(self._position_hint_style())
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(True)
         else:
+            self.pos_adjust_delta = 0.0
+            self.pos_adjust_action = None
             if hasattr(self, "lbl_pos_risk_cash"):
                 self.lbl_pos_risk_cash.setText(
-                    self._build_position_risk_cash_html(risk_cash_text, "in_limit")
+                    self._build_position_risk_cash_html(
+                        risk_cash_text,
+                        current_risk_cash_text,
+                        current_risk_pct_text,
+                    )
                 )
-                self.lbl_pos_risk_cash.setStyleSheet("font-size: 8pt;")
+                self.lbl_pos_risk_cash.setStyleSheet(
+                    self._position_hint_style(with_padding=True)
+                )
+            self._set_position_action_chip(None)
             self.lbl_pos_adjust.setText(target_with_lev_text)
-            self.lbl_pos_adjust.setStyleSheet("font-size: 8pt;")
+            self.lbl_pos_adjust.setStyleSheet(self._position_hint_style())
             if hasattr(self, "btn_move_adjust_to_cell"):
                 self.btn_move_adjust_to_cell.setEnabled(False)
 
@@ -1864,7 +2030,7 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "cells_table"):
             self.update_cell_volumes()
 
-        self._adapt_window_width_to_content()
+        self._adapt_window_width_to_content(grow_only=True)
 
     def select_position_target_cell(self, cell_num):
         if not hasattr(self, "pos_target_cell_buttons"):
@@ -1980,6 +2146,9 @@ class RiskVolumeApp(QMainWindow):
                         )
                 elif isinstance(widget, QLabel):
                     if dim:
+                        if name == "lbl_vol_title":
+                            self._apply_volume_title_style(dimmed=True)
+                            continue
                         if name == "lbl_vol":
                             widget.setStyleSheet(
                                 "color: #555; font-size: 11pt; font-weight: bold; border: 1px solid #222; "
@@ -2012,14 +2181,8 @@ class RiskVolumeApp(QMainWindow):
                             )
                             widget.setStyleSheet(new_style)
                         elif name == "lbl_vol_title":
-                            import re
-
-                            new_style = re.sub(
-                                r"color:\s*#[0-9A-Fa-f]{3,6}",
-                                "color: #888",
-                                current_style,
-                            )
-                            widget.setStyleSheet(new_style)
+                            self._apply_volume_title_style(dimmed=False)
+                            continue
                         elif name == "lbl_hint":
                             import re
 
@@ -2065,6 +2228,7 @@ class RiskVolumeApp(QMainWindow):
             "btn_move_adjust_to_cell",
             "lbl_pos_vol_hint",
             "lbl_pos_risk_cash",
+            "lbl_pos_action_chip",
             "lbl_pos_adjust",
             "lbl_pos_stop_delta",
             "lbl_pos_warning",
@@ -2128,16 +2292,26 @@ class RiskVolumeApp(QMainWindow):
 
         if hasattr(self, "lbl_pos_vol_hint"):
             self.lbl_pos_vol_hint.setStyleSheet(
-                "color: #666; font-size: 8pt;"
+                self._position_hint_style("#666", base_pt=8)
                 if enabled
-                else "color: #555; font-size: 8pt;"
+                else self._position_hint_style("#555", base_pt=8)
+            )
+        if hasattr(self, "lbl_pos_vol_title"):
+            self.lbl_pos_vol_title.setStyleSheet(
+                f"color: {'#888' if enabled else '#555'}; font-size: {self._scaled_pt(8)}pt;"
             )
         if hasattr(self, "lbl_pos_risk_cash"):
             self.lbl_pos_risk_cash.setStyleSheet(
-                "color: #888; font-size: 8pt;"
+                self._position_hint_style("#888", base_pt=8, with_padding=True)
                 if enabled
-                else "color: #555; font-size: 8pt;"
+                else self._position_hint_style("#555", base_pt=8, with_padding=True)
             )
+        if hasattr(self, "lbl_pos_action_chip"):
+            if enabled and self.lbl_pos_action_chip.isVisible():
+                # Keep current chip color/border that is set by action state.
+                pass
+            elif not enabled:
+                self.lbl_pos_action_chip.setVisible(False)
         if hasattr(self, "lbl_pos_adjust"):
             self.lbl_pos_adjust.setStyleSheet(
                 "color: #888; font-size: 8pt;"
@@ -2233,7 +2407,7 @@ class RiskVolumeApp(QMainWindow):
                     item.setFlags(Qt.ItemFlag.NoItemFlags)
         self.cells_table.blockSignals(prev_block_state)
 
-    def _adapt_window_width_to_content(self):
+    def _adapt_window_width_to_content(self, grow_only=False):
         if not self.isVisible():
             return
 
@@ -2253,7 +2427,7 @@ class RiskVolumeApp(QMainWindow):
         scale = self.settings.get("scale", self.base_scale)
         ratio = scale / float(self.base_scale)
         base_w = max(90, int(105 * ratio))
-        max_w = max(220, int(360 * ratio))
+        max_w = max(280, int(560 * ratio))
 
         for name in (
             "inp_dep",
@@ -2262,6 +2436,7 @@ class RiskVolumeApp(QMainWindow):
             "inp_pos_vol",
             "inp_pos_risk",
             "inp_pos_stop",
+            "inp_pos_stop_now",
             "inp_min_order",
         ):
             widget = getattr(self, name, None)
@@ -2271,13 +2446,17 @@ class RiskVolumeApp(QMainWindow):
             try:
                 text = widget.text() if widget.text() else "0"
                 desired = widget.fontMetrics().horizontalAdvance(text + " 000") + 18
-                widget.setMinimumWidth(max(base_w, min(max_w, desired)))
+                desired_w = max(base_w, min(max_w, desired))
+                if grow_only:
+                    desired_w = max(int(widget.minimumWidth()), desired_w)
+                widget.setMinimumWidth(desired_w)
             except Exception:
                 pass
 
         label_base_w = max(140, int(180 * ratio))
-        label_max_w = max(320, int(700 * ratio))
+        label_max_w = max(380, int(980 * ratio))
         for name in (
+            "lbl_info",
             "lbl_status",
             "lbl_hint",
             "lbl_pos_vol_hint",
@@ -2290,7 +2469,10 @@ class RiskVolumeApp(QMainWindow):
             try:
                 text = _metric_text(label.text())
                 desired = label.fontMetrics().horizontalAdvance(text) + 22
-                label.setMinimumWidth(max(label_base_w, min(label_max_w, desired)))
+                desired_w = max(label_base_w, min(label_max_w, desired))
+                if grow_only:
+                    desired_w = max(int(label.minimumWidth()), desired_w)
+                label.setMinimumWidth(desired_w)
             except Exception:
                 pass
 
@@ -2322,11 +2504,13 @@ class RiskVolumeApp(QMainWindow):
             base_min_window = max(620, int(620 * ratio))
             target_min_window = max(base_min_window, hints_required + int(90 * ratio))
             target_min_window = min(target_min_window, max(980, int(1450 * ratio)))
+            if grow_only:
+                target_min_window = max(int(self.minimumWidth()), int(target_min_window))
             self.setMinimumWidth(int(target_min_window))
         except Exception:
             pass
 
-        self._set_window_size_with_extra_height()
+        self._set_window_size_with_extra_height(grow_only=grow_only)
 
     def apply_position_adjustment_to_cell(self):
         if not bool(self.settings.get("pos_mode_enabled", False)):
@@ -2556,6 +2740,9 @@ class RiskVolumeApp(QMainWindow):
             )
         if hasattr(self, "lbl_vol"):
             self.lbl_vol.setFixedHeight(max(24, int(36 * ratio)))
+        self._apply_volume_title_style(
+            dimmed=bool(self.settings.get("pos_mode_enabled", False))
+        )
 
         if hasattr(self, "cb_distribution"):
             self.cb_distribution.setStyleSheet(
@@ -2665,7 +2852,12 @@ class RiskVolumeApp(QMainWindow):
         ):
             widget = getattr(self, name, None)
             if widget:
-                widget.setStyleSheet(f"font-size: {pos_lbl_pt}pt;")
+                if name == "lbl_pos_vol_title":
+                    pos_enabled = bool(self.settings.get("pos_mode_enabled", False))
+                    color = "#888" if pos_enabled else "#555"
+                    widget.setStyleSheet(f"color: {color}; font-size: {pos_lbl_pt}pt;")
+                else:
+                    widget.setStyleSheet(f"font-size: {pos_lbl_pt}pt;")
 
         for name in ("inp_pos_vol", "inp_pos_risk", "inp_pos_stop", "inp_pos_stop_now", "inp_min_order"):
             widget = getattr(self, name, None)
@@ -2684,7 +2876,12 @@ class RiskVolumeApp(QMainWindow):
                     color = "#666"
                 elif name == "lbl_pos_stop_delta":
                     color = "#777"
-                widget.setStyleSheet(f"color: {color}; font-size: {pos_hint_pt}pt;")
+                if name == "lbl_pos_risk_cash":
+                    widget.setStyleSheet(
+                        self._position_hint_style(color, base_pt=8, with_padding=True)
+                    )
+                else:
+                    widget.setStyleSheet(f"color: {color}; font-size: {pos_hint_pt}pt;")
 
         for name in ("btn_reverse_cells", "btn_move_adjust_to_cell", "btn_toggle_all_cells"):
             widget = getattr(self, name, None)
@@ -3785,7 +3982,7 @@ class RiskVolumeApp(QMainWindow):
             self._capture_current_manual_distribution()
             self.update_cell_volumes()
             self.save_cell_settings()
-            self._adapt_window_width_to_content()
+            self._adapt_window_width_to_content(grow_only=True)
 
     def toggle_all_transfer_rows(self):
         if not hasattr(self, "cells_table"):
