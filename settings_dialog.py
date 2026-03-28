@@ -480,9 +480,12 @@ class SettingsDialog(QDialog):
             ["Binance", "Bybit", "OKX", "Gate", "Bitget", "MEXC", "Kucoin"]
         )
         self._enable_combo_popup_hover_highlight(self.cb_auto_dep_exchange)
-        self._auto_dep_credentials = self._normalize_auto_dep_credentials(
-            parent.settings
-        )
+        if hasattr(parent, "get_auto_dep_credentials_plain"):
+            self._auto_dep_credentials = parent.get_auto_dep_credentials_plain()
+        else:
+            self._auto_dep_credentials = self._normalize_auto_dep_credentials(
+                parent.settings
+            )
         saved_exchange = str(parent.settings.get("auto_dep_exchange", "binance"))
         try:
             self.cb_auto_dep_exchange.setCurrentIndex(
@@ -511,20 +514,14 @@ class SettingsDialog(QDialog):
         )
         self.inp_auto_dep_asset.setObjectName("FeeInput")
 
-        self.inp_auto_dep_api_key = QLineEdit(
-            str(parent.settings.get("auto_dep_api_key", ""))
-        )
+        self.inp_auto_dep_api_key = QLineEdit("")
         self.inp_auto_dep_api_key.setObjectName("FeeInput")
 
-        self.inp_auto_dep_api_secret = QLineEdit(
-            str(parent.settings.get("auto_dep_api_secret", ""))
-        )
+        self.inp_auto_dep_api_secret = QLineEdit("")
         self.inp_auto_dep_api_secret.setObjectName("FeeInput")
         self.inp_auto_dep_api_secret.setEchoMode(QLineEdit.EchoMode.Password)
 
-        self.inp_auto_dep_api_passphrase = QLineEdit(
-            str(parent.settings.get("auto_dep_api_passphrase", ""))
-        )
+        self.inp_auto_dep_api_passphrase = QLineEdit("")
         self.inp_auto_dep_api_passphrase.setObjectName("FeeInput")
         self.inp_auto_dep_api_passphrase.setEchoMode(QLineEdit.EchoMode.Password)
         self._load_auto_dep_credentials_for_exchange(self._active_auto_dep_exchange)
@@ -962,6 +959,37 @@ class SettingsDialog(QDialog):
             self.cb_auto_dep_exchange.currentIndex()
         ]
         selected_creds = self._auto_dep_credentials.get(selected_exchange, {})
+
+        if self.chk_auto_deposit.isChecked():
+            api_key = str(selected_creds.get("api_key", "") or "").strip()
+            api_secret = str(selected_creds.get("api_secret", "") or "").strip()
+            api_passphrase = str(selected_creds.get("api_passphrase", "") or "").strip()
+            market_type = "spot" if self.cb_auto_dep_market.currentIndex() == 1 else "futures"
+
+            if not api_key or not api_secret:
+                QMessageBox.warning(
+                    self,
+                    "API",
+                    "Укажите API Key и API Secret для автозаполнения депозита.",
+                )
+                return
+
+            if hasattr(self.parent_window, "validate_auto_dep_credentials_read_only"):
+                ok, reason = self.parent_window.validate_auto_dep_credentials_read_only(
+                    selected_exchange,
+                    api_key,
+                    api_secret,
+                    market_type,
+                    api_passphrase,
+                    use_cache=False,
+                )
+                if not ok:
+                    QMessageBox.warning(self, "API", str(reason or "Ключ должен быть только для чтения."))
+                    return
+
+        if hasattr(self.parent_window, "set_auto_dep_credentials_plain"):
+            self.parent_window.set_auto_dep_credentials_plain(self._auto_dep_credentials)
+
         self.parent_window.settings.update(
             {
                 "scale": self.scale_actual[self.cb_scale.currentIndex()],
@@ -978,12 +1006,9 @@ class SettingsDialog(QDialog):
                     "spot" if self.cb_auto_dep_market.currentIndex() == 1 else "futures"
                 ),
                 "auto_dep_asset": (self.inp_auto_dep_asset.text() or "USDT").strip().upper(),
-                "auto_dep_api_key": str(selected_creds.get("api_key", "") or ""),
-                "auto_dep_api_secret": str(selected_creds.get("api_secret", "") or ""),
-                "auto_dep_api_passphrase": str(
-                    selected_creds.get("api_passphrase", "") or ""
-                ),
-                "auto_dep_credentials": self._auto_dep_credentials,
+                "auto_dep_api_key": "",
+                "auto_dep_api_secret": "",
+                "auto_dep_api_passphrase": "",
                 "auto_apply_terminal": self._apply_terminal_values[
                     self.cb_apply_terminal.currentIndex()
                 ],

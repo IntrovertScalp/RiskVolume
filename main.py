@@ -49,6 +49,7 @@ from logic import calculate_risk_data, get_info_html
 from translations import TRANS
 from cascade_tab import CascadeTab
 from calculator_tab import init_calculator_tab
+from secure_credentials import protect_secret, unprotect_secret
 
 try:
     myappid = "introvert.scalp.v1"
@@ -262,6 +263,7 @@ class RiskVolumeApp(QMainWindow):
         self.calc_calibration_active = False
         self._hotkey_ids = {}
         self._cells_layout_reflow_pending = False
+        self._api_read_only_check_cache = {}
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -449,33 +451,7 @@ class RiskVolumeApp(QMainWindow):
             )
             self.save_settings()
 
-        # Миграция к хранению API-ключей по биржам.
-        creds_map = self.settings.get("auto_dep_credentials", {})
-        if not isinstance(creds_map, dict):
-            creds_map = {}
-        migrated = False
-        if "binance" not in creds_map or not isinstance(creds_map.get("binance"), dict):
-            creds_map["binance"] = {}
-            migrated = True
-        binance = creds_map.get("binance", {})
-        if not binance.get("api_key") and self.settings.get("auto_dep_api_key"):
-            binance["api_key"] = str(self.settings.get("auto_dep_api_key", "") or "")
-            migrated = True
-        if not binance.get("api_secret") and self.settings.get("auto_dep_api_secret"):
-            binance["api_secret"] = str(
-                self.settings.get("auto_dep_api_secret", "") or ""
-            )
-            migrated = True
-        if not binance.get("api_passphrase") and self.settings.get(
-            "auto_dep_api_passphrase"
-        ):
-            binance["api_passphrase"] = str(
-                self.settings.get("auto_dep_api_passphrase", "") or ""
-            )
-            migrated = True
-        creds_map["binance"] = binance
-        self.settings["auto_dep_credentials"] = creds_map
-        if migrated:
+        if self._migrate_auto_dep_credentials_secure_storage():
             self.save_settings()
 
         # Корректируем масштаб если он выходит за разумные пределы
@@ -485,8 +461,206 @@ class RiskVolumeApp(QMainWindow):
             self.save_settings()
 
     def save_settings(self):
+        self.settings["auto_dep_api_key"] = ""
+        self.settings["auto_dep_api_secret"] = ""
+        self.settings["auto_dep_api_passphrase"] = ""
+        if not isinstance(self.settings.get("auto_dep_credentials", {}), dict):
+            self.settings["auto_dep_credentials"] = {}
         with open(CONFIG_FILE, "w") as f:
             json.dump(self.settings, f)
+
+    def _secure_encrypt_field(self, value):
+        value = str(value or "").strip()
+        if not value:
+            return ""
+        return f"dpapi:{protect_secret(value)}"
+
+    def _secure_decrypt_field(self, value):
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        if not raw.startswith("dpapi:"):
+            return raw
+        try:
+            return unprotect_secret(raw[6:])
+        except Exception:
+            return ""
+
+    def _normalize_auto_dep_credentials_shape(self, raw):
+        if not isinstance(raw, dict):
+            raw = {}
+        result = {}
+        for exchange_id in ["binance", "bybit", "okx", "gate", "bitget", "mexc", "kucoin"]:
+            src = raw.get(exchange_id, {})
+            if not isinstance(src, dict):
+                src = {}
+            result[exchange_id] = {
+                "api_key": str(src.get("api_key", "") or ""),
+                "api_secret": str(src.get("api_secret", "") or ""),
+                "api_passphrase": str(src.get("api_passphrase", "") or ""),
+            }
+        return result
+
+    def get_auto_dep_credentials_plain(self):
+        creds_map = self._normalize_auto_dep_credentials_shape(
+            self.settings.get("auto_dep_credentials", {})
+        )
+
+        for exchange_id, creds in creds_map.items():
+            creds_map[exchange_id] = {
+                "api_key": self._secure_decrypt_field(creds.get("api_key", "")),
+                "api_secret": self._secure_decrypt_field(creds.get("api_secret", "")),
+                "api_passphrase": self._secure_decrypt_field(
+                    creds.get("api_passphrase", "")
+                ),
+            }
+
+        if not any(creds_map.get("binance", {}).values()):
+            legacy_key = str(self.settings.get("auto_dep_api_key", "") or "").strip()
+            legacy_secret = str(self.settings.get("auto_dep_api_secret", "") or "").strip()
+            legacy_passphrase = str(
+                self.settings.get("auto_dep_api_passphrase", "") or ""
+            ).strip()
+            if legacy_key or legacy_secret or legacy_passphrase:
+                creds_map["binance"] = {
+                    "api_key": legacy_key,
+                    "api_secret": legacy_secret,
+                    "api_passphrase": legacy_passphrase,
+                }
+
+        return creds_map
+
+    def set_auto_dep_credentials_plain(self, plain_map):
+        plain_map = self._normalize_auto_dep_credentials_shape(plain_map)
+        encrypted_map = {}
+        for exchange_id, creds in plain_map.items():
+            encrypted_map[exchange_id] = {
+                "api_key": self._secure_encrypt_field(creds.get("api_key", "")),
+                "api_secret": self._secure_encrypt_field(creds.get("api_secret", "")),
+                "api_passphrase": self._secure_encrypt_field(
+                    creds.get("api_passphrase", "")
+                ),
+            }
+        self.settings["auto_dep_credentials"] = encrypted_map
+        self.settings["auto_dep_api_key"] = ""
+        self.settings["auto_dep_api_secret"] = ""
+        self.settings["auto_dep_api_passphrase"] = ""
+
+    def _migrate_auto_dep_credentials_secure_storage(self):
+        raw = self.settings.get("auto_dep_credentials", {})
+        raw = self._normalize_auto_dep_credentials_shape(raw)
+        has_unprotected = any(
+            (
+                str(creds.get("api_key", "") or "").strip()
+                and not str(creds.get("api_key", "")).startswith("dpapi:")
+            )
+            or (
+                str(creds.get("api_secret", "") or "").strip()
+                and not str(creds.get("api_secret", "")).startswith("dpapi:")
+            )
+            or (
+                str(creds.get("api_passphrase", "") or "").strip()
+                and not str(creds.get("api_passphrase", "")).startswith("dpapi:")
+            )
+            for creds in raw.values()
+        )
+
+        has_legacy_plain = bool(
+            str(self.settings.get("auto_dep_api_key", "") or "").strip()
+            or str(self.settings.get("auto_dep_api_secret", "") or "").strip()
+            or str(self.settings.get("auto_dep_api_passphrase", "") or "").strip()
+        )
+
+        if not has_unprotected and not has_legacy_plain:
+            return False
+
+        try:
+            plain_map = self.get_auto_dep_credentials_plain()
+            self.set_auto_dep_credentials_plain(plain_map)
+            return True
+        except Exception:
+            return False
+
+    def validate_auto_dep_credentials_read_only(
+        self,
+        exchange_id,
+        api_key,
+        api_secret,
+        market_type,
+        passphrase="",
+        use_cache=True,
+    ):
+        exchange_id = str(exchange_id or "").strip().lower()
+        market_type = str(market_type or "futures").strip().lower()
+        api_key = str(api_key or "").strip()
+        api_secret = str(api_secret or "").strip()
+        passphrase = str(passphrase or "").strip()
+
+        if not api_key or not api_secret:
+            return False, "Empty API key/secret"
+
+        if exchange_id != "binance":
+            # For non-Binance exchanges we cannot reliably infer permissions via one unified API.
+            return True, ""
+
+        cache_hash = hashlib.sha256(
+            f"{exchange_id}|{market_type}|{api_key}|{api_secret}|{passphrase}".encode("utf-8")
+        ).hexdigest()
+        cache_key = (exchange_id, market_type, cache_hash)
+        if use_cache and cache_key in self._api_read_only_check_cache:
+            return self._api_read_only_check_cache[cache_key]
+
+        result = self._validate_binance_read_only_key(
+            api_key,
+            api_secret,
+            market_type,
+        )
+        self._api_read_only_check_cache[cache_key] = result
+        return result
+
+    def _validate_binance_read_only_key(self, api_key, api_secret, market_type):
+        try:
+            timestamp_ms = int(time.time() * 1000)
+            params = {"timestamp": timestamp_ms, "recvWindow": 5000}
+            query = urlencode(params)
+            signature = hmac.new(
+                str(api_secret).encode("utf-8"),
+                query.encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            headers = {"X-MBX-APIKEY": str(api_key)}
+
+            if market_type == "spot":
+                url = f"https://api.binance.com/api/v3/account?{query}&signature={signature}"
+                response = requests.get(url, headers=headers, timeout=5)
+                response.raise_for_status()
+                data = response.json()
+                if isinstance(data, dict) and data.get("code") and data.get("msg"):
+                    raise RuntimeError(f"{data.get('code')}: {data.get('msg')}")
+                can_trade = bool(data.get("canTrade", False))
+            else:
+                url = f"https://fapi.binance.com/fapi/v2/account?{query}&signature={signature}"
+                response = requests.get(url, headers=headers, timeout=5)
+                response.raise_for_status()
+                data = response.json()
+                if isinstance(data, dict) and data.get("code") and data.get("msg"):
+                    raise RuntimeError(f"{data.get('code')}: {data.get('msg')}")
+                can_trade = bool(data.get("canTrade", False))
+
+            if can_trade:
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                return False, t.get(
+                    "api_key_not_read_only",
+                    "API-ключ имеет право торговли. Используйте ключ только для чтения.",
+                )
+
+            return True, ""
+        except Exception as exc:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            return False, t.get(
+                "api_key_check_failed",
+                "Не удалось проверить права API-ключа. Проверьте ключи и сеть.",
+            ) + f" ({exc})"
 
     def toggle_window(self):
         if time.time() - self.last_toggle_time < 0.3:
@@ -556,28 +730,11 @@ class RiskVolumeApp(QMainWindow):
         self._sync_deposit_from_exchange(manual=True)
 
     def _get_auto_dep_credentials(self, exchange_id):
-        creds_map = self.settings.get("auto_dep_credentials", {})
-        if not isinstance(creds_map, dict):
-            creds_map = {}
-
-        ex_creds = creds_map.get(exchange_id, {})
-        if not isinstance(ex_creds, dict):
-            ex_creds = {}
-
+        creds_map = self.get_auto_dep_credentials_plain()
+        ex_creds = creds_map.get(str(exchange_id or "").strip().lower(), {})
         api_key = str(ex_creds.get("api_key", "") or "").strip()
         api_secret = str(ex_creds.get("api_secret", "") or "").strip()
         api_passphrase = str(ex_creds.get("api_passphrase", "") or "").strip()
-
-        # Совместимость со старыми настройками только для Binance.
-        if exchange_id == "binance":
-            if not api_key:
-                api_key = str(self.settings.get("auto_dep_api_key", "") or "").strip()
-            if not api_secret:
-                api_secret = str(self.settings.get("auto_dep_api_secret", "") or "").strip()
-            if not api_passphrase:
-                api_passphrase = str(
-                    self.settings.get("auto_dep_api_passphrase", "") or ""
-                ).strip()
 
         return api_key, api_secret, api_passphrase
 
@@ -761,6 +918,18 @@ class RiskVolumeApp(QMainWindow):
 
         if not api_key or not api_secret:
             self._set_auto_dep_status("error", "Empty API key/secret")
+            return
+
+        is_read_only, reason = self.validate_auto_dep_credentials_read_only(
+            exchange_id,
+            api_key,
+            api_secret,
+            market_type,
+            api_passphrase,
+            use_cache=True,
+        )
+        if not is_read_only:
+            self._set_auto_dep_status("error", reason)
             return
 
         self._auto_dep_sync_busy = True
