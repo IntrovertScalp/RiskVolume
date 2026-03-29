@@ -433,6 +433,8 @@ class RiskVolumeApp(QMainWindow):
             "tiger_glasses_points": {},
             "tiger_glasses_open_points": {},
             "tiger_glasses_close_points": {},
+            "vataga_glasses_points": {},
+            "vataga_glasses_open_points": {},
             "pf_active_glass": 1,
             "pf_selected_glasses": [1],
             "pf_show_preview_frames": False,
@@ -1348,13 +1350,26 @@ class RiskVolumeApp(QMainWindow):
             self._is_profit_forge_terminal()
             or self._is_metascalp_terminal()
             or self._is_tigertrade_terminal()
+            or self._is_vataga_terminal()
         )
+
+    def _is_shared_menu_preset_terminal(self):
+        return self._is_tigertrade_terminal() or self._is_vataga_terminal()
+
+    def _get_menu_glass_map_keys(self):
+        if self._is_tigertrade_terminal():
+            return ("tiger_glasses_open_points", "tiger_glasses_close_points")
+        if self._is_vataga_terminal():
+            return ("vataga_glasses_open_points", None)
+        return (None, None)
 
     def _get_shared_preset_points_storage_key(self):
         if self._is_metascalp_terminal():
             return "metascalp_glasses_points"
         if self._is_tigertrade_terminal():
             return "tiger_glasses_points"
+        if self._is_vataga_terminal():
+            return "vataga_glasses_points"
         return "pf_glasses_points"
 
     def _get_shared_active_points_key(self):
@@ -1362,6 +1377,8 @@ class RiskVolumeApp(QMainWindow):
             return "calc_points_metascalp"
         if self._is_tigertrade_terminal():
             return "calc_points_tigertrade"
+        if self._is_vataga_terminal():
+            return "calc_points_vataga"
         return "calc_points_profit_forge"
 
     def _get_menu_points_for_glass(self, glass=None):
@@ -1369,7 +1386,7 @@ class RiskVolumeApp(QMainWindow):
         if not open_key:
             return (None, None)
 
-        if not self._is_tigertrade_terminal():
+        if not self._is_shared_menu_preset_terminal():
             return (
                 self._normalize_point_pair(self.settings.get(open_key)),
                 self._normalize_point_pair(self.settings.get(close_key)),
@@ -1382,18 +1399,19 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             glass = 1
 
-        open_map = self.settings.get("tiger_glasses_open_points", {})
-        close_map = self.settings.get("tiger_glasses_close_points", {})
+        open_map_key, close_map_key = self._get_menu_glass_map_keys()
+        open_map = self.settings.get(open_map_key, {}) if open_map_key else {}
+        close_map = self.settings.get(close_map_key, {}) if close_map_key else {}
         open_point = None
         close_point = None
         if isinstance(open_map, dict):
             open_point = self._normalize_point_pair(open_map.get(str(glass)))
-        if isinstance(close_map, dict):
+        if close_map_key and isinstance(close_map, dict):
             close_point = self._normalize_point_pair(close_map.get(str(glass)))
 
         if open_point is None and glass == 1:
             open_point = self._normalize_point_pair(self.settings.get(open_key))
-        if close_point is None and glass == 1:
+        if close_key and close_point is None and glass == 1:
             close_point = self._normalize_point_pair(self.settings.get(close_key))
 
         return (open_point, close_point)
@@ -1406,7 +1424,7 @@ class RiskVolumeApp(QMainWindow):
 
         normalized_point = self._normalize_point_pair(point)
 
-        if not self._is_tigertrade_terminal():
+        if not self._is_shared_menu_preset_terminal():
             self.settings[key] = normalized_point
             return
 
@@ -1417,7 +1435,12 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             glass = 1
 
-        map_key = "tiger_glasses_close_points" if is_close else "tiger_glasses_open_points"
+        open_map_key, close_map_key = self._get_menu_glass_map_keys()
+        map_key = close_map_key if is_close else open_map_key
+        if not map_key:
+            self.settings[key] = list(normalized_point) if normalized_point else None
+            return
+
         point_map = self.settings.get(map_key, {})
         if not isinstance(point_map, dict):
             point_map = {}
@@ -1509,67 +1532,75 @@ class RiskVolumeApp(QMainWindow):
             self.settings[active_points_key] = list(active_points)
             changed = True
 
-        if self._is_tigertrade_terminal():
-            open_map = self.settings.get("tiger_glasses_open_points", {})
-            if not isinstance(open_map, dict):
+        if self._is_shared_menu_preset_terminal():
+            open_key, close_key = self._get_menu_terminal_point_keys()
+            open_map_key, close_map_key = self._get_menu_glass_map_keys()
+
+            open_map = self.settings.get(open_map_key, {}) if open_map_key else {}
+            if open_map_key and not isinstance(open_map, dict):
                 open_map = {}
                 changed = True
-            close_map = self.settings.get("tiger_glasses_close_points", {})
-            if not isinstance(close_map, dict):
+
+            close_map = self.settings.get(close_map_key, {}) if close_map_key else {}
+            if close_map_key and not isinstance(close_map, dict):
                 close_map = {}
                 changed = True
 
             normalized_open_map = {}
-            for raw_key, raw_point in open_map.items():
-                try:
-                    glass = int(raw_key)
-                except Exception:
-                    continue
-                if glass < 1 or glass > 12:
-                    continue
-                normalized_point = self._normalize_point_pair(raw_point)
-                if normalized_point:
-                    normalized_open_map[str(glass)] = normalized_point
+            if isinstance(open_map, dict):
+                for raw_key, raw_point in open_map.items():
+                    try:
+                        glass = int(raw_key)
+                    except Exception:
+                        continue
+                    if glass < 1 or glass > 12:
+                        continue
+                    normalized_point = self._normalize_point_pair(raw_point)
+                    if normalized_point:
+                        normalized_open_map[str(glass)] = normalized_point
 
             normalized_close_map = {}
-            for raw_key, raw_point in close_map.items():
-                try:
-                    glass = int(raw_key)
-                except Exception:
-                    continue
-                if glass < 1 or glass > 12:
-                    continue
-                normalized_point = self._normalize_point_pair(raw_point)
-                if normalized_point:
-                    normalized_close_map[str(glass)] = normalized_point
+            if close_map_key and isinstance(close_map, dict):
+                for raw_key, raw_point in close_map.items():
+                    try:
+                        glass = int(raw_key)
+                    except Exception:
+                        continue
+                    if glass < 1 or glass > 12:
+                        continue
+                    normalized_point = self._normalize_point_pair(raw_point)
+                    if normalized_point:
+                        normalized_close_map[str(glass)] = normalized_point
 
             if not normalized_open_map:
-                legacy_open = self._normalize_point_pair(self.settings.get("tiger_open_point"))
+                legacy_open = self._normalize_point_pair(self.settings.get(open_key)) if open_key else None
                 if legacy_open:
                     normalized_open_map["1"] = legacy_open
                     changed = True
 
-            if not normalized_close_map:
-                legacy_close = self._normalize_point_pair(self.settings.get("tiger_close_point"))
+            if close_map_key and not normalized_close_map:
+                legacy_close = self._normalize_point_pair(self.settings.get(close_key)) if close_key else None
                 if legacy_close:
                     normalized_close_map["1"] = legacy_close
                     changed = True
 
-            if self.settings.get("tiger_glasses_open_points") != normalized_open_map:
-                self.settings["tiger_glasses_open_points"] = normalized_open_map
+            if open_map_key and self.settings.get(open_map_key) != normalized_open_map:
+                self.settings[open_map_key] = normalized_open_map
                 changed = True
-            if self.settings.get("tiger_glasses_close_points") != normalized_close_map:
-                self.settings["tiger_glasses_close_points"] = normalized_close_map
+            if close_map_key and self.settings.get(close_map_key) != normalized_close_map:
+                self.settings[close_map_key] = normalized_close_map
                 changed = True
 
             active_open = normalized_open_map.get(str(active_glass))
-            active_close = normalized_close_map.get(str(active_glass))
-            if self.settings.get("tiger_open_point") != active_open:
-                self.settings["tiger_open_point"] = list(active_open) if active_open else None
+            if open_key and self.settings.get(open_key) != active_open:
+                self.settings[open_key] = list(active_open) if active_open else None
                 changed = True
-            if self.settings.get("tiger_close_point") != active_close:
-                self.settings["tiger_close_point"] = list(active_close) if active_close else None
-                changed = True
+
+            if close_key:
+                active_close = normalized_close_map.get(str(active_glass))
+                if self.settings.get(close_key) != active_close:
+                    self.settings[close_key] = list(active_close) if active_close else None
+                    changed = True
 
         if not isinstance(self.settings.get("pf_show_preview_frames", False), bool):
             self.settings["pf_show_preview_frames"] = bool(
@@ -1592,10 +1623,13 @@ class RiskVolumeApp(QMainWindow):
         glass = max(1, min(count, self._clamp_pf_glasses_count(glass)))
         self.settings["pf_active_glass"] = glass
         self.settings[self._get_shared_active_points_key()] = self._get_pf_points_for_glass(glass)
-        if self._is_tigertrade_terminal():
+        if self._is_shared_menu_preset_terminal():
+            open_key, close_key = self._get_menu_terminal_point_keys()
             menu_open, menu_close = self._get_menu_points_for_glass(glass)
-            self.settings["tiger_open_point"] = list(menu_open) if menu_open else None
-            self.settings["tiger_close_point"] = list(menu_close) if menu_close else None
+            if open_key:
+                self.settings[open_key] = list(menu_open) if menu_open else None
+            if close_key:
+                self.settings[close_key] = list(menu_close) if menu_close else None
         if save:
             self.save_settings()
 
@@ -1663,7 +1697,7 @@ class RiskVolumeApp(QMainWindow):
         points = self._get_pf_points_for_glass(glass)
         if len(points) < self._get_pf_required_cells_count():
             return False
-        if self._is_tigertrade_terminal():
+        if self._is_shared_menu_preset_terminal():
             return self._is_menu_glass_ready(glass)
         return True
 
@@ -2166,10 +2200,13 @@ class RiskVolumeApp(QMainWindow):
         self.settings["pf_selected_glasses"] = selected
 
         self.settings[self._get_shared_active_points_key()] = self._get_pf_points_for_glass(active_glass)
-        if self._is_tigertrade_terminal():
+        if self._is_shared_menu_preset_terminal():
+            open_key, close_key = self._get_menu_terminal_point_keys()
             menu_open, menu_close = self._get_menu_points_for_glass(active_glass)
-            self.settings["tiger_open_point"] = list(menu_open) if menu_open else None
-            self.settings["tiger_close_point"] = list(menu_close) if menu_close else None
+            if open_key:
+                self.settings[open_key] = list(menu_open) if menu_open else None
+            if close_key:
+                self.settings[close_key] = list(menu_close) if menu_close else None
         self.save_settings()
 
         self._update_pf_multi_glass_ui()
@@ -2404,7 +2441,7 @@ class RiskVolumeApp(QMainWindow):
 
         geometries = []
         for glass in target_glasses:
-            if self._is_tigertrade_terminal():
+            if self._is_shared_menu_preset_terminal():
                 menu_open, _ = self._get_menu_points_for_glass(glass)
                 points = self._get_pf_points_for_glass(glass)
                 if not menu_open or not points:
@@ -2415,15 +2452,16 @@ class RiskVolumeApp(QMainWindow):
                 min_x, max_x = min(xs), max(xs)
                 min_y, max_y = min(ys), max(ys)
                 pad_x = 34
-                pad_y = 16
+                pad_y = 8 if self._is_vataga_terminal() else 16
                 frame_w = max(34, (max_x - min_x) + pad_x * 2)
                 frame_h = max(20, (max_y - min_y) + pad_y * 2)
 
                 cx, cy = self._native_to_qt_global(int(menu_open[0]), int(menu_open[1]))
-                # For Tiger: keep old frame size (from 5 menu points),
+                # For Tiger/Vataga: keep old frame size (from 5 menu points),
                 # but center it on the captured order-book center cell.
                 x = int(cx - frame_w / 2)
-                y = int(cy - frame_h / 2)
+                y_shift = 6 if self._is_vataga_terminal() else 0
+                y = int(cy - frame_h / 2 + y_shift)
                 w = int(frame_w)
                 h = int(frame_h)
                 geometries.append((x, y, w, h))
@@ -4670,6 +4708,7 @@ class RiskVolumeApp(QMainWindow):
                 self.save_settings()
                 if len(points) >= cells_count and not requires_final_point:
                     self.calc_calibration_active = False
+                    self._update_pf_multi_glass_ui()
                 self.update_calibration_status()
                 return
 
