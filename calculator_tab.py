@@ -419,9 +419,26 @@ def init_calculator_tab(app):
     app.btn_toggle_all_cells.clicked.connect(app.toggle_all_transfer_rows)
     cells_header.addWidget(app.btn_toggle_all_cells)
 
-    # Количество ячеек фиксируем на 5, управление теперь только выделением строк
+    app.lbl_cells_count_title = QLabel(t.get("calc_cells_count", "Ячеек:"))
+    app.lbl_cells_count_title.setStyleSheet("font-size: 8pt;")
+    cells_header.addWidget(app.lbl_cells_count_title)
+
+    app.btn_cells_minus = QPushButton("-")
+    app.btn_cells_minus.setFixedSize(26, 25)
+    app.btn_cells_minus.setStyleSheet("color: #8E8E8E;")
+    app.btn_cells_minus.clicked.connect(app.decrease_cells)
+    cells_header.addWidget(app.btn_cells_minus)
+
     app.lbl_cells_count = QLabel("5")
-    app.lbl_cells_count.hide()
+    app.lbl_cells_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.lbl_cells_count.setFixedWidth(22)
+    cells_header.addWidget(app.lbl_cells_count)
+
+    app.btn_cells_plus = QPushButton("+")
+    app.btn_cells_plus.setFixedSize(26, 25)
+    app.btn_cells_plus.setStyleSheet("color: #8E8E8E;")
+    app.btn_cells_plus.clicked.connect(app.increase_cells)
+    cells_header.addWidget(app.btn_cells_plus)
 
     # Минимальный ордер
     app.lbl_min_order_title = QLabel(t["calc_min_order"])
@@ -591,9 +608,17 @@ def init_calculator_tab(app):
     app.sb_pf_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
     app.sb_pf_count.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     if app.sb_pf_count.lineEdit() is not None:
-        app.sb_pf_count.lineEdit().installEventFilter(app)
-        app.sb_pf_count.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
-        app.sb_pf_count.lineEdit().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        pf_line = app.sb_pf_count.lineEdit()
+        pf_line.installEventFilter(app)
+        pf_line.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pf_line.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        pf_line.setProperty("no_text_selection", True)
+
+        def _clear_pf_line_selection(line=pf_line):
+            if line.hasSelectedText():
+                line.deselect()
+
+        pf_line.selectionChanged.connect(_clear_pf_line_selection)
 
     app.sb_pf_count_wrap = QFrame()
     app.sb_pf_count_wrap.setObjectName("PfSpinWrap")

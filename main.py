@@ -404,6 +404,7 @@ class RiskVolumeApp(QMainWindow):
             "cas_manual_k": 2.0,
             "last_cascade_count": 1,
             "scalp_cells_count": 4,
+            "metascalp_cells_count": 5,
             "scalp_multipliers": [100, 50, 25, 10],
             "scalp_manual_multipliers": [100, 50, 25, 10, 0],
             "cells_reversed": False,
@@ -428,6 +429,7 @@ class RiskVolumeApp(QMainWindow):
             "calc_points_vataga": [],
             "pf_glasses_count": 1,
             "pf_glasses_points": {},
+            "metascalp_glasses_points": {},
             "pf_active_glass": 1,
             "pf_selected_glasses": [1],
             "pf_show_preview_frames": False,
@@ -1229,6 +1231,82 @@ class RiskVolumeApp(QMainWindow):
     def _is_menu_terminal(self):
         return self._menu_terminal_kind() is not None
 
+    def _get_terminal_cells_count(self):
+        if self._is_metascalp_terminal():
+            raw = self.settings.get(
+                "metascalp_cells_count", self.settings.get("scalp_cells_count", 5)
+            )
+            try:
+                value = int(raw)
+            except Exception:
+                value = 5
+            value = max(1, min(5, value))
+            self.settings["metascalp_cells_count"] = value
+            return value
+
+        return 5
+
+    def _set_terminal_cells_count(self, value):
+        if self._is_metascalp_terminal():
+            try:
+                value = int(value)
+            except Exception:
+                value = 5
+            value = max(1, min(5, value))
+            self.settings["metascalp_cells_count"] = value
+            # Keep legacy key synchronized for backward compatibility.
+            self.settings["scalp_cells_count"] = value
+            return value
+
+        self.settings["scalp_cells_count"] = 5
+        return 5
+
+    def _sync_cells_count_controls(self, refresh_table=False):
+        if not hasattr(self, "lbl_cells_count"):
+            return
+
+        is_meta = self._is_metascalp_terminal()
+        desired = self._get_terminal_cells_count() if is_meta else 5
+
+        if not is_meta:
+            self.settings["scalp_cells_count"] = 5
+
+        if self.position_target_row_active is None:
+            try:
+                current = int(self.lbl_cells_count.text())
+            except Exception:
+                current = desired
+            if current != desired:
+                self.lbl_cells_count.setText(str(desired))
+                if refresh_table and hasattr(self, "cells_table"):
+                    self.on_cells_changed()
+
+        for name in (
+            "lbl_cells_count_title",
+            "btn_cells_minus",
+            "lbl_cells_count",
+            "btn_cells_plus",
+        ):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setVisible(True)
+
+        can_edit_count = is_meta and self.position_target_row_active is None
+        if hasattr(self, "btn_cells_minus") and self.btn_cells_minus is not None:
+            try:
+                self.btn_cells_minus.setEnabled(
+                    can_edit_count and int(self.lbl_cells_count.text()) > 1
+                )
+            except Exception:
+                self.btn_cells_minus.setEnabled(can_edit_count)
+        if hasattr(self, "btn_cells_plus") and self.btn_cells_plus is not None:
+            try:
+                self.btn_cells_plus.setEnabled(
+                    can_edit_count and int(self.lbl_cells_count.text()) < 5
+                )
+            except Exception:
+                self.btn_cells_plus.setEnabled(can_edit_count)
+
     def _get_menu_terminal_point_keys(self):
         kind = self._menu_terminal_kind()
         if kind == "tiger":
@@ -1267,13 +1345,18 @@ class RiskVolumeApp(QMainWindow):
 
     def _normalize_pf_multi_glass_settings(self):
         changed = False
+        points_storage_key = (
+            "metascalp_glasses_points"
+            if self._is_metascalp_terminal()
+            else "pf_glasses_points"
+        )
 
         count = self._clamp_pf_glasses_count(self.settings.get("pf_glasses_count", 1))
         if self.settings.get("pf_glasses_count") != count:
             self.settings["pf_glasses_count"] = count
             changed = True
 
-        raw_map = self.settings.get("pf_glasses_points", {})
+        raw_map = self.settings.get(points_storage_key, {})
         points_map = {}
         if isinstance(raw_map, dict):
             for raw_key, raw_points in raw_map.items():
@@ -1286,15 +1369,18 @@ class RiskVolumeApp(QMainWindow):
                 points_map[str(glass)] = self._normalize_calc_points(raw_points)
 
         if not points_map:
-            legacy_points = self._normalize_calc_points(
-                self.settings.get("calc_points_profit_forge", [])
+            legacy_key = (
+                "calc_points_metascalp"
+                if self._is_metascalp_terminal()
+                else "calc_points_profit_forge"
             )
+            legacy_points = self._normalize_calc_points(self.settings.get(legacy_key, []))
             if legacy_points:
                 points_map = {"1": legacy_points}
                 changed = True
 
-        if self.settings.get("pf_glasses_points") != points_map:
-            self.settings["pf_glasses_points"] = points_map
+        if self.settings.get(points_storage_key) != points_map:
+            self.settings[points_storage_key] = points_map
             changed = True
 
         active_glass = self._clamp_pf_glasses_count(
@@ -1321,10 +1407,15 @@ class RiskVolumeApp(QMainWindow):
             changed = True
 
         active_points = self._normalize_calc_points(
-            self.settings.get("pf_glasses_points", {}).get(str(active_glass), [])
+            self.settings.get(points_storage_key, {}).get(str(active_glass), [])
         )
-        if self.settings.get("calc_points_profit_forge") != active_points:
-            self.settings["calc_points_profit_forge"] = list(active_points)
+        active_points_key = (
+            "calc_points_metascalp"
+            if self._is_metascalp_terminal()
+            else "calc_points_profit_forge"
+        )
+        if self.settings.get(active_points_key) != active_points:
+            self.settings[active_points_key] = list(active_points)
             changed = True
 
         if not isinstance(self.settings.get("pf_show_preview_frames", False), bool):
@@ -1347,7 +1438,10 @@ class RiskVolumeApp(QMainWindow):
         count = self._get_pf_glasses_count()
         glass = max(1, min(count, self._clamp_pf_glasses_count(glass)))
         self.settings["pf_active_glass"] = glass
-        self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(glass)
+        if self._is_metascalp_terminal():
+            self.settings["calc_points_metascalp"] = self._get_pf_points_for_glass(glass)
+        else:
+            self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(glass)
         if save:
             self.save_settings()
 
@@ -1384,7 +1478,12 @@ class RiskVolumeApp(QMainWindow):
             glass = int(glass)
         except Exception:
             glass = 1
-        points_map = self.settings.get("pf_glasses_points", {})
+        points_storage_key = (
+            "metascalp_glasses_points"
+            if self._is_metascalp_terminal()
+            else "pf_glasses_points"
+        )
+        points_map = self.settings.get(points_storage_key, {})
         if not isinstance(points_map, dict):
             points_map = {}
         return self._normalize_calc_points(points_map.get(str(glass), []))
@@ -1396,33 +1495,26 @@ class RiskVolumeApp(QMainWindow):
             glass = 1
         normalized_points = self._normalize_calc_points(points)
 
-        points_map = self.settings.get("pf_glasses_points", {})
+        points_storage_key = (
+            "metascalp_glasses_points"
+            if self._is_metascalp_terminal()
+            else "pf_glasses_points"
+        )
+        points_map = self.settings.get(points_storage_key, {})
         if not isinstance(points_map, dict):
             points_map = {}
         points_map = dict(points_map)
         points_map[str(glass)] = normalized_points
-        self.settings["pf_glasses_points"] = points_map
+        self.settings[points_storage_key] = points_map
 
         if glass == self._get_pf_active_glass():
-            self.settings["calc_points_profit_forge"] = list(normalized_points)
+            if self._is_metascalp_terminal():
+                self.settings["calc_points_metascalp"] = list(normalized_points)
+            else:
+                self.settings["calc_points_profit_forge"] = list(normalized_points)
 
     def _get_pf_required_cells_count(self):
-        try:
-            if hasattr(self, "lbl_cells_count"):
-                return max(
-                    1,
-                    int(
-                        self.settings.get(
-                            "scalp_cells_count", self.lbl_cells_count.text()
-                        )
-                    ),
-                )
-        except Exception:
-            pass
-        try:
-            return max(1, int(self.settings.get("scalp_cells_count", 5)))
-        except Exception:
-            return 5
+        return self._get_terminal_cells_count()
 
     def _is_pf_glass_calibrated(self, glass):
         points = self._get_pf_points_for_glass(glass)
@@ -1449,7 +1541,7 @@ class RiskVolumeApp(QMainWindow):
         return "calc_points_profit_forge"
 
     def _get_active_calc_points(self):
-        if self._is_profit_forge_terminal():
+        if self._is_profit_forge_terminal() or self._is_metascalp_terminal():
             return self._get_pf_points_for_glass(self._get_pf_active_glass())
         key = self._get_active_calc_points_key()
         points = self.settings.get(key, [])
@@ -1651,7 +1743,7 @@ class RiskVolumeApp(QMainWindow):
         self._adapt_window_width_to_content(grow_only=False, smooth=True)
 
     def _set_active_calc_points(self, points):
-        if self._is_profit_forge_terminal():
+        if self._is_profit_forge_terminal() or self._is_metascalp_terminal():
             self._set_pf_points_for_glass(self._get_pf_active_glass(), points)
             return
         key = self._get_active_calc_points_key()
@@ -1686,6 +1778,7 @@ class RiskVolumeApp(QMainWindow):
             self.update_position_adjustment_info()
         if hasattr(self, "update_cell_volumes"):
             self.update_cell_volumes()
+        self._sync_cells_count_controls(refresh_table=True)
         self._update_pf_multi_glass_ui()
 
     def _pf_glass_label(self, glass_num):
@@ -1696,15 +1789,9 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "pf_controls_widget"):
             return
 
-        pf_enabled = self._is_profit_forge_terminal()
-        self.pf_controls_widget.setVisible(pf_enabled)
+        self.pf_controls_widget.setVisible(True)
         if hasattr(self, "btn_pf_preview"):
-            self.btn_pf_preview.setVisible(pf_enabled)
-
-        if not pf_enabled:
-            self._clear_pf_preview_frames()
-            self._schedule_smooth_content_resize(force=True)
-            return
+            self.btn_pf_preview.setVisible(True)
 
         settings_changed = self._normalize_pf_multi_glass_settings()
         if settings_changed:
@@ -1845,7 +1932,7 @@ class RiskVolumeApp(QMainWindow):
 
         if hasattr(self, "sb_pf_count"):
             self.sb_pf_count.setStyleSheet(
-                "QSpinBox#pfSpinInner { background: transparent; color: white; border: none; padding: 2px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }"
+                "QSpinBox#pfSpinInner { background: transparent; color: white; border: none; padding: 2px; selection-background-color: transparent; selection-color: white; }"
                 "QSpinBox#pfSpinInner:focus { outline: none; }"
                 "QSpinBox#pfSpinInner:disabled { color: #555; }"
             )
@@ -1933,7 +2020,10 @@ class RiskVolumeApp(QMainWindow):
         selected = [g for g in self._get_pf_selected_glasses() if g <= count]
         self.settings["pf_selected_glasses"] = selected
 
-        self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(active_glass)
+        if self._is_metascalp_terminal():
+            self.settings["calc_points_metascalp"] = self._get_pf_points_for_glass(active_glass)
+        else:
+            self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(active_glass)
         self.save_settings()
 
         self._update_pf_multi_glass_ui()
@@ -2101,9 +2191,6 @@ class RiskVolumeApp(QMainWindow):
         return int(round(px)), int(round(py))
 
     def _flash_pf_preview_frames(self, glasses=None):
-        if not self._is_profit_forge_terminal():
-            return
-
         target_glasses = [int(g) for g in (glasses or []) if str(g).isdigit()]
         if not target_glasses:
             target_glasses = self._get_pf_selected_glasses()
@@ -2202,6 +2289,8 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "btn_toggle_all_cells"):
             self.btn_toggle_all_cells.setText(t["calc_toggle_all_btn"])
             self.btn_toggle_all_cells.setToolTip(t["calc_toggle_all"])
+        if hasattr(self, "lbl_cells_count_title"):
+            self.lbl_cells_count_title.setText(t.get("calc_cells_count", "Ячеек:"))
         if hasattr(self, "btn_pf_targets_toggle_all"):
             self.btn_pf_targets_toggle_all.setText(
                 t.get("calc_targets_toggle_all_btn", t.get("calc_toggle_all_btn", "Все"))
@@ -2259,6 +2348,7 @@ class RiskVolumeApp(QMainWindow):
                 t.get("dep_refresh_tip", "Обновить депозит с биржи")
             )
         self._update_pf_multi_glass_ui()
+        self._sync_cells_count_controls(refresh_table=False)
         self.update_position_adjustment_info()
         self.update_calibration_status()
 
@@ -2905,12 +2995,7 @@ class RiskVolumeApp(QMainWindow):
         if not hasattr(self, "cells_table") or not hasattr(self, "lbl_cells_count"):
             return
 
-        try:
-            cells_count = int(
-                self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
-            )
-        except Exception:
-            cells_count = int(self.lbl_cells_count.text())
+        cells_count = self._get_terminal_cells_count()
 
         if target_row is None:
             self.position_target_row_active = None
@@ -2926,6 +3011,7 @@ class RiskVolumeApp(QMainWindow):
                     self.btn_cells_plus.setEnabled(True)
                 if hasattr(self, "btn_reverse_cells"):
                     self.btn_reverse_cells.setEnabled(True)
+            self._sync_cells_count_controls(refresh_table=False)
         else:
             self.position_target_row_active = int(target_row)
             if self._cells_count_before_target_mode is None:
@@ -3780,6 +3866,8 @@ class RiskVolumeApp(QMainWindow):
             "btn_reverse_cells",
             "btn_move_adjust_to_cell",
             "btn_toggle_all_cells",
+            "btn_cells_minus",
+            "btn_cells_plus",
             "btn_pf_targets_toggle_all",
         ):
             widget = getattr(self, name, None)
@@ -3973,7 +4061,7 @@ class RiskVolumeApp(QMainWindow):
         target_batches = []
         skipped_glasses = []
 
-        if self._is_profit_forge_terminal():
+        if self._is_profit_forge_terminal() or self._is_metascalp_terminal():
             selected_glasses = self._get_pf_selected_glasses()
             if not selected_glasses:
                 return
@@ -4123,7 +4211,7 @@ class RiskVolumeApp(QMainWindow):
 
                 for batch_index, (glass, points) in enumerate(target_batches):
                     if (
-                        self._is_profit_forge_terminal()
+                        (self._is_profit_forge_terminal() or self._is_metascalp_terminal())
                         and len(target_batches) > 1
                         and glass is not None
                     ):
@@ -4185,7 +4273,7 @@ class RiskVolumeApp(QMainWindow):
                     if batch_index < len(target_batches) - 1:
                         time.sleep(0.04)
 
-            if self._is_profit_forge_terminal() and target_batches:
+            if (self._is_profit_forge_terminal() or self._is_metascalp_terminal()) and target_batches:
                 applied_text = t.get(
                     "calc_status_done_glasses",
                     "✓ Выставлено в {count} пресет(а)",
@@ -4216,9 +4304,7 @@ class RiskVolumeApp(QMainWindow):
 
     def start_calibration_calc(self):
         """Начинает калибровку - очищает точки и показывает инструкции"""
-        cells_count = int(
-            self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
-        )
+        cells_count = self._get_terminal_cells_count()
         hk_coords = self.settings.get("hk_coords", "f2").upper()
         status_pt = self._scaled_pt(7)
 
@@ -4305,12 +4391,7 @@ class RiskVolumeApp(QMainWindow):
     def capture_coords(self):
         """Захватывает координаты ячеек (ровно столько, сколько нужно)"""
         if not getattr(self, "calc_calibration_active", False):
-            try:
-                configured = int(
-                    self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
-                )
-            except Exception:
-                configured = int(self.lbl_cells_count.text())
+            configured = self._get_terminal_cells_count()
 
             existing_points = self._get_active_calc_points()
             menu_ready = False
@@ -4345,16 +4426,13 @@ class RiskVolumeApp(QMainWindow):
                     reset_text = t["calc_calib_reset_short"].format(hotkey=hk_coords)
                 self.lbl_status.setText(reset_text)
                 self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;")
-                if self._is_profit_forge_terminal():
-                    self._update_pf_multi_glass_ui()
+                self._update_pf_multi_glass_ui()
                 return
 
             self.start_calibration_calc()
             return
 
-        cells_count = int(
-            self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
-        )
+        cells_count = self._get_terminal_cells_count()
 
         x, y = pyautogui.position()
 
@@ -4396,23 +4474,6 @@ class RiskVolumeApp(QMainWindow):
         if len(points) >= cells_count:
             return
 
-        if self._is_metascalp_terminal() and len(points) == 0:
-            # Save the first MetaScalp point only when user is on explicit step 1 prompt.
-            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-            hk_coords = self.settings.get("hk_coords", "f2").upper()
-            expected_first_prompt = t.get(
-                "calc_calib_step_first",
-                "Наведи на 1 ячейку объема и нажми {hotkey}",
-            ).format(hotkey=hk_coords)
-            current_prompt = self.lbl_status.text() if hasattr(self, "lbl_status") else ""
-            if str(current_prompt or "").strip() != str(expected_first_prompt).strip():
-                if hasattr(self, "lbl_status"):
-                    self.lbl_status.setText(expected_first_prompt)
-                    self.lbl_status.setStyleSheet(
-                        f"color: cyan; font-size: {self._scaled_pt(7)}pt;"
-                    )
-                return
-
         points.append([x, y])
         self._set_active_calc_points(points)
         self.save_settings()
@@ -4428,9 +4489,7 @@ class RiskVolumeApp(QMainWindow):
                         [g]
                     ),
                 )
-
-                if self._is_profit_forge_terminal():
-                    self._update_pf_multi_glass_ui()
+            self._update_pf_multi_glass_ui()
 
         self.update_calibration_status()
 
@@ -4483,9 +4542,7 @@ class RiskVolumeApp(QMainWindow):
 
     def _update_status_text(self):
         """Внутренний метод для обновления текста статуса"""
-        cells_count = int(
-            self.settings.get("scalp_cells_count", self.lbl_cells_count.text())
-        )
+        cells_count = self._get_terminal_cells_count()
         points_count = len(self._get_active_calc_points())
         hk_coords = self.settings.get("hk_coords", "f2").upper()
         status_pt = self._scaled_pt(7)
@@ -4616,23 +4673,29 @@ class RiskVolumeApp(QMainWindow):
 
     def increase_cells(self):
         """Увеличивает количество ячеек"""
+        if not self._is_metascalp_terminal():
+            return
         current = int(self.lbl_cells_count.text())
         if current < 5:
             current += 1
+            current = self._set_terminal_cells_count(current)
             self.lbl_cells_count.setText(str(current))
-            self.settings["scalp_cells_count"] = current
             self.on_cells_changed()
             self._apply_manual_min_order_defaults()
+            self._sync_cells_count_controls(refresh_table=False)
 
     def decrease_cells(self):
         """Уменьшает количество ячеек"""
+        if not self._is_metascalp_terminal():
+            return
         current = int(self.lbl_cells_count.text())
         if current > 1:
             current -= 1
+            current = self._set_terminal_cells_count(current)
             self.lbl_cells_count.setText(str(current))
-            self.settings["scalp_cells_count"] = current
             self.on_cells_changed()
             self._apply_manual_min_order_defaults()
+            self._sync_cells_count_controls(refresh_table=False)
 
     def _apply_manual_min_order_defaults(self):
         if (
@@ -5279,7 +5342,7 @@ class RiskVolumeApp(QMainWindow):
     def save_cell_settings(self):
         """Сохраняет настройки ячеек"""
         if self.position_target_row_active is not None:
-            cells_count = int(self.settings.get("scalp_cells_count", 4))
+            cells_count = int(self._get_terminal_cells_count())
         else:
             cells_count = int(self.lbl_cells_count.text())
         multipliers = []
@@ -5305,7 +5368,7 @@ class RiskVolumeApp(QMainWindow):
         if is_reversed:
             multipliers.reverse()
 
-        self.settings["scalp_cells_count"] = cells_count
+        self._set_terminal_cells_count(cells_count)
         self.settings["scalp_multipliers"] = multipliers
         self.settings["scalp_min_order"] = min_order
         self.settings["cells_reversed"] = is_reversed
@@ -5365,7 +5428,127 @@ class RiskVolumeApp(QMainWindow):
 
     def eventFilter(self, obj, event):
         """Перехватывает события мыши на вкладках для перетаскивания"""
+        pf_spin = getattr(self, "sb_pf_count", None)
+        pf_line = None
+        if pf_spin is not None:
+            try:
+                pf_line = pf_spin.lineEdit()
+            except Exception:
+                pf_line = None
+
+        def _clear_pf_spin_input():
+            try:
+                line = pf_spin.lineEdit() if pf_spin is not None else None
+            except Exception:
+                line = None
+
+            try:
+                if line is not None:
+                    line.deselect()
+                    line.setSelection(0, 0)
+                    line.setCursorPosition(len(line.text() or ""))
+                    line.clearFocus()
+            except Exception:
+                pass
+
+            try:
+                if pf_spin is not None:
+                    pf_spin.clearFocus()
+            except Exception:
+                pass
+
+            try:
+                fw = QApplication.focusWidget()
+                if fw is line or fw is pf_spin:
+                    if hasattr(self, "tabs") and self.tabs is not None:
+                        self.tabs.setFocus(Qt.FocusReason.OtherFocusReason)
+                    elif hasattr(self, "tab_calculator") and self.tab_calculator is not None:
+                        self.tab_calculator.setFocus(Qt.FocusReason.OtherFocusReason)
+                    else:
+                        self.setFocus(Qt.FocusReason.OtherFocusReason)
+            except Exception:
+                pass
+
+        if (
+            obj is pf_line
+            and event.type() == event.Type.KeyPress
+            and event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        ):
+            try:
+                if pf_spin is not None:
+                    pf_spin.interpretText()
+            except Exception:
+                pass
+
+            # Do not consume: let Qt finish internal handling, then clear selection.
+            QTimer.singleShot(0, _clear_pf_spin_input)
+            QTimer.singleShot(20, _clear_pf_spin_input)
+            QTimer.singleShot(80, _clear_pf_spin_input)
+            return False
+
+        if (
+            obj is pf_line
+            and event.type() == event.Type.KeyRelease
+            and event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        ):
+            _clear_pf_spin_input()
+            QTimer.singleShot(0, _clear_pf_spin_input)
+            QTimer.singleShot(30, _clear_pf_spin_input)
+            QTimer.singleShot(120, _clear_pf_spin_input)
+            return False
+
+        if obj is pf_line and event.type() == event.Type.FocusOut:
+            QTimer.singleShot(0, _clear_pf_spin_input)
+            return False
+
         if isinstance(obj, QLineEdit):
+            no_text_selection = bool(obj.property("no_text_selection"))
+
+            if no_text_selection:
+                if event.type() == event.Type.Wheel:
+                    parent_widget = obj.parentWidget()
+                    if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox)):
+                        return True
+
+                if event.type() == event.Type.MouseButtonPress:
+                    obj.setFocus()
+                    QTimer.singleShot(0, obj.deselect)
+                    return False
+
+                if event.type() == event.Type.MouseButtonDblClick:
+                    obj.setFocus()
+                    QTimer.singleShot(0, obj.deselect)
+                    return True
+
+                if event.type() == event.Type.KeyPress:
+                    if event.key() == Qt.Key.Key_A and (
+                        event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    ):
+                        obj.deselect()
+                        return True
+
+                    if event.key() in (
+                        Qt.Key.Key_Escape,
+                        Qt.Key.Key_Return,
+                        Qt.Key.Key_Enter,
+                    ):
+                        parent_widget = obj.parentWidget()
+                        if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox)):
+                            try:
+                                parent_widget.interpretText()
+                            except Exception:
+                                pass
+                        obj.deselect()
+                        obj.clearFocus()
+                        return True
+
+                    QTimer.singleShot(0, obj.deselect)
+                    return False
+
+                if event.type() == event.Type.KeyRelease:
+                    QTimer.singleShot(0, obj.deselect)
+                    return False
+
             if event.type() == event.Type.Wheel:
                 parent_widget = obj.parentWidget()
                 if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox)):
@@ -5409,13 +5592,52 @@ class RiskVolumeApp(QMainWindow):
                     Qt.Key.Key_Enter,
                 ):
                     parent_widget = obj.parentWidget()
-                    if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox)):
+                    spin_parent = (
+                        parent_widget
+                        if isinstance(parent_widget, (QSpinBox, QDoubleSpinBox))
+                        else None
+                    )
+                    if spin_parent is None and hasattr(self, "sb_pf_count"):
                         try:
-                            parent_widget.interpretText()
+                            if self.sb_pf_count.lineEdit() is obj:
+                                spin_parent = self.sb_pf_count
+                        except Exception:
+                            spin_parent = None
+
+                    if spin_parent is not None:
+                        try:
+                            spin_parent.interpretText()
                         except Exception:
                             pass
-                    obj.deselect()
-                    obj.clearFocus()
+
+                    def _clear_spin_selection():
+                        try:
+                            obj.deselect()
+                        except Exception:
+                            pass
+                        try:
+                            obj.clearFocus()
+                        except Exception:
+                            pass
+                        try:
+                            if spin_parent is not None:
+                                line = spin_parent.lineEdit()
+                                if line is not None:
+                                    line.deselect()
+                                spin_parent.clearFocus()
+                        except Exception:
+                            pass
+                        try:
+                            if hasattr(self, "tabs") and self.tabs is not None:
+                                self.tabs.setFocus(Qt.FocusReason.OtherFocusReason)
+                            elif hasattr(self, "tab_calculator") and self.tab_calculator is not None:
+                                self.tab_calculator.setFocus(Qt.FocusReason.OtherFocusReason)
+                        except Exception:
+                            pass
+
+                    _clear_spin_selection()
+                    QTimer.singleShot(0, _clear_spin_selection)
+                    QTimer.singleShot(15, _clear_spin_selection)
                     obj.setProperty("click_count", 0)
                     obj.setProperty("last_click_ms", 0)
                     return True
@@ -5434,6 +5656,33 @@ class RiskVolumeApp(QMainWindow):
         if isinstance(obj, QSpinBox):
             if event.type() == event.Type.Wheel:
                 return True
+
+            if (
+                obj is pf_spin
+                and event.type() == event.Type.KeyRelease
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Escape)
+            ):
+                _clear_pf_spin_input()
+                QTimer.singleShot(0, _clear_pf_spin_input)
+                QTimer.singleShot(30, _clear_pf_spin_input)
+                QTimer.singleShot(120, _clear_pf_spin_input)
+                return False
+
+            if (
+                obj is pf_spin
+                and event.type() == event.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Escape)
+            ):
+                try:
+                    obj.interpretText()
+                except Exception:
+                    pass
+
+                QTimer.singleShot(0, _clear_pf_spin_input)
+                QTimer.singleShot(20, _clear_pf_spin_input)
+                QTimer.singleShot(80, _clear_pf_spin_input)
+                return False
+
             if event.type() == event.Type.KeyPress and event.key() in (
                 Qt.Key.Key_Return,
                 Qt.Key.Key_Enter,
@@ -5443,10 +5692,30 @@ class RiskVolumeApp(QMainWindow):
                     obj.interpretText()
                 except Exception:
                     pass
-                line = obj.lineEdit()
-                if line is not None:
-                    line.deselect()
-                obj.clearFocus()
+
+                def _clear_spin_selection_spinbox():
+                    try:
+                        line = obj.lineEdit()
+                        if line is not None:
+                            line.deselect()
+                            line.clearFocus()
+                    except Exception:
+                        pass
+                    try:
+                        obj.clearFocus()
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(self, "tabs") and self.tabs is not None:
+                            self.tabs.setFocus(Qt.FocusReason.OtherFocusReason)
+                        elif hasattr(self, "tab_calculator") and self.tab_calculator is not None:
+                            self.tab_calculator.setFocus(Qt.FocusReason.OtherFocusReason)
+                    except Exception:
+                        pass
+
+                _clear_spin_selection_spinbox()
+                QTimer.singleShot(0, _clear_spin_selection_spinbox)
+                QTimer.singleShot(15, _clear_spin_selection_spinbox)
                 return True
         if (
             hasattr(self, "tab_calculator")
