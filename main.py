@@ -433,6 +433,9 @@ class RiskVolumeApp(QMainWindow):
             "tiger_glasses_points": {},
             "tiger_glasses_open_points": {},
             "tiger_glasses_close_points": {},
+            "surf_glasses_points": {},
+            "surf_glasses_open_points": {},
+            "surf_glasses_accept_points": {},
             "vataga_glasses_points": {},
             "vataga_glasses_open_points": {},
             "pf_active_glass": 1,
@@ -1350,15 +1353,18 @@ class RiskVolumeApp(QMainWindow):
             self._is_profit_forge_terminal()
             or self._is_metascalp_terminal()
             or self._is_tigertrade_terminal()
+            or self._is_surf_terminal()
             or self._is_vataga_terminal()
         )
 
     def _is_shared_menu_preset_terminal(self):
-        return self._is_tigertrade_terminal() or self._is_vataga_terminal()
+        return self._is_tigertrade_terminal() or self._is_surf_terminal() or self._is_vataga_terminal()
 
     def _get_menu_glass_map_keys(self):
         if self._is_tigertrade_terminal():
             return ("tiger_glasses_open_points", "tiger_glasses_close_points")
+        if self._is_surf_terminal():
+            return ("surf_glasses_open_points", "surf_glasses_accept_points")
         if self._is_vataga_terminal():
             return ("vataga_glasses_open_points", None)
         return (None, None)
@@ -1368,6 +1374,8 @@ class RiskVolumeApp(QMainWindow):
             return "metascalp_glasses_points"
         if self._is_tigertrade_terminal():
             return "tiger_glasses_points"
+        if self._is_surf_terminal():
+            return "surf_glasses_points"
         if self._is_vataga_terminal():
             return "vataga_glasses_points"
         return "pf_glasses_points"
@@ -1377,6 +1385,8 @@ class RiskVolumeApp(QMainWindow):
             return "calc_points_metascalp"
         if self._is_tigertrade_terminal():
             return "calc_points_tigertrade"
+        if self._is_surf_terminal():
+            return "calc_points_surf"
         if self._is_vataga_terminal():
             return "calc_points_vataga"
         return "calc_points_profit_forge"
@@ -2286,11 +2296,31 @@ class RiskVolumeApp(QMainWindow):
         if not checkboxes:
             return
 
+        uncalibrated = [
+            int(g)
+            for g, cb in checkboxes.items()
+            if cb and bool(cb.property("uncalibrated"))
+        ]
         eligible = [
             int(g)
             for g, cb in checkboxes.items()
             if cb and not bool(cb.property("uncalibrated"))
         ]
+
+        t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+        if not eligible:
+            neutral = self.lbl_status.text() if hasattr(self, "lbl_status") else ""
+            missing = ", ".join(self._pf_glass_label(g) for g in sorted(uncalibrated))
+            self._set_transient_status_then_neutral(
+                t.get(
+                    "calc_status_missing_glasses",
+                    "Не откалиброваны пресеты: {glasses}",
+                ).format(glasses=missing or "-"),
+                neutral or t.get("calc_ready_to_apply", "Готово к выставлению"),
+                status_color="#FF9F0A",
+                delay_ms=3000,
+            )
+            return
 
         all_selected = bool(eligible) and all(
             checkboxes[g].isChecked() for g in eligible if g in checkboxes
@@ -2310,6 +2340,19 @@ class RiskVolumeApp(QMainWindow):
             selected=len(new_selected), total=self._get_pf_glasses_count()
         )
         self._schedule_smooth_content_resize(force=True)
+
+        if uncalibrated and new_selected:
+            neutral = self.lbl_status.text() if hasattr(self, "lbl_status") else ""
+            skipped = ", ".join(self._pf_glass_label(g) for g in sorted(uncalibrated))
+            self._set_transient_status_then_neutral(
+                t.get(
+                    "calc_status_skip_missing_glasses",
+                    "Пропускаю не откалиброванные пресеты: {glasses}",
+                ).format(glasses=skipped),
+                neutral or t.get("calc_ready_to_apply", "Готово к выставлению"),
+                status_color="#FF9F0A",
+                delay_ms=2500,
+            )
 
         if bool(self.settings.get("pf_show_preview_frames", False)):
             if new_selected:
@@ -2451,13 +2494,16 @@ class RiskVolumeApp(QMainWindow):
                 ys = [int(p[1]) for p in qt_points]
                 min_x, max_x = min(xs), max(xs)
                 min_y, max_y = min(ys), max(ys)
-                pad_x = 34
-                pad_y = 8 if self._is_vataga_terminal() else 16
+                pad_x = 46 if self._is_surf_terminal() else 34
+                pad_y = 8 if (self._is_vataga_terminal() or self._is_surf_terminal()) else 16
                 frame_w = max(34, (max_x - min_x) + pad_x * 2)
                 frame_h = max(20, (max_y - min_y) + pad_y * 2)
+                if self._is_surf_terminal():
+                    # Keep width as-is, but compress height symmetrically (top/bottom).
+                    frame_h = max(20, int(frame_h * 0.75))
 
                 cx, cy = self._native_to_qt_global(int(menu_open[0]), int(menu_open[1]))
-                # For Tiger/Vataga: keep old frame size (from 5 menu points),
+                # For Tiger/Surf/Vataga: keep old frame size (from 5 menu points),
                 # but center it on the captured order-book center cell.
                 x = int(cx - frame_w / 2)
                 y_shift = 6 if self._is_vataga_terminal() else 0
