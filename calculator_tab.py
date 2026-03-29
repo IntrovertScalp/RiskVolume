@@ -421,23 +421,27 @@ def init_calculator_tab(app):
 
     app.lbl_cells_count_title = QLabel(t.get("calc_cells_count", "Ячеек:"))
     app.lbl_cells_count_title.setStyleSheet("font-size: 8pt;")
+    app.lbl_cells_count_title.setVisible(False)
     cells_header.addWidget(app.lbl_cells_count_title)
 
     app.btn_cells_minus = QPushButton("-")
     app.btn_cells_minus.setFixedSize(26, 25)
     app.btn_cells_minus.setStyleSheet("color: #8E8E8E;")
     app.btn_cells_minus.clicked.connect(app.decrease_cells)
+    app.btn_cells_minus.setVisible(False)
     cells_header.addWidget(app.btn_cells_minus)
 
     app.lbl_cells_count = QLabel("5")
     app.lbl_cells_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
     app.lbl_cells_count.setFixedWidth(22)
+    app.lbl_cells_count.setVisible(False)
     cells_header.addWidget(app.lbl_cells_count)
 
     app.btn_cells_plus = QPushButton("+")
     app.btn_cells_plus.setFixedSize(26, 25)
     app.btn_cells_plus.setStyleSheet("color: #8E8E8E;")
     app.btn_cells_plus.clicked.connect(app.increase_cells)
+    app.btn_cells_plus.setVisible(False)
     cells_header.addWidget(app.btn_cells_plus)
 
     # Минимальный ордер
