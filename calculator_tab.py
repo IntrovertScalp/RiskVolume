@@ -8,6 +8,9 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QComboBox,
+    QSpinBox,
+    QFrame,
+    QAbstractSpinBox,
     QTableWidget,
     QAbstractItemView,
     QStyledItemDelegate,
@@ -576,29 +579,56 @@ def init_calculator_tab(app):
     pf_controls_top_row.setContentsMargins(0, 0, 0, 0)
     pf_controls_top_row.setSpacing(6)
 
-    app.lbl_pf_glasses_title = QLabel(t.get("calc_glasses_count", "Стаканов:"))
+    app.lbl_pf_glasses_title = QLabel(t.get("calc_glasses_count", "Пресетов объёмов:"))
     pf_controls_top_row.addWidget(app.lbl_pf_glasses_title)
 
-    app.inp_pf_glasses_count = QLineEdit(
-        str(int(app.settings.get("pf_glasses_count", 1) or 1))
+    app.sb_pf_count = QSpinBox()
+    app.sb_pf_count.setRange(1, 12)
+    app.sb_pf_count.setValue(int(app.settings.get("pf_glasses_count", 1) or 1))
+    app.sb_pf_count.setKeyboardTracking(False)
+    app.sb_pf_count.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    app.sb_pf_count.setObjectName("pfSpinInner")
+    app.sb_pf_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    app.sb_pf_count.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    if app.sb_pf_count.lineEdit() is not None:
+        app.sb_pf_count.lineEdit().installEventFilter(app)
+        app.sb_pf_count.lineEdit().setAlignment(Qt.AlignmentFlag.AlignCenter)
+        app.sb_pf_count.lineEdit().setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    app.sb_pf_count_wrap = QFrame()
+    app.sb_pf_count_wrap.setObjectName("PfSpinWrap")
+    sb_wrap_layout = QHBoxLayout(app.sb_pf_count_wrap)
+    sb_wrap_layout.setContentsMargins(0, 0, 0, 0)
+    sb_wrap_layout.setSpacing(0)
+
+    app.btn_pf_count_dec = QPushButton("-")
+    app.btn_pf_count_inc = QPushButton("+")
+    app.btn_pf_count_dec.setObjectName("PfSpinStepBtn")
+    app.btn_pf_count_inc.setObjectName("PfSpinStepBtn")
+
+    def _step_without_select(step_func, spin=app.sb_pf_count):
+        if hasattr(spin, "lineEdit") and spin.lineEdit() is not None:
+            spin.lineEdit().deselect()
+        step_func()
+        if hasattr(spin, "lineEdit") and spin.lineEdit() is not None:
+            spin.lineEdit().deselect()
+
+    app.btn_pf_count_dec.clicked.connect(
+        lambda: _step_without_select(app.sb_pf_count.stepDown)
     )
-    app.inp_pf_glasses_count.setValidator(
-        QRegularExpressionValidator(QRegularExpression(r"[0-9]*"))
+    app.btn_pf_count_inc.clicked.connect(
+        lambda: _step_without_select(app.sb_pf_count.stepUp)
     )
-    app.inp_pf_glasses_count.setFixedWidth(50)
-    app.inp_pf_glasses_count.setFixedHeight(22)
-    app.inp_pf_glasses_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    app.inp_pf_glasses_count.setStyleSheet(
-        "font-size: 8pt; padding: 2px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white;"
-    )
-    app.inp_pf_glasses_count.installEventFilter(app)
-    app.inp_pf_glasses_count.editingFinished.connect(
-        app._on_pf_glasses_count_editing_finished
-    )
-    pf_controls_top_row.addWidget(app.inp_pf_glasses_count)
+
+    sb_wrap_layout.addWidget(app.btn_pf_count_dec)
+    sb_wrap_layout.addWidget(app.sb_pf_count)
+    sb_wrap_layout.addWidget(app.btn_pf_count_inc)
+
+    app.sb_pf_count.valueChanged.connect(app._on_pf_glasses_count_changed)
+    pf_controls_top_row.addWidget(app.sb_pf_count_wrap)
 
     app.lbl_pf_calib_glass_title = QLabel(
-        t.get("calc_calib_glass", "Калибровать стакан:")
+        t.get("calc_calib_glass", "Калибровать пресет:")
     )
     pf_controls_top_row.addWidget(app.lbl_pf_calib_glass_title)
 
@@ -623,6 +653,17 @@ def init_calculator_tab(app):
     app.lbl_pf_targets_title = QLabel(t.get("calc_targets", "Выставить в:"))
     pf_targets_row.addWidget(app.lbl_pf_targets_title)
 
+    app.btn_pf_targets_toggle_all = QPushButton(
+        t.get("calc_targets_toggle_all_btn", t.get("calc_toggle_all_btn", "Все"))
+    )
+    app.btn_pf_targets_toggle_all.setFixedSize(34, 25)
+    app.btn_pf_targets_toggle_all.setToolTip(
+        t.get("calc_targets_toggle_all", "Вкл/выкл все пресеты")
+    )
+    app.btn_pf_targets_toggle_all.setStyleSheet("color: #8E8E8E;")
+    app.btn_pf_targets_toggle_all.clicked.connect(app._toggle_all_pf_target_glasses)
+    pf_targets_row.addWidget(app.btn_pf_targets_toggle_all)
+
     app.pf_targets_widget = QWidget()
     app.pf_targets_layout = QGridLayout(app.pf_targets_widget)
     app.pf_targets_layout.setContentsMargins(0, 0, 0, 0)
@@ -638,9 +679,10 @@ def init_calculator_tab(app):
     pf_controls_bottom_row.addStretch(1)
     app.lbl_pf_targets_summary = QLabel("")
     app.lbl_pf_targets_summary.setAlignment(
-        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
     )
     pf_controls_bottom_row.addWidget(app.lbl_pf_targets_summary)
+    pf_controls_bottom_row.addStretch(1)
     pf_controls_layout.addLayout(pf_controls_bottom_row)
 
     main_layout.addWidget(app.pf_controls_widget)

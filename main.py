@@ -508,8 +508,13 @@ class RiskVolumeApp(QMainWindow):
 
         # Корректируем масштаб если он выходит за разумные пределы
         scale = self.settings.get("scale", self.base_scale)
-        if scale < 130 or scale > 200:
-            self.settings["scale"] = self.base_scale
+        try:
+            scale = int(scale)
+        except Exception:
+            scale = self.base_scale
+        clamped_scale = max(130, min(170, scale))
+        if clamped_scale != scale:
+            self.settings["scale"] = clamped_scale
             self.save_settings()
 
     def save_settings(self):
@@ -1258,7 +1263,7 @@ class RiskVolumeApp(QMainWindow):
             value = int(value)
         except Exception:
             value = 1
-        return max(1, min(8, value))
+        return max(1, min(12, value))
 
     def _normalize_pf_multi_glass_settings(self):
         changed = False
@@ -1276,7 +1281,7 @@ class RiskVolumeApp(QMainWindow):
                     glass = int(raw_key)
                 except Exception:
                     continue
-                if glass < 1 or glass > 8:
+                if glass < 1 or glass > 12:
                     continue
                 points_map[str(glass)] = self._normalize_calc_points(raw_points)
 
@@ -1685,7 +1690,7 @@ class RiskVolumeApp(QMainWindow):
 
     def _pf_glass_label(self, glass_num):
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
-        return t.get("calc_glass_short", "Стакан {n}").format(n=int(glass_num))
+        return t.get("calc_glass_short", "Пресет {n}").format(n=int(glass_num))
 
     def _update_pf_multi_glass_ui(self):
         if not hasattr(self, "pf_controls_widget"):
@@ -1709,8 +1714,10 @@ class RiskVolumeApp(QMainWindow):
         active_glass = self._get_pf_active_glass()
         selected_glasses = self._get_pf_selected_glasses()
 
-        if hasattr(self, "inp_pf_glasses_count") and not self.inp_pf_glasses_count.hasFocus():
-            self.inp_pf_glasses_count.setText(str(int(count)))
+        if hasattr(self, "sb_pf_count") and not self.sb_pf_count.hasFocus():
+            self.sb_pf_count.blockSignals(True)
+            self.sb_pf_count.setValue(int(count))
+            self.sb_pf_count.blockSignals(False)
 
         if hasattr(self, "cb_pf_calib_glass"):
             self.cb_pf_calib_glass.blockSignals(True)
@@ -1727,16 +1734,22 @@ class RiskVolumeApp(QMainWindow):
                 if widget:
                     widget.deleteLater()
 
+            # Reset previous stretch factors so spacing stays uniform after count changes.
+            max_cols = self._clamp_pf_glasses_count(999) + 2
+            for col in range(max_cols):
+                self.pf_targets_layout.setColumnStretch(col, 0)
+
             self._pf_target_checkboxes = {}
-            cols = 4
             required_cells = self._get_pf_required_cells_count()
             actual_selected = []
             for glass in range(1, count + 1):
                 checkbox = QCheckBox(str(glass))
                 is_calibrated = self._is_pf_glass_calibrated(glass)
                 label = self._pf_glass_label(glass)
+                checkbox.setProperty("uncalibrated", not is_calibrated)
                 if is_calibrated:
                     checkbox.setToolTip(label)
+                    checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
                 else:
                     t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                     checkbox.setToolTip(
@@ -1745,23 +1758,29 @@ class RiskVolumeApp(QMainWindow):
                             "{glass}: сначала откалибруй {cells} ячеек",
                         ).format(glass=label, cells=required_cells)
                     )
+                    checkbox.setCursor(Qt.CursorShape.ForbiddenCursor)
                 checked = bool(glass in selected_glasses and is_calibrated)
                 checkbox.setChecked(checked)
-                checkbox.setEnabled(is_calibrated)
                 if checked:
                     actual_selected.append(glass)
-                checkbox.toggled.connect(
+                checkbox.clicked.connect(
                     lambda checked, g=glass: self._on_pf_target_glass_toggled(g, checked)
                 )
-                row = (glass - 1) // cols
-                col = (glass - 1) % cols
-                self.pf_targets_layout.addWidget(checkbox, row, col)
+                row = 0
+                col = glass - 1
+                self.pf_targets_layout.addWidget(
+                    checkbox,
+                    row,
+                    col,
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                )
                 self._pf_target_checkboxes[glass] = checkbox
-            self.pf_targets_layout.setColumnStretch(cols, 1)
+            self.pf_targets_layout.setColumnStretch(count, 1)
 
             if actual_selected != selected_glasses:
                 self.settings["pf_selected_glasses"] = list(actual_selected)
                 selected_glasses = list(actual_selected)
+                self.save_settings()
 
         self._update_pf_targets_summary(selected=len(selected_glasses), total=count)
 
@@ -1787,21 +1806,21 @@ class RiskVolumeApp(QMainWindow):
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
         text = t.get(
             "calc_targets_selected",
-            "Включено стаканов: {selected}/{total}",
+            "Включено пресетов: {selected}/{total}",
         ).format(selected=int(selected), total=int(total))
 
         uncalibrated = self._get_pf_uncalibrated_glasses(total)
         if uncalibrated:
             text += " | " + t.get(
                 "calc_targets_need_calib_short",
-                "Не откалиброваны: {glasses}",
+                "Не откалиброваны пресеты: {glasses}",
             ).format(glasses=", ".join(str(g) for g in uncalibrated))
 
         self.lbl_pf_targets_summary.setText(text)
 
     def _style_pf_multi_glass_controls(self):
         scale = self.settings.get("scale", self.base_scale)
-        scale = max(80, min(200, int(scale)))
+        scale = max(80, min(170, int(scale)))
         ratio = scale / float(self.base_scale)
         label_pt = max(7, int(8 * ratio))
         input_pt = max(7, int(8 * ratio))
@@ -1818,24 +1837,61 @@ class RiskVolumeApp(QMainWindow):
                 color = "#666" if name == "lbl_pf_targets_summary" else "#888"
                 widget.setStyleSheet(f"color: {color}; font-size: {label_pt}pt;")
 
-        if hasattr(self, "inp_pf_glasses_count"):
-            self.inp_pf_glasses_count.setStyleSheet(
-                f"QLineEdit {{ background: #1A1A1A; color: white; border: 1px solid #252525; border-radius: {radius}px; font-size: {input_pt}pt; padding: {max(1, int(1 * ratio))}px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }}"
-                "QLineEdit:focus { border: 1px solid #FFFFFF; }"
+        if hasattr(self, "sb_pf_count_wrap"):
+            self.sb_pf_count_wrap.setStyleSheet(
+                "QFrame#PfSpinWrap { background: #1A1A1A; border: 1px solid #333; border-radius: 4px; }"
+                "QFrame#PfSpinWrap:disabled { background: #0F0F0F; border: 1px solid #222; }"
             )
+
+        if hasattr(self, "sb_pf_count"):
+            self.sb_pf_count.setStyleSheet(
+                "QSpinBox#pfSpinInner { background: transparent; color: white; border: none; padding: 2px; selection-background-color: rgba(90, 205, 80, 150); selection-color: white; }"
+                "QSpinBox#pfSpinInner:focus { outline: none; }"
+                "QSpinBox#pfSpinInner:disabled { color: #555; }"
+            )
+
+            scale = max(80, min(170, int(self.settings.get("scale", self.base_scale))))
+            sc = scale / 100.0
+            wrap_w = max(60, int(70 * sc))
+            btn_w = max(10, int(11 * sc))
+            btn_h = max(9, int(9 * sc))
+            field_h = max(14, int(14 * sc))
+            inner_w = max(26, wrap_w - (btn_w * 2) - 6)
+
+            self.sb_pf_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.sb_pf_count.setFixedHeight(field_h)
+            self.sb_pf_count.setMinimumWidth(inner_w)
+            self.sb_pf_count.setMaximumWidth(inner_w)
+
+            if hasattr(self, "sb_pf_count_wrap"):
+                self.sb_pf_count_wrap.setFixedHeight(field_h)
+                self.sb_pf_count_wrap.setFixedWidth(wrap_w)
+
+        for btn_name in ("btn_pf_count_dec", "btn_pf_count_inc"):
+            btn = getattr(self, btn_name, None)
+            if btn:
+                btn.setStyleSheet(
+                    "QPushButton#PfSpinStepBtn { background: #2a2a2a; color: #cfcfcf; border: 1px solid #333; border-radius: 3px; padding: 0px; font-weight: bold; font-size: 9pt; }"
+                    "QPushButton#PfSpinStepBtn:hover { background: #3a3a3a; }"
+                    "QPushButton#PfSpinStepBtn:disabled { background: #1a1a1a; color: #555; border: 1px solid #222; }"
+                )
+                btn.setFixedSize(btn_w, btn_h)
 
         if hasattr(self, "cb_pf_calib_glass"):
             self.cb_pf_calib_glass.setStyleSheet(
                 f"QComboBox {{ background: #1A1A1A; color: white; border: 1px solid #333; border-radius: {radius}px; font-size: {input_pt}pt; padding: 1px 4px; }}"
-                "QComboBox:focus { border: 1px solid #FFFFFF; }"
+                "QComboBox:focus { border: 1px solid #333; outline: none; }"
                 "QComboBox::drop-down { border: none; }"
             )
 
         if hasattr(self, "chk_pf_show_frames"):
+            self.chk_pf_show_frames.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             self.chk_pf_show_frames.setStyleSheet(
-                f"QCheckBox {{ color: #888; font-size: {label_pt}pt; spacing: 5px; }}"
-                "QCheckBox::indicator { width: 12px; height: 12px; border-radius: 2px; border: 1px solid #444; background: #1A1A1A; }"
-                "QCheckBox::indicator:checked { background: #38BE1D; border: 1px solid #38BE1D; }"
+                f"QCheckBox {{ color: #888; font-size: {label_pt}pt; spacing: 5px; margin: 0px; padding: 0px; }}"
+                "QCheckBox:focus { outline: none; }"
+                "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; margin-right: 5px; }"
+                f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
+                "QCheckBox::indicator:unchecked { background: #2A2A2A; border: 1px solid #444; image: none; }"
             )
 
         if hasattr(self, "btn_pf_preview"):
@@ -1845,13 +1901,27 @@ class RiskVolumeApp(QMainWindow):
 
         for checkbox in getattr(self, "_pf_target_checkboxes", {}).values():
             if checkbox:
-                checkbox.setStyleSheet(
-                    f"QCheckBox {{ color: #888; font-size: {label_pt}pt; spacing: 4px; }}"
-                    "QCheckBox::indicator { width: 12px; height: 12px; border-radius: 2px; border: 1px solid #444; background: #1A1A1A; }"
-                    "QCheckBox::indicator:checked { background: #38BE1D; border: 1px solid #38BE1D; }"
-                )
+                checkbox.setFixedWidth(max(30, int(34 * ratio)))
+                checkbox.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+                if bool(checkbox.property("uncalibrated")):
+                    checkbox.setStyleSheet(
+                        f"QCheckBox {{ color: #4E4E4E; font-size: {label_pt}pt; spacing: 4px; margin: 0px; padding: 0px; }}"
+                        "QCheckBox:focus { outline: none; }"
+                        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #2A2A2A; background: #101010; margin-right: 4px; }"
+                        "QCheckBox::indicator:checked { background: #101010; border: 1px solid #2A2A2A; image: none; }"
+                    )
+                else:
+                    checkbox.setStyleSheet(
+                        f"QCheckBox {{ color: #888; font-size: {label_pt}pt; spacing: 4px; margin: 0px; padding: 0px; }}"
+                        "QCheckBox:focus { outline: none; }"
+                        "QCheckBox::indicator { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #444; background: #2A2A2A; margin-right: 4px; }"
+                        f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
+                        "QCheckBox::indicator:unchecked { image: none; }"
+                    )
 
     def _on_pf_glasses_count_changed(self, value):
+        old_count = self._get_pf_glasses_count()
+        prev_status_text = self.lbl_status.text() if hasattr(self, "lbl_status") else ""
         count = self._clamp_pf_glasses_count(value)
         self.settings["pf_glasses_count"] = count
 
@@ -1861,8 +1931,6 @@ class RiskVolumeApp(QMainWindow):
             self.settings["pf_active_glass"] = active_glass
 
         selected = [g for g in self._get_pf_selected_glasses() if g <= count]
-        if not selected:
-            selected = [active_glass]
         self.settings["pf_selected_glasses"] = selected
 
         self.settings["calc_points_profit_forge"] = self._get_pf_points_for_glass(active_glass)
@@ -1871,23 +1939,28 @@ class RiskVolumeApp(QMainWindow):
         self._update_pf_multi_glass_ui()
         self.update_calibration_status()
         self._schedule_smooth_content_resize(force=True)
+
+        if count > old_count:
+            new_uncalibrated = [
+                g
+                for g in range(old_count + 1, count + 1)
+                if not self._is_pf_glass_calibrated(g)
+            ]
+            if new_uncalibrated:
+                t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+                self._set_transient_status_then_neutral(
+                    t.get(
+                        "calc_new_glasses_need_calib",
+                        "Новые пресеты не откалиброваны: {glasses}",
+                    ).format(glasses=", ".join(str(g) for g in new_uncalibrated)),
+                    prev_status_text
+                    or t.get("calc_ready_to_apply", "Готово к выставлению"),
+                    status_color="#FF9F0A",
+                    delay_ms=6000,
+                )
+
         if bool(self.settings.get("pf_show_preview_frames", False)):
             self._flash_pf_preview_frames(self._get_pf_selected_glasses())
-
-    def _on_pf_glasses_count_editing_finished(self):
-        if not hasattr(self, "inp_pf_glasses_count"):
-            return
-        raw = str(self.inp_pf_glasses_count.text() or "").strip()
-        if not raw:
-            value = self._get_pf_glasses_count()
-        else:
-            try:
-                value = int(raw)
-            except Exception:
-                value = self._get_pf_glasses_count()
-        value = self._clamp_pf_glasses_count(value)
-        self.inp_pf_glasses_count.setText(str(value))
-        self._on_pf_glasses_count_changed(value)
 
     def _on_pf_calibration_glass_changed(self, index):
         if not hasattr(self, "cb_pf_calib_glass"):
@@ -1903,15 +1976,30 @@ class RiskVolumeApp(QMainWindow):
 
     def _on_pf_target_glass_toggled(self, glass, checked):
         checkboxes = getattr(self, "_pf_target_checkboxes", {})
-        selected = [g for g, cb in checkboxes.items() if cb and cb.isChecked()]
+        clicked_cb = checkboxes.get(int(glass))
+        if clicked_cb and bool(clicked_cb.property("uncalibrated")):
+            clicked_cb.blockSignals(True)
+            clicked_cb.setChecked(False)
+            clicked_cb.blockSignals(False)
 
-        if not selected:
-            cb = checkboxes.get(glass)
-            if cb is not None:
-                cb.blockSignals(True)
-                cb.setChecked(True)
-                cb.blockSignals(False)
-            selected = [int(glass)]
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            neutral = self.lbl_status.text() if hasattr(self, "lbl_status") else ""
+            self._set_transient_status_then_neutral(
+                t.get(
+                    "calc_glass_click_need_calib",
+                    "Чтобы включить {glass}, сначала откалибруй его",
+                ).format(glass=self._pf_glass_label(glass)),
+                neutral or t.get("calc_ready_to_apply", "Готово к выставлению"),
+                status_color="#FF9F0A",
+                delay_ms=3000,
+            )
+            return
+
+        selected = [
+            g
+            for g, cb in checkboxes.items()
+            if cb and cb.isChecked() and not bool(cb.property("uncalibrated"))
+        ]
 
         self._set_pf_selected_glasses(selected, save=True)
         self._update_pf_targets_summary(selected=len(selected), total=self._get_pf_glasses_count())
@@ -1919,6 +2007,42 @@ class RiskVolumeApp(QMainWindow):
 
         if bool(self.settings.get("pf_show_preview_frames", False)):
             self._flash_pf_preview_frames(selected)
+
+    def _toggle_all_pf_target_glasses(self):
+        checkboxes = getattr(self, "_pf_target_checkboxes", {})
+        if not checkboxes:
+            return
+
+        eligible = [
+            int(g)
+            for g, cb in checkboxes.items()
+            if cb and not bool(cb.property("uncalibrated"))
+        ]
+
+        all_selected = bool(eligible) and all(
+            checkboxes[g].isChecked() for g in eligible if g in checkboxes
+        )
+        new_selected = [] if all_selected else sorted(eligible)
+
+        for g, cb in checkboxes.items():
+            if not cb:
+                continue
+            should_check = int(g) in new_selected and not bool(cb.property("uncalibrated"))
+            cb.blockSignals(True)
+            cb.setChecked(bool(should_check))
+            cb.blockSignals(False)
+
+        self._set_pf_selected_glasses(new_selected, save=True)
+        self._update_pf_targets_summary(
+            selected=len(new_selected), total=self._get_pf_glasses_count()
+        )
+        self._schedule_smooth_content_resize(force=True)
+
+        if bool(self.settings.get("pf_show_preview_frames", False)):
+            if new_selected:
+                self._flash_pf_preview_frames(new_selected)
+            else:
+                self._clear_pf_preview_frames()
 
     def _on_pf_preview_toggle_changed(self, checked):
         self.settings["pf_show_preview_frames"] = bool(checked)
@@ -1994,12 +2118,12 @@ class RiskVolumeApp(QMainWindow):
             ys = [int(p[1]) for p in qt_points]
             min_x, max_x = min(xs), max(xs)
             min_y, max_y = min(ys), max(ys)
-            pad_x = 8
-            pad_y = 6
+            pad_x = 34
+            pad_y = 16
             x = min_x - pad_x
             y = min_y - pad_y
-            w = max(24, (max_x - min_x) + pad_x * 2)
-            h = max(14, (max_y - min_y) + pad_y * 2)
+            w = max(34, (max_x - min_x) + pad_x * 2)
+            h = max(20, (max_y - min_y) + pad_y * 2)
             geometries.append((x, y, w, h))
 
         if not geometries:
@@ -2078,6 +2202,13 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "btn_toggle_all_cells"):
             self.btn_toggle_all_cells.setText(t["calc_toggle_all_btn"])
             self.btn_toggle_all_cells.setToolTip(t["calc_toggle_all"])
+        if hasattr(self, "btn_pf_targets_toggle_all"):
+            self.btn_pf_targets_toggle_all.setText(
+                t.get("calc_targets_toggle_all_btn", t.get("calc_toggle_all_btn", "Все"))
+            )
+            self.btn_pf_targets_toggle_all.setToolTip(
+                t.get("calc_targets_toggle_all", "Вкл/выкл все пресеты")
+            )
         if hasattr(self, "lbl_min_order_title"):
             self.lbl_min_order_title.setText(t["calc_min_order"])
         if hasattr(self, "lbl_calc_type_title"):
@@ -2107,10 +2238,10 @@ class RiskVolumeApp(QMainWindow):
         if hasattr(self, "btn_submit"):
             self.btn_submit.setText(t["calc_apply"])
         if hasattr(self, "lbl_pf_glasses_title"):
-            self.lbl_pf_glasses_title.setText(t.get("calc_glasses_count", "Стаканов:"))
+            self.lbl_pf_glasses_title.setText(t.get("calc_glasses_count", "Пресетов объёмов:"))
         if hasattr(self, "lbl_pf_calib_glass_title"):
             self.lbl_pf_calib_glass_title.setText(
-                t.get("calc_calib_glass", "Калибровать стакан:")
+                t.get("calc_calib_glass", "Калибровать пресет:")
             )
         if hasattr(self, "lbl_pf_targets_title"):
             self.lbl_pf_targets_title.setText(t.get("calc_targets", "Выставить в:"))
@@ -3403,7 +3534,7 @@ class RiskVolumeApp(QMainWindow):
     def apply_styles(self):
 
         scale = self.settings.get("scale", self.base_scale)
-        scale = max(80, min(200, int(scale)))
+        scale = max(80, min(170, int(scale)))
         ratio = scale / float(self.base_scale)
         base_font = int(11 * (self.base_scale / 100.0))
         f_main = max(8, int(base_font * ratio))
@@ -3621,7 +3752,6 @@ class RiskVolumeApp(QMainWindow):
             "inp_pos_stop",
             "inp_pos_stop_now",
             "inp_min_order",
-            "inp_pf_glasses_count",
         ):
             widget = getattr(self, name, None)
             if widget:
@@ -3646,7 +3776,12 @@ class RiskVolumeApp(QMainWindow):
                 else:
                     widget.setStyleSheet(f"color: {color}; font-size: {pos_hint_pt}pt;")
 
-        for name in ("btn_reverse_cells", "btn_move_adjust_to_cell", "btn_toggle_all_cells"):
+        for name in (
+            "btn_reverse_cells",
+            "btn_move_adjust_to_cell",
+            "btn_toggle_all_cells",
+            "btn_pf_targets_toggle_all",
+        ):
             widget = getattr(self, name, None)
             if widget:
                 widget.setFixedSize(max(28, int(34 * ratio)), max(22, int(25 * ratio)))
@@ -3841,12 +3976,6 @@ class RiskVolumeApp(QMainWindow):
         if self._is_profit_forge_terminal():
             selected_glasses = self._get_pf_selected_glasses()
             if not selected_glasses:
-                self.lbl_status.setText(
-                    t.get("calc_no_target_glasses", "Выберите хотя бы один стакан для выставления")
-                )
-                self.lbl_status.setStyleSheet(
-                    f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;"
-                )
                 return
 
             for glass in selected_glasses:
@@ -3862,7 +3991,7 @@ class RiskVolumeApp(QMainWindow):
                 self.lbl_status.setText(
                     t.get(
                         "calc_status_missing_glasses",
-                        "Не откалиброваны стаканы: {glasses}",
+                        "Не откалиброваны пресеты: {glasses}",
                     ).format(glasses=missing)
                 )
                 self.lbl_status.setStyleSheet(
@@ -3875,7 +4004,7 @@ class RiskVolumeApp(QMainWindow):
                 self._set_transient_status_then_neutral(
                     t.get(
                         "calc_status_skip_missing_glasses",
-                        "Пропускаю не откалиброванные стаканы: {glasses}",
+                        "Пропускаю не откалиброванные пресеты: {glasses}",
                     ).format(glasses=skipped_text),
                     self.lbl_status.text() if hasattr(self, "lbl_status") else "",
                     status_color="#FF9F0A",
@@ -4059,9 +4188,14 @@ class RiskVolumeApp(QMainWindow):
             if self._is_profit_forge_terminal() and target_batches:
                 applied_text = t.get(
                     "calc_status_done_glasses",
-                    "✓ Выставлено в {count} стакан(а)",
+                    "✓ Выставлено в {count} пресет(а)",
                 ).format(count=len(target_batches))
-                self._set_ready_status_with_neutral_timeout(applied_text, delay_ms=3200)
+                self._set_transient_status_then_neutral(
+                    applied_text,
+                    t.get("calc_ready_to_apply", "Готово к выставлению"),
+                    status_color="#38BE1D",
+                    delay_ms=10000,
+                )
 
                 if bool(self.settings.get("pf_show_preview_frames", False)):
                     self._flash_pf_preview_frames([glass for glass, _ in target_batches if glass])
@@ -4151,7 +4285,7 @@ class RiskVolumeApp(QMainWindow):
         if self._is_profit_forge_terminal() and self._get_pf_glasses_count() > 1:
             instruction = t.get(
                 "calc_calib_instruction_glass",
-                "Калибровка активирована для {glass}.\n\nЗахвати {cells} ячейку(ек), нажимая {hotkey} на полях объема.",
+                "Калибровка активирована для {glass}.\n\nЗахвати {cells} ячеек выбора объема, нажимая {hotkey} по порядку.",
             ).format(
                 glass=self._pf_glass_label(self._get_pf_active_glass()),
                 cells=cells_count,
@@ -4211,6 +4345,8 @@ class RiskVolumeApp(QMainWindow):
                     reset_text = t["calc_calib_reset_short"].format(hotkey=hk_coords)
                 self.lbl_status.setText(reset_text)
                 self.lbl_status.setStyleSheet(f"color: #FF9F0A; font-size: {self._scaled_pt(7)}pt;")
+                if self._is_profit_forge_terminal():
+                    self._update_pf_multi_glass_ui()
                 return
 
             self.start_calibration_calc()
@@ -4292,6 +4428,9 @@ class RiskVolumeApp(QMainWindow):
                         [g]
                     ),
                 )
+
+                if self._is_profit_forge_terminal():
+                    self._update_pf_multi_glass_ui()
 
         self.update_calibration_status()
 

@@ -392,19 +392,25 @@ class SettingsDialog(QDialog):
         scale_row.addWidget(QLabel(t["scale"]))
         self.cb_scale = QComboBox()
         self.cb_scale.setObjectName("ScaleCombo")
-        # Internal scales: 130-200, displayed as 100-170
+        # Internal scales: 130-170, displayed as 100-140
         self.scale_display = [
-            str(i) for i in range(100, 180, 10)
-        ]  # [100, 110, 120, ..., 170]
+            str(i) for i in range(100, 150, 10)
+        ]  # [100, 110, 120, 130, 140]
         self.scale_actual = [
-            i for i in range(130, 210, 10)
-        ]  # [130, 140, 150, ..., 200]
+            i for i in range(130, 180, 10)
+        ]  # [130, 140, 150, 160, 170]
         self.cb_scale.addItems(self.scale_display)
         current_scale = int(parent.settings.get("scale", 130))
         # Find display index from actual scale
         if current_scale in self.scale_actual:
             idx = self.scale_actual.index(current_scale)
-            self.cb_scale.setCurrentIndex(idx)
+        else:
+            clamped_scale = max(self.scale_actual[0], min(self.scale_actual[-1], current_scale))
+            idx = min(
+                range(len(self.scale_actual)),
+                key=lambda i: abs(self.scale_actual[i] - clamped_scale),
+            )
+        self.cb_scale.setCurrentIndex(idx)
         self.cb_scale.setFixedWidth(96)
         self.cb_scale.activated.connect(self.cb_scale.clearFocus)
         scale_row.addWidget(self.cb_scale)
