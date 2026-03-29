@@ -4,7 +4,8 @@ import json
 import os
 
 
-_ROOT = os.path.dirname(os.path.abspath(__file__))
+_SPEC_PATH = globals().get('__file__', os.path.join(os.getcwd(), 'RiskVolume.spec'))
+_ROOT = os.path.dirname(os.path.abspath(_SPEC_PATH))
 _SRC_SETTINGS = os.path.join(_ROOT, 'ScalpSettings_Py.json')
 _SANITIZED_SETTINGS = os.path.join(_ROOT, 'build', 'ScalpSettings_Py.json')
 
