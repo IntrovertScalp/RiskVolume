@@ -1,4 +1,4 @@
-# RiskVolume 🔢🖩
+# RiskVolume 🔢
 
 ## 🧮 Что это за программа
 
@@ -37,11 +37,11 @@
 
 
 
-🛡️ **Результат сканирования архива из Releases:** https://www.virustotal.com/gui/file/01cf2156d471716218cca55dcecb071bc61c6bfa206c7b701d77e2f845377838?nocache=1
+🛡️ **Результат сканирования архива из Releases:** https://www.virustotal.com/gui/file/e8a3ae40049764516e507a5296b56d954a67b059720400fbae1389cdb6e55738?nocache=1
 
 
 ## Загрузка 💾
-Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.4
+Скачивание — через **GitHub Releases**: https://github.com/IntrovertScalp/RiskVolume/releases/tag/V1.4.0
 - Загрузите RiskVolume.zip
 Распакуйте архив и запустите .exe файл и можно пользоваться ✅
 
