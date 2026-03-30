@@ -194,15 +194,19 @@ class AnimatedHoverButton(QPushButton):
             "base_bg": "#2E2E2E",
             "hover_bg": "#3A3A3A",
             "pressed_bg": "#454545",
+            "disabled_bg": "#1A1A1A",
             "base_border": "#545454",
             "hover_border": "#7A7A7A",
             "pressed_border": "#9A9A9A",
+            "disabled_border": "#2A2A2A",
             "base_text": "#E8E8E8",
             "hover_text": "#FFFFFF",
             "pressed_text": "#FFFFFF",
+            "disabled_text": "#666666",
             "radius": 6,
             "padding_v": 8,
             "padding_h": 12,
+            "font_size": 9,
         }
         if isinstance(theme, dict):
             self._theme.update(theme)
@@ -226,21 +230,33 @@ class AnimatedHoverButton(QPushButton):
 
     def _apply_dynamic_style(self):
         p = max(0.0, min(1.0, float(self._hover_progress)))
-        bg = self._blend(self._theme["base_bg"], self._theme["hover_bg"], p)
-        border = self._blend(
-            self._theme["base_border"], self._theme["hover_border"], p
-        )
-        text = self._blend(self._theme["base_text"], self._theme["hover_text"], p)
+
+        if not self.isEnabled():
+            bg = str(self._theme["disabled_bg"])
+            border = str(self._theme["disabled_border"])
+            text = str(self._theme["disabled_text"])
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            bg = self._blend(self._theme["base_bg"], self._theme["hover_bg"], p)
+            border = self._blend(
+                self._theme["base_border"], self._theme["hover_border"], p
+            )
+            text = self._blend(self._theme["base_text"], self._theme["hover_text"], p)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.setStyleSheet(
             (
                 f"QPushButton {{ background: {bg}; color: {text}; border: 1px solid {border}; "
                 f"border-radius: {int(self._theme['radius'])}px; "
                 f"padding: {int(self._theme['padding_v'])}px {int(self._theme['padding_h'])}px; "
-                "font-weight: bold; }}"
+                f"font-size: {int(self._theme['font_size'])}pt; "
+                "font-weight: bold; }"
                 f"QPushButton:pressed {{ background: {self._theme['pressed_bg']}; "
                 f"border: 1px solid {self._theme['pressed_border']}; "
                 f"color: {self._theme['pressed_text']}; }}"
+                f"QPushButton:disabled {{ background: {self._theme['disabled_bg']}; "
+                f"border: 1px solid {self._theme['disabled_border']}; "
+                f"color: {self._theme['disabled_text']}; }}"
             )
         )
 
@@ -255,12 +271,21 @@ class AnimatedHoverButton(QPushButton):
         self._apply_dynamic_style()
 
     def enterEvent(self, event):
-        self._animate_hover_to(1.0)
+        if self.isEnabled():
+            self._animate_hover_to(1.0)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._animate_hover_to(0.0)
+        if self.isEnabled():
+            self._animate_hover_to(0.0)
         super().leaveEvent(event)
+
+    def changeEvent(self, event):
+        if event.type() == event.Type.EnabledChange:
+            self._hover_anim.stop()
+            self._hover_progress = 0.0
+            self._apply_dynamic_style()
+        super().changeEvent(event)
 
 
 class SettingsDialog(QDialog):
@@ -328,12 +353,17 @@ class SettingsDialog(QDialog):
             """
             QDialog { background: #1E1E1E; border: 2px solid #555; border-radius: 8px; }
             QLabel { color: #ccc; font-size: 10pt; font-weight: bold; }
+            QLabel:disabled { color: #555; }
             QLabel#SectionHeader { color: #38BE1D; font-size: 9pt; font-weight: bold; margin-top: 5px; }
+            QLabel#SectionHeader:disabled { color: #456345; }
             QLineEdit#FeeInput, QLineEdit#PrecInput { 
                 background: #252525; color: #38BE1D; border: 1px solid #333; 
                 padding: 4px; border-radius: 4px; font-weight: bold; 
             }
             QLineEdit#FeeInput:hover, QLineEdit#PrecInput:hover { border: 1px solid #38BE1D; }
+            QLineEdit#FeeInput:disabled, QLineEdit#PrecInput:disabled {
+                background: #1A1A1A; color: #666; border: 1px solid #2A2A2A;
+            }
             QPushButton { 
                 background: #38BE1D; color: black; border: none; 
                 padding: 8px; border-radius: 4px; font-weight: bold; 
@@ -367,6 +397,11 @@ class SettingsDialog(QDialog):
             }
             QComboBox#ScaleCombo:hover, QComboBox#LangCombo:hover {
                 border: 1px solid #38BE1D;
+            }
+            QComboBox#ScaleCombo:disabled, QComboBox#LangCombo:disabled {
+                background: #1A1A1A;
+                color: #666;
+                border: 1px solid #2A2A2A;
             }
             QComboBox#AutoDepCombo:hover {
                 border: 1px solid #38BE1D;
@@ -473,15 +508,15 @@ class SettingsDialog(QDialog):
         scale_row.addWidget(QLabel(t["scale"]))
         self.cb_scale = QComboBox()
         self.cb_scale.setObjectName("ScaleCombo")
-        # Internal scales: 130-170, displayed as 100-140
+        # Direct scales: 60-120
         self.scale_display = [
-            str(i) for i in range(100, 150, 10)
-        ]  # [100, 110, 120, 130, 140]
+            str(i) for i in range(60, 130, 10)
+        ]  # [60, 70, 80, 90, 100, 110, 120]
         self.scale_actual = [
-            i for i in range(130, 180, 10)
-        ]  # [130, 140, 150, 160, 170]
+            i for i in range(60, 130, 10)
+        ]  # [60, 70, 80, 90, 100, 110, 120]
         self.cb_scale.addItems(self.scale_display)
-        current_scale = int(parent.settings.get("scale", 130))
+        current_scale = int(parent.settings.get("scale", 100))
         # Find display index from actual scale
         if current_scale in self.scale_actual:
             idx = self.scale_actual.index(current_scale)
@@ -706,34 +741,42 @@ class SettingsDialog(QDialog):
         # === АВТО-ДЕПОЗИТ ===
         lbl_auto_dep = QLabel(t["section_auto_deposit"])
         lbl_auto_dep.setObjectName("SectionHeader")
+        self.lbl_auto_dep_header = lbl_auto_dep
         grid.addWidget(lbl_auto_dep, row, 0, 1, 2)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_enabled"]), row, 0)
+        self.lbl_auto_dep_enabled = QLabel(t["auto_dep_enabled"])
+        grid.addWidget(self.lbl_auto_dep_enabled, row, 0)
         grid.addWidget(self.chk_auto_deposit, row, 1)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_exchange"]), row, 0)
+        self.lbl_auto_dep_exchange = QLabel(t["auto_dep_exchange"])
+        grid.addWidget(self.lbl_auto_dep_exchange, row, 0)
         grid.addWidget(self.cb_auto_dep_exchange, row, 1)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_market"]), row, 0)
+        self.lbl_auto_dep_market = QLabel(t["auto_dep_market"])
+        grid.addWidget(self.lbl_auto_dep_market, row, 0)
         grid.addWidget(self.cb_auto_dep_market, row, 1)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_asset"]), row, 0)
+        self.lbl_auto_dep_asset = QLabel(t["auto_dep_asset"])
+        grid.addWidget(self.lbl_auto_dep_asset, row, 0)
         grid.addWidget(self.inp_auto_dep_asset, row, 1)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_api_key"]), row, 0)
+        self.lbl_auto_dep_api_key = QLabel(t["auto_dep_api_key"])
+        grid.addWidget(self.lbl_auto_dep_api_key, row, 0)
         grid.addWidget(self.inp_auto_dep_api_key, row, 1)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_api_secret"]), row, 0)
+        self.lbl_auto_dep_api_secret = QLabel(t["auto_dep_api_secret"])
+        grid.addWidget(self.lbl_auto_dep_api_secret, row, 0)
         grid.addWidget(self.inp_auto_dep_api_secret, row, 1)
         row += 1
 
-        grid.addWidget(QLabel(t["auto_dep_api_passphrase"]), row, 0)
+        self.lbl_auto_dep_api_passphrase = QLabel(t["auto_dep_api_passphrase"])
+        grid.addWidget(self.lbl_auto_dep_api_passphrase, row, 0)
         grid.addWidget(self.inp_auto_dep_api_passphrase, row, 1)
         row += 1
 
@@ -742,20 +785,28 @@ class SettingsDialog(QDialog):
             "color: #9C9C9C; font-size: 8pt; font-weight: normal;"
         )
         self.btn_auto_dep_connect = AnimatedHoverButton(
-            t.get("auto_dep_connect_btn", "CONNECT"),
+            t.get("auto_dep_connect_btn", "Connect").capitalize(),
             theme={
-                "base_bg": "#123A52",
-                "hover_bg": "#1A577B",
-                "pressed_bg": "#2374A3",
-                "base_border": "#2D7AA9",
-                "hover_border": "#59B7F2",
-                "pressed_border": "#8DD5FF",
-                "base_text": "#DDF3FF",
+                "base_bg": "#232A23",
+                "hover_bg": "#2D382D",
+                "pressed_bg": "#3A4A3A",
+                "disabled_bg": "#1A1A1A",
+                "base_border": "#3D5A3D",
+                "hover_border": "#52A552",
+                "pressed_border": "#6BCD6B",
+                "disabled_border": "#2A2A2A",
+                "base_text": "#C7E1C7",
                 "hover_text": "#FFFFFF",
                 "pressed_text": "#FFFFFF",
+                "disabled_text": "#666666",
+                "radius": 5,
+                "padding_v": 4,
+                "padding_h": 8,
+                "font_size": 8,
             },
         )
-        self.btn_auto_dep_connect.setFixedWidth(120)
+        self.btn_auto_dep_connect.setFixedWidth(102)
+        self.btn_auto_dep_connect.setFixedHeight(26)
         self.btn_auto_dep_connect.clicked.connect(self._on_auto_dep_connect_clicked)
 
         connect_row = QHBoxLayout()
@@ -768,8 +819,29 @@ class SettingsDialog(QDialog):
         connect_container = QWidget()
         connect_container.setStyleSheet("background: transparent;")
         connect_container.setLayout(connect_row)
+        self.auto_dep_connect_container = connect_container
         grid.addWidget(connect_container, row, 0, 1, 2)
         row += 1
+
+        self._auto_dep_panel_widgets = [
+            self.lbl_auto_dep_header,
+            self.lbl_auto_dep_enabled,
+            self.lbl_auto_dep_exchange,
+            self.lbl_auto_dep_market,
+            self.lbl_auto_dep_asset,
+            self.lbl_auto_dep_api_key,
+            self.lbl_auto_dep_api_secret,
+            self.lbl_auto_dep_api_passphrase,
+            self.lbl_auto_dep_connect_state,
+            self.cb_auto_dep_exchange,
+            self.cb_auto_dep_market,
+            self.inp_auto_dep_asset,
+            self.inp_auto_dep_api_key,
+            self.inp_auto_dep_api_secret,
+            self.inp_auto_dep_api_passphrase,
+            self.btn_auto_dep_connect,
+            self.auto_dep_connect_container,
+        ]
 
         # Разделитель
         sep2 = QFrame()
@@ -900,7 +972,7 @@ class SettingsDialog(QDialog):
             self._mark_auto_dep_connection_dirty
         )
         self.cb_auto_dep_market.currentIndexChanged.connect(
-            self._mark_auto_dep_connection_dirty
+            self._on_auto_dep_market_changed
         )
         self._refresh_auto_dep_connect_state_label()
 
@@ -973,15 +1045,7 @@ class SettingsDialog(QDialog):
 
     def _toggle_auto_deposit_fields(self, *_):
         is_checked = self.chk_auto_deposit.isChecked()
-        for widget in (
-            self.cb_auto_dep_exchange,
-            self.cb_auto_dep_market,
-            self.inp_auto_dep_asset,
-            self.inp_auto_dep_api_key,
-            self.inp_auto_dep_api_secret,
-            self.inp_auto_dep_api_passphrase,
-            self.btn_auto_dep_connect,
-        ):
+        for widget in getattr(self, "_auto_dep_panel_widgets", []):
             widget.setEnabled(is_checked)
         self._refresh_auto_dep_connect_state_label()
 
@@ -1035,12 +1099,46 @@ class SettingsDialog(QDialog):
         self._auto_dep_allow_unverified = False
         self._refresh_auto_dep_connect_state_label()
 
-    def _on_auto_dep_connect_clicked(self):
+    def _push_auto_dep_state_to_parent(self, force_sync=False):
+        if self.parent_window is None:
+            return
+
+        self._store_current_auto_dep_credentials()
+
+        selected_exchange = self._current_auto_dep_exchange()
+        selected_market = self._current_auto_dep_market()
+        connected_flag = bool(
+            self.chk_auto_deposit.isChecked()
+            and self._is_auto_dep_connected_for_current_selection()
+        )
+
+        if hasattr(self.parent_window, "set_auto_dep_credentials_plain"):
+            self.parent_window.set_auto_dep_credentials_plain(self._auto_dep_credentials)
+
+        self.parent_window.settings.update(
+            {
+                "auto_dep_enabled": self.chk_auto_deposit.isChecked(),
+                "auto_dep_exchange": selected_exchange,
+                "auto_dep_market": selected_market,
+                "auto_dep_asset": (self.inp_auto_dep_asset.text() or "USDT").strip().upper(),
+                "auto_dep_connected": connected_flag,
+                "auto_dep_connected_exchange": selected_exchange if connected_flag else "",
+                "auto_dep_connected_market": selected_market if connected_flag else "",
+                "auto_dep_allow_unverified": bool(
+                    connected_flag and self._auto_dep_allow_unverified
+                ),
+            }
+        )
+
+        if force_sync and hasattr(self.parent_window, "_apply_auto_deposit_sync"):
+            self.parent_window._apply_auto_deposit_sync(force_now=True)
+
+    def _try_auto_dep_connect(self, interactive=True, allow_broker_prompt=True):
         t = self._dialog_t()
 
         if not self.chk_auto_deposit.isChecked():
             self._refresh_auto_dep_connect_state_label()
-            return
+            return False
 
         self._store_current_auto_dep_credentials()
         selected_exchange = self._current_auto_dep_exchange()
@@ -1052,19 +1150,22 @@ class SettingsDialog(QDialog):
         api_passphrase = str(selected_creds.get("api_passphrase", "") or "").strip()
 
         if not api_key or not api_secret:
+            self._auto_dep_connected = False
+            self._auto_dep_allow_unverified = False
             self._refresh_auto_dep_connect_state_label(
                 t.get("auto_dep_connect_status_pending", "Not connected"),
-                is_error=True,
+                is_error=False,
             )
-            QMessageBox.warning(
-                self,
-                "API",
-                t.get(
-                    "auto_dep_connect_missing_keys",
-                    "Enter API Key and API Secret first.",
-                ),
-            )
-            return
+            if interactive:
+                QMessageBox.warning(
+                    self,
+                    "API",
+                    t.get(
+                        "auto_dep_connect_missing_keys",
+                        "Enter API Key and API Secret first.",
+                    ),
+                )
+            return False
 
         ok = True
         reason = ""
@@ -1080,19 +1181,20 @@ class SettingsDialog(QDialog):
 
         if not ok:
             allow_unverified = False
-            if selected_exchange == "binance":
+            if selected_exchange == "binance" and allow_broker_prompt:
                 msg = t.get(
                     "auto_dep_connect_broker_prompt",
                     "Could not verify permissions via Binance API. If you use broker keys, continue with unverified connection?",
                 )
-                reply = QMessageBox.question(
-                    self,
-                    "API",
-                    f"{reason}\n\n{msg}",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No,
-                )
-                allow_unverified = reply == QMessageBox.StandardButton.Yes
+                if interactive:
+                    reply = QMessageBox.question(
+                        self,
+                        "API",
+                        f"{reason}\n\n{msg}",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
+                    )
+                    allow_unverified = reply == QMessageBox.StandardButton.Yes
 
             if not allow_unverified:
                 self._auto_dep_connected = False
@@ -1101,38 +1203,58 @@ class SettingsDialog(QDialog):
                     str(reason or ""),
                     is_error=True,
                 )
-                QMessageBox.warning(
-                    self,
-                    "API",
-                    str(reason or t.get("auto_dep_connect_failed", "Connection failed.")),
-                )
-                return
+                if interactive:
+                    QMessageBox.warning(
+                        self,
+                        "API",
+                        str(
+                            reason
+                            or t.get("auto_dep_connect_failed", "Connection failed.")
+                        ),
+                    )
+                return False
 
             self._auto_dep_connected = True
             self._auto_dep_connected_exchange = selected_exchange
             self._auto_dep_connected_market = selected_market
             self._auto_dep_allow_unverified = True
             self._refresh_auto_dep_connect_state_label()
-            QMessageBox.information(
-                self,
-                "API",
-                t.get(
-                    "auto_dep_connect_unverified_ok",
-                    "Connected in broker mode. Permissions were not verified.",
-                ),
-            )
-            return
+            if interactive:
+                QMessageBox.information(
+                    self,
+                    "API",
+                    t.get(
+                        "auto_dep_connect_unverified_ok",
+                        "Connected in broker mode. Permissions were not verified.",
+                    ),
+                )
+            return True
 
         self._auto_dep_connected = True
         self._auto_dep_connected_exchange = selected_exchange
         self._auto_dep_connected_market = selected_market
         self._auto_dep_allow_unverified = False
         self._refresh_auto_dep_connect_state_label()
-        QMessageBox.information(
-            self,
-            "API",
-            t.get("auto_dep_connect_ok", "Connected successfully."),
-        )
+        if interactive:
+            QMessageBox.information(
+                self,
+                "API",
+                t.get("auto_dep_connect_ok", "Connected successfully."),
+            )
+        return True
+
+    def _auto_dep_reconnect_for_selection(self):
+        self._mark_auto_dep_connection_dirty()
+        if not self.chk_auto_deposit.isChecked():
+            self._push_auto_dep_state_to_parent(force_sync=True)
+            return
+
+        self._try_auto_dep_connect(interactive=False, allow_broker_prompt=False)
+        self._push_auto_dep_state_to_parent(force_sync=True)
+
+    def _on_auto_dep_connect_clicked(self):
+        self._try_auto_dep_connect(interactive=True, allow_broker_prompt=True)
+        self._push_auto_dep_state_to_parent(force_sync=True)
 
     def _normalize_auto_dep_credentials(self, settings):
         raw = settings.get("auto_dep_credentials", {})
@@ -1185,7 +1307,10 @@ class SettingsDialog(QDialog):
         ]
         self._active_auto_dep_exchange = new_exchange
         self._load_auto_dep_credentials_for_exchange(new_exchange)
-        self._mark_auto_dep_connection_dirty()
+        self._auto_dep_reconnect_for_selection()
+
+    def _on_auto_dep_market_changed(self, *_):
+        self._auto_dep_reconnect_for_selection()
 
     def _preview_fee_change(self):
         if not self.parent_window:
@@ -1233,7 +1358,35 @@ class SettingsDialog(QDialog):
 
     def save_and_close(self):
         self._store_current_auto_dep_credentials()
-        t = self._dialog_t()
+        new_scale = self.scale_actual[self.cb_scale.currentIndex()]
+        prev_scale = None
+        scale_changed = False
+        if self.parent_window is not None:
+            try:
+                prev_scale = int(
+                    self.parent_window.settings.get(
+                        "scale",
+                        getattr(self.parent_window, "base_scale", 100),
+                    )
+                )
+                scale_changed = int(new_scale) != int(prev_scale)
+            except Exception:
+                scale_changed = False
+
+        parent_size = None
+        if self.parent_window is not None:
+            try:
+                parent_size = (int(self.parent_window.width()), int(self.parent_window.height()))
+                if (
+                    not scale_changed
+                    and hasattr(self.parent_window, "_freeze_window_size_temporarily")
+                ):
+                    self.parent_window._freeze_window_size_temporarily(
+                        parent_size[0], parent_size[1], duration_ms=850
+                    )
+            except Exception:
+                parent_size = None
+
         selected_market_is_spot = self.cb_auto_dep_market.currentIndex() == 1
         preserve_calc_state = (
             self.chk_auto_deposit.isChecked() and selected_market_is_spot
@@ -1285,32 +1438,6 @@ class SettingsDialog(QDialog):
             and self._auto_dep_connected_market == selected_market
         )
 
-        if self.chk_auto_deposit.isChecked():
-            api_key = str(selected_creds.get("api_key", "") or "").strip()
-            api_secret = str(selected_creds.get("api_secret", "") or "").strip()
-
-            if not api_key or not api_secret:
-                QMessageBox.warning(
-                    self,
-                    "API",
-                    t.get(
-                        "auto_dep_connect_missing_keys",
-                        "Enter API Key and API Secret first.",
-                    ),
-                )
-                return
-
-            if not is_connected:
-                QMessageBox.warning(
-                    self,
-                    "API",
-                    t.get(
-                        "auto_dep_connect_required",
-                        "Press Connect and complete API validation before saving.",
-                    ),
-                )
-                return
-
         connected_flag = bool(self.chk_auto_deposit.isChecked() and is_connected)
         allow_unverified_flag = bool(connected_flag and self._auto_dep_allow_unverified)
 
@@ -1319,7 +1446,7 @@ class SettingsDialog(QDialog):
 
         self.parent_window.settings.update(
             {
-                "scale": self.scale_actual[self.cb_scale.currentIndex()],
+                "scale": new_scale,
                 "hk_show": self.hk_show.text(),
                 "hk_coords": self.hk_coords.text(),
                 "minimize_after_apply": self.chk_minimize_after_apply.isChecked(),
@@ -1397,6 +1524,37 @@ class SettingsDialog(QDialog):
                 self.parent_window._capture_current_manual_distribution()
                 self.parent_window.update_cell_volumes()
                 self.parent_window.save_cell_settings()
+
+        if self.parent_window is not None and parent_size is not None:
+            try:
+                if (
+                    not scale_changed
+                    and hasattr(self.parent_window, "_freeze_window_size_temporarily")
+                ):
+                    self.parent_window._freeze_window_size_temporarily(
+                        parent_size[0], parent_size[1], duration_ms=850
+                    )
+            except Exception:
+                pass
+
+        if self.parent_window is not None and scale_changed:
+            try:
+                if hasattr(self.parent_window, "_lock_dynamic_resize"):
+                    self.parent_window._lock_dynamic_resize = False
+                if hasattr(self.parent_window, "_adapt_window_width_to_content"):
+                    self.parent_window._adapt_window_width_to_content(
+                        grow_only=False,
+                        smooth=False,
+                    )
+                if hasattr(self.parent_window, "_set_window_size_with_extra_height"):
+                    self.parent_window._set_window_size_with_extra_height(
+                        grow_only=False,
+                        smooth=False,
+                    )
+                if hasattr(self.parent_window, "_ensure_window_on_screen"):
+                    self.parent_window._ensure_window_on_screen(margin=6, prefer_active=True)
+            except Exception:
+                pass
 
         self.accept()
 

@@ -385,6 +385,7 @@ class DonateDialog(QDialog):
             scale = settings.value("interface_scale_text", "100%")
         try:
             value = int(str(scale).replace("%", ""))
+            value = max(100, value)
             factor = value / 100.0
         except Exception:
             factor = 1.0

@@ -1,8 +1,29 @@
-﻿import sys, json, os, ctypes, time, threading, importlib, hmac, hashlib, multiprocessing, keyboard, pyautogui, pyperclip
-from urllib.parse import urlencode
+﻿import ctypes
+import os
+import sys
+
+# Early console hide for Windows: run before heavy imports to avoid startup flash.
+if sys.platform == "win32":
+    try:
+        _hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if _hwnd:
+            ctypes.windll.user32.ShowWindow(_hwnd, 0)  # SW_HIDE
+    except Exception:
+        pass
+
+import json
+import time
+import hmac
 import queue
-import config
+import hashlib
+import subprocess
 import requests
+import pyperclip
+import threading
+import importlib
+import multiprocessing
+from urllib.parse import urlencode
+import config
 from PyQt6.QtWidgets import (
     QApplication,
     QStyleFactory,
@@ -28,6 +49,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import (
     Qt,
+    QPoint,
     QRegularExpression,
     QTimer,
     QEasingCurve,
@@ -45,6 +67,7 @@ from PyQt6.QtGui import (
     QPixmap,
     QPainter,
     QPen,
+    QCursor,
 )
 
 from config import *
@@ -86,6 +109,80 @@ sys.excepthook = _global_exception_handler
 threading.excepthook = _thread_exception_handler
 
 _app_shared_memory_guard = None
+keyboard = None
+pyautogui = None
+
+
+def _configure_windows_multiprocessing_executable():
+    """Use pythonw for spawned child processes to avoid transient console windows."""
+    if sys.platform != "win32":
+        return
+    if getattr(sys, "frozen", False):
+        # Frozen executable already runs without console; keep default behavior.
+        return
+    try:
+        exe_dir = os.path.dirname(sys.executable or "")
+        pythonw_path = os.path.join(exe_dir, "pythonw.exe")
+        if os.path.exists(pythonw_path):
+            multiprocessing.set_executable(pythonw_path)
+    except Exception:
+        pass
+
+
+def _hide_console_window_on_windows():
+    """Hide/detach console window for GUI startup to avoid transient black console flashes."""
+    if sys.platform != "win32":
+        return
+    try:
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        hwnd = kernel32.GetConsoleWindow()
+        if hwnd:
+            # SW_HIDE = 0
+            user32.ShowWindow(hwnd, 0)
+            try:
+                kernel32.FreeConsole()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _relaunch_with_pythonw_if_needed():
+    """When running from source on Windows, relaunch via pythonw to avoid console flashes."""
+    if sys.platform != "win32":
+        return
+    if getattr(sys, "frozen", False):
+        return
+    if os.environ.get("RV_PYTHONW_RELAUNCHED", "") == "1":
+        return
+    try:
+        current_exe = os.path.basename(sys.executable or "").lower()
+        if current_exe == "pythonw.exe":
+            return
+
+        exe_dir = os.path.dirname(sys.executable or "")
+        pythonw_path = os.path.join(exe_dir, "pythonw.exe")
+        if not os.path.exists(pythonw_path):
+            return
+
+        entry_script = os.path.abspath(sys.argv[0])
+        env = dict(os.environ)
+        env["RV_PYTHONW_RELAUNCHED"] = "1"
+
+        # CREATE_NO_WINDOW keeps bootstrap launch silent while pythonw takes over.
+        CREATE_NO_WINDOW = 0x08000000
+        subprocess.Popen(
+            [pythonw_path, entry_script, *sys.argv[1:]],
+            cwd=os.getcwd(),
+            env=env,
+            close_fds=True,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        sys.exit(0)
+    except Exception:
+        # If relaunch fails, continue normal startup.
+        return
 
 
 def _fetch_balance_with_ccxt_process(payload, result_queue):
@@ -255,14 +352,19 @@ class GlassPreviewFrame(QWidget):
 
 class RiskVolumeApp(QMainWindow):
     def __init__(self):
-        super().__init__()
-        self.base_scale = 130
+        super().__init__(
+            None,
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint,
+        )
+        self._startup_reveal_done = False
+        self.base_scale = 100
         self.load_settings()
         self._create_posmode_checkmark_icon()
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
-        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        try:
+            self.setWindowOpacity(0.0)
+        except Exception:
+            pass
 
         if os.path.exists(LOGO_PATH):
             self.setWindowIcon(QIcon(LOGO_PATH))
@@ -288,6 +390,7 @@ class RiskVolumeApp(QMainWindow):
         self._resize_step_chars = 5
         self._last_applied_resize_pressure = 0
         self._force_resize_pending = False
+        self._suppress_content_resize_until = 0.0
         self.current_vol = 0.0
         self.position_target_volume = 0.0
         self.table_volume_override = float(
@@ -307,6 +410,9 @@ class RiskVolumeApp(QMainWindow):
         self._pf_preview_frames = []
         self._pf_preview_token = 0
         self._settings_dialog = None
+        self._hotkeys_initialized = False
+        self._startup_window_suppress_timer = None
+        self._startup_window_suppress_deadline = 0.0
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -318,7 +424,6 @@ class RiskVolumeApp(QMainWindow):
         self._smooth_resize_idle_timer = QTimer(self)
         self._smooth_resize_idle_timer.setSingleShot(True)
         self._smooth_resize_idle_timer.timeout.connect(self._apply_idle_smooth_resize)
-        self.rebind_hotkeys()
         self.update_calc()
 
         # Периодически перерегистрируем keyboard-хуки (Windows убивает их при простое/сне)
@@ -331,7 +436,8 @@ class RiskVolumeApp(QMainWindow):
         self._auto_dep_timer = QTimer(self)
         self._auto_dep_timer.setSingleShot(False)
         self._auto_dep_timer.timeout.connect(self._sync_deposit_from_exchange)
-        self._apply_auto_deposit_sync(force_now=True)
+        # Delay force sync until the main UI is visible to avoid startup flashes.
+        self._apply_auto_deposit_sync(force_now=False)
 
         # Сохраняем настройки при закрытии приложения любым способом
         app = QApplication.instance()
@@ -340,8 +446,53 @@ class RiskVolumeApp(QMainWindow):
 
         # Восстанавливаем позицию окна
         pos = self.settings.get("window_pos", None)
+        restored_anchor = None
         if pos and len(pos) == 2:
-            self.move(pos[0], pos[1])
+            try:
+                self.move(int(pos[0]), int(pos[1]))
+                restored_anchor = (int(pos[0]), int(pos[1]))
+            except Exception:
+                pass
+
+        # Восстанавливаем размер окна, чтобы стартовая геометрия была одинаковой
+        saved_size = self.settings.get("window_size", None)
+        saved_size_scale = self.settings.get("window_size_scale", None)
+        size_persist_v2 = bool(self.settings.get("window_size_v2", False))
+        current_scale = int(self.settings.get("scale", self.base_scale) or self.base_scale)
+        if (
+            size_persist_v2
+            and isinstance(saved_size, (list, tuple))
+            and len(saved_size) == 2
+            and str(saved_size_scale or "") == str(current_scale)
+        ):
+            try:
+                saved_w = int(saved_size[0])
+                saved_h = int(saved_size[1])
+                fit_w, fit_h, fit_x, fit_y = self._fit_window_geometry_to_screen(
+                    saved_w,
+                    saved_h,
+                    margin=6,
+                    anchor_pos=restored_anchor,
+                    prefer_active=True,
+                )
+                self.setFixedSize(int(fit_w), int(fit_h))
+                if fit_x is not None and fit_y is not None:
+                    self.move(int(fit_x), int(fit_y))
+            except Exception:
+                pass
+
+        # Recompute geometry from current content after restore.
+        # This prevents stale saved heights from keeping the window oversized.
+        try:
+            self._set_window_size_with_extra_height(grow_only=False)
+        except Exception:
+            pass
+
+        self._ensure_window_on_screen(
+            margin=6,
+            anchor_pos=restored_anchor,
+            prefer_active=True,
+        )
 
     def _create_posmode_checkmark_icon(self):
         import tempfile
@@ -366,7 +517,7 @@ class RiskVolumeApp(QMainWindow):
             "lang": "ru",
             "risk": 1.0,
             "stop": 1.0,
-            "scale": 130,
+            "scale": 100,
             "hk_show": "f1",
             "hk_coords": "f2",
             "hk_send": "f3",
@@ -456,6 +607,9 @@ class RiskVolumeApp(QMainWindow):
             "auto_dep_api_secret": "",
             "auto_dep_api_passphrase": "",
             "auto_dep_credentials": {},
+            "window_size": None,
+            "window_size_scale": None,
+            "window_size_v2": False,
         }
         if os.path.exists(CONFIG_FILE):
             try:
@@ -522,15 +676,35 @@ class RiskVolumeApp(QMainWindow):
         if self._migrate_auto_dep_credentials_secure_storage():
             self.save_settings()
 
-        # Корректируем масштаб если он выходит за разумные пределы
-        scale = self.settings.get("scale", self.base_scale)
+        # Migration: old internal scale mapping was 130-170 for displayed 100-140.
+        # Convert once to real values so scaling behaves predictably.
+        raw_scale = self.settings.get("scale", self.base_scale)
         try:
-            scale = int(scale)
+            scale = int(raw_scale)
         except Exception:
             scale = self.base_scale
-        clamped_scale = max(130, min(170, scale))
-        if clamped_scale != scale:
+
+        migrated = False
+        if not bool(self.settings.get("scale_mapping_v2", False)):
+            legacy_to_real = {
+                130: 100,
+                140: 110,
+                150: 120,
+                160: 130,
+                170: 140,
+            }
+            if scale in legacy_to_real:
+                scale = legacy_to_real[scale]
+                self.settings["scale"] = scale
+                migrated = True
+            self.settings["scale_mapping_v2"] = True
+            migrated = True
+
+        clamped_scale = max(60, min(120, scale))
+        if self.settings.get("scale", None) != clamped_scale:
             self.settings["scale"] = clamped_scale
+            self.save_settings()
+        elif migrated:
             self.save_settings()
 
     def save_settings(self):
@@ -1262,7 +1436,8 @@ class RiskVolumeApp(QMainWindow):
         self.apply_min_order_precision()
         self.refresh_labels()
         self.apply_styles()
-        QTimer.singleShot(0, self.finalize_startup_layout)
+        # Finalize geometry before the first show to avoid startup flicker.
+        self.finalize_startup_layout()
 
     def on_tab_changed(self, index):
         if index == 1 and not self._is_profit_forge_terminal():
@@ -1840,14 +2015,14 @@ class RiskVolumeApp(QMainWindow):
 
     def _scaled_pt(self, base_pt):
         try:
-            ratio = self.settings.get("scale", self.base_scale) / float(self.base_scale)
+            ratio = int(self.settings.get("scale", self.base_scale)) / float(self.base_scale)
         except Exception:
             ratio = 1.0
         return max(7, int(base_pt * ratio))
 
     def _scale_ratio(self):
         try:
-            return self.settings.get("scale", self.base_scale) / float(self.base_scale)
+            return int(self.settings.get("scale", self.base_scale)) / float(self.base_scale)
         except Exception:
             return 1.0
 
@@ -1934,47 +2109,212 @@ class RiskVolumeApp(QMainWindow):
         anim.start()
 
     def _set_window_size_with_extra_height(self, grow_only=False, smooth=False):
+        if getattr(self, "_lock_dynamic_resize", False):
+            return
+
+        try:
+            if hasattr(self, "tabs") and self.tabs is not None:
+                current_tab = self.tabs.currentWidget()
+                if current_tab is not None and current_tab.layout() is not None:
+                    current_tab.layout().activate()
+                    tab_bar_h = int(self.tabs.tabBar().sizeHint().height()) if self.tabs.tabBar() else 0
+                    tab_padding = max(6, int(10 * self._scale_ratio()))
+                    current_tab_h = int(
+                        max(
+                            current_tab.layout().sizeHint().height(),
+                            current_tab.layout().minimumSize().height(),
+                        )
+                    )
+                    required_tabs_h = current_tab_h + tab_bar_h + tab_padding
+                    # Keep minimum height in sync both ways (grow and shrink),
+                    # otherwise a previously larger scale can lock the window tall.
+                    if abs(int(self.tabs.minimumHeight()) - int(required_tabs_h)) > 1:
+                        self.tabs.setMinimumHeight(required_tabs_h)
+
+            if hasattr(self, "main_layout") and self.main_layout is not None:
+                self.main_layout.activate()
+            self.central_widget.updateGeometry()
+        except Exception:
+            pass
+
         self.adjustSize()
         size = self.sizeHint()
         try:
-            ratio = self.settings.get("scale", self.base_scale) / float(self.base_scale)
+            central_hint = self.central_widget.sizeHint()
+            size_w = max(int(size.width()), int(central_hint.width()))
+            size_h = max(int(size.height()), int(central_hint.height()))
+
+            if self.central_widget.layout() is not None:
+                layout_hint = self.central_widget.layout().totalSizeHint()
+                layout_min = self.central_widget.layout().totalMinimumSize()
+                size_w = max(size_w, int(layout_hint.width()), int(layout_min.width()))
+                size_h = max(size_h, int(layout_hint.height()), int(layout_min.height()))
         except Exception:
-            ratio = 1.0
-        extra_h = max(16, int(20 * ratio))
-        target_w = int(size.width())
-        target_h = int(size.height() + extra_h)
+            size_w = int(size.width())
+            size_h = int(size.height())
+        ratio = self._scale_ratio()
+        extra_h = max(20, int(26 * ratio))
+        target_w = int(size_w)
+        target_h = int(size_h + extra_h)
+
+        # Keep enough room for scaled controls so lower blocks never overlap the cells table.
+        target_w = max(target_w, int(620 * ratio))
+        target_h = max(target_h, int(700 * ratio))
 
         if grow_only:
             target_w = max(int(self.width()), target_w)
             target_h = max(int(self.height()), target_h)
 
+        requested_w = int(target_w)
+        requested_h = int(target_h)
+
+        target_w, target_h, fit_x, fit_y = self._fit_window_geometry_to_screen(
+            target_w,
+            target_h,
+            margin=6,
+        )
+
+        # For larger calculator scales keep full content visible even if it exceeds the
+        # available monitor area: better a bigger window than controls overlapping table rows.
+        allow_oversize = False
         try:
-            screen = self.screen() or QApplication.primaryScreen()
-            if screen is not None:
-                available = screen.availableGeometry()
-                if self.isVisible():
-                    x = int(self.x())
-                    y = int(self.y())
-                    right_space = int(available.right()) - x + 1 - 6
-                    bottom_space = int(available.bottom()) - y + 1 - 6
-                    max_w = max(180, right_space)
-                    max_h = max(160, bottom_space)
-                else:
-                    max_w = max(360, int(available.width()) - 12)
-                    max_h = max(240, int(available.height()) - 12)
-                target_w = min(target_w, max_w)
-                target_h = min(target_h, max_h)
+            scale_now = int(self.settings.get("scale", self.base_scale))
+            allow_oversize = (
+                hasattr(self, "tabs")
+                and self.tabs is not None
+                and self.tabs.currentIndex() == 0
+                and scale_now >= 120
+            )
         except Exception:
-            pass
+            allow_oversize = False
+
+        if allow_oversize and (int(target_h) < requested_h or int(target_w) < requested_w):
+            target_w = requested_w
+            target_h = requested_h
+            fit_x = None
+            fit_y = None
 
         if smooth and self.isVisible():
             self._animate_window_size(target_w, target_h)
         else:
             self.setFixedSize(target_w, target_h)
 
+        if self.isVisible() and fit_x is not None and fit_y is not None:
+            self.move(fit_x, fit_y)
+
+    def _freeze_window_size_temporarily(self, width, height, duration_ms=700):
+        """Keep current window geometry stable for short UI update bursts."""
+        try:
+            w = int(width)
+            h = int(height)
+            if w <= 0 or h <= 0:
+                return
+            self._lock_dynamic_resize = True
+            self.setFixedSize(w, h)
+            self._ensure_window_on_screen(margin=6)
+        except Exception:
+            return
+
+        delay = max(120, int(duration_ms))
+
+        def _unlock_resize():
+            try:
+                self._lock_dynamic_resize = False
+            except Exception:
+                pass
+
+        QTimer.singleShot(delay, _unlock_resize)
+
+    def _fit_window_geometry_to_screen(
+        self,
+        width,
+        height,
+        margin=6,
+        anchor_pos=None,
+        prefer_active=False,
+    ):
+        """Clamp window size and target position to available screen geometry."""
+        try:
+            app = QApplication.instance()
+            screen = None
+
+            if app is not None and anchor_pos is not None:
+                try:
+                    ax = int(anchor_pos[0])
+                    ay = int(anchor_pos[1])
+                    screen = app.screenAt(QPoint(ax, ay))
+                except Exception:
+                    screen = None
+
+            if screen is None and app is not None and prefer_active:
+                try:
+                    screen = app.screenAt(QCursor.pos())
+                except Exception:
+                    screen = None
+
+            if screen is None:
+                screen = self.screen() or QApplication.primaryScreen()
+
+            if screen is None:
+                return int(width), int(height), None, None
+
+            available = screen.availableGeometry()
+            margin = max(0, int(margin))
+
+            max_w = max(220, int(available.width()) - margin * 2)
+            max_h = max(180, int(available.height()) - margin * 2)
+
+            safe_w = max(180, min(int(width), max_w))
+            safe_h = max(160, min(int(height), max_h))
+
+            if safe_w > max_w:
+                safe_w = max_w
+            if safe_h > max_h:
+                safe_h = max_h
+
+            min_x = int(available.left()) + margin
+            min_y = int(available.top()) + margin
+            max_x = int(available.right()) - safe_w - margin + 1
+            max_y = int(available.bottom()) - safe_h - margin + 1
+
+            if max_x < min_x:
+                max_x = min_x
+            if max_y < min_y:
+                max_y = min_y
+
+            cur_x = int(self.x())
+            cur_y = int(self.y())
+            fit_x = max(min_x, min(max_x, cur_x))
+            fit_y = max(min_y, min(max_y, cur_y))
+            return safe_w, safe_h, fit_x, fit_y
+        except Exception:
+            return int(width), int(height), None, None
+
+    def _ensure_window_on_screen(self, margin=6, anchor_pos=None, prefer_active=False):
+        """Move window into visible area without changing current logical layout state."""
+        try:
+            safe_w, safe_h, fit_x, fit_y = self._fit_window_geometry_to_screen(
+                int(self.width()),
+                int(self.height()),
+                margin=margin,
+                anchor_pos=anchor_pos,
+                prefer_active=prefer_active,
+            )
+            if int(self.width()) != int(safe_w) or int(self.height()) != int(safe_h):
+                self.setFixedSize(int(safe_w), int(safe_h))
+            if fit_x is not None and fit_y is not None:
+                self.move(int(fit_x), int(fit_y))
+        except Exception:
+            pass
+
     def _schedule_smooth_content_resize(self, force=False):
         if getattr(self, "_lock_dynamic_resize", False):
             return
+        try:
+            if time.time() < float(getattr(self, "_suppress_content_resize_until", 0.0) or 0.0):
+                return
+        except Exception:
+            pass
         if force:
             self._force_resize_pending = True
         # Resize after a short pause, not on every keystroke.
@@ -2182,11 +2522,18 @@ class RiskVolumeApp(QMainWindow):
 
     def _style_pf_multi_glass_controls(self):
         scale = self.settings.get("scale", self.base_scale)
-        scale = max(80, min(170, int(scale)))
+        scale = max(60, min(120, int(scale)))
         ratio = scale / float(self.base_scale)
+        sc = scale / 100.0
+        compact_mode = scale < 100
         label_pt = max(7, int(8 * ratio))
         input_pt = max(7, int(8 * ratio))
         radius = max(4, int(4 * ratio))
+        wrap_w = max(62 if compact_mode else 72, int(82 * sc))
+        btn_w = max(12 if compact_mode else 14, int(15 * sc))
+        field_h = max(18 if compact_mode else 24, int(24 * sc))
+        btn_h = max(16 if compact_mode else 20, int(field_h - 2))
+        inner_w = max(26, wrap_w - (btn_w * 2) - 6)
 
         for name in (
             "lbl_pf_glasses_title",
@@ -2207,18 +2554,10 @@ class RiskVolumeApp(QMainWindow):
 
         if hasattr(self, "sb_pf_count"):
             self.sb_pf_count.setStyleSheet(
-                "QSpinBox#pfSpinInner { background: transparent; color: white; border: none; padding: 2px; selection-background-color: transparent; selection-color: white; }"
+                "QSpinBox#pfSpinInner { background: transparent; color: white; border: none; padding: 0px 2px; selection-background-color: transparent; selection-color: white; }"
                 "QSpinBox#pfSpinInner:focus { outline: none; }"
                 "QSpinBox#pfSpinInner:disabled { color: #555; }"
             )
-
-            scale = max(80, min(170, int(self.settings.get("scale", self.base_scale))))
-            sc = scale / 100.0
-            wrap_w = max(60, int(70 * sc))
-            btn_w = max(10, int(11 * sc))
-            btn_h = max(9, int(9 * sc))
-            field_h = max(14, int(14 * sc))
-            inner_w = max(26, wrap_w - (btn_w * 2) - 6)
 
             self.sb_pf_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.sb_pf_count.setFixedHeight(field_h)
@@ -2228,6 +2567,12 @@ class RiskVolumeApp(QMainWindow):
             if hasattr(self, "sb_pf_count_wrap"):
                 self.sb_pf_count_wrap.setFixedHeight(field_h)
                 self.sb_pf_count_wrap.setFixedWidth(wrap_w)
+
+            if hasattr(self, "lbl_pf_glasses_title"):
+                self.lbl_pf_glasses_title.setMinimumHeight(field_h)
+
+            if hasattr(self, "lbl_pf_calib_glass_title"):
+                self.lbl_pf_calib_glass_title.setMinimumHeight(field_h)
 
         for btn_name in ("btn_pf_count_dec", "btn_pf_count_inc"):
             btn = getattr(self, btn_name, None)
@@ -2245,6 +2590,7 @@ class RiskVolumeApp(QMainWindow):
                 "QComboBox:focus { border: 1px solid #333; outline: none; }"
                 "QComboBox::drop-down { border: none; }"
             )
+            self.cb_pf_calib_glass.setFixedHeight(field_h)
 
         if hasattr(self, "chk_pf_show_frames"):
             self.chk_pf_show_frames.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -2263,7 +2609,6 @@ class RiskVolumeApp(QMainWindow):
 
         for checkbox in getattr(self, "_pf_target_checkboxes", {}).values():
             if checkbox:
-                checkbox.setFixedWidth(max(30, int(34 * ratio)))
                 checkbox.setFocusPolicy(Qt.FocusPolicy.NoFocus)
                 if bool(checkbox.property("uncalibrated")):
                     checkbox.setStyleSheet(
@@ -2280,6 +2625,18 @@ class RiskVolumeApp(QMainWindow):
                         f"QCheckBox::indicator:checked {{ background: #38BE1D; border: 1px solid #38BE1D; image: url({self._posmode_checkmark_path_css}); }}"
                         "QCheckBox::indicator:unchecked { image: none; }"
                     )
+
+                # Size from actual rendered hint so double-digit labels (10-12) stay fully visible.
+                try:
+                    min_w = max(34, int(34 * ratio))
+                    hint_w = int(checkbox.sizeHint().width())
+                    target_w = max(min_w, hint_w + max(4, int(6 * ratio)))
+                    checkbox.setFixedWidth(target_w)
+
+                    hint_h = int(checkbox.sizeHint().height())
+                    checkbox.setFixedHeight(max(18, hint_h))
+                except Exception:
+                    checkbox.setFixedWidth(max(34, int(34 * ratio)))
 
     def _on_pf_glasses_count_changed(self, value):
         old_count = self._get_pf_glasses_count()
@@ -2551,7 +2908,10 @@ class RiskVolumeApp(QMainWindow):
         try:
             screen = QApplication.primaryScreen()
             geom = screen.geometry() if screen is not None else None
-            native = pyautogui.size()
+            if not self._ensure_pyautogui_module():
+                native = None
+            else:
+                native = pyautogui.size()
             if geom and native and geom.width() > 0 and geom.height() > 0:
                 ratio_x = float(native.width) / float(geom.width())
                 ratio_y = float(native.height) / float(geom.height())
@@ -3560,8 +3920,15 @@ class RiskVolumeApp(QMainWindow):
         self.settings["pos_mode_enabled"] = enabled
 
         # Сохраняем текущий размер окна перед изменениями
+        current_w = None
+        current_h = None
         if not is_startup:
-            current_size = self.size()
+            current_w = int(self.width())
+            current_h = int(self.height())
+            self._suppress_content_resize_until = max(
+                float(getattr(self, "_suppress_content_resize_until", 0.0) or 0.0),
+                time.time() + 0.9,
+            )
             self._lock_dynamic_resize = True
 
         pos_controls = []
@@ -3679,11 +4046,15 @@ class RiskVolumeApp(QMainWindow):
 
         # Восстанавливаем исходный размер окна, чтобы избежать "прыжков"
         if not is_startup:
-            if isinstance(self._startup_window_size, tuple) and len(self._startup_window_size) == 2:
-                self.setFixedSize(int(self._startup_window_size[0]), int(self._startup_window_size[1]))
-            else:
-                self.setFixedSize(current_size)
-            QTimer.singleShot(120, lambda: setattr(self, "_lock_dynamic_resize", False))
+            if current_w is not None and current_h is not None:
+                self.setFixedSize(int(current_w), int(current_h))
+            self._ensure_window_on_screen(margin=6)
+
+            def _unlock_resize_after_toggle():
+                self._lock_dynamic_resize = False
+                self._suppress_content_resize_until = 0.0
+
+            QTimer.singleShot(420, _unlock_resize_after_toggle)
 
     def _get_active_rows_for_table(self):
         selected_rows = sorted(
@@ -3766,20 +4137,10 @@ class RiskVolumeApp(QMainWindow):
         if not self.isVisible():
             return
 
-        def _metric_text(raw_text):
-            import re
-
-            if not raw_text:
-                return ""
-            text = str(raw_text)
-            text = re.sub(r"<[^>]*>", "", text)
-            text = text.replace("&nbsp;", " ")
-            text = text.replace("&amp;", "&")
-            text = text.replace("&lt;", "<")
-            text = text.replace("&gt;", ">")
-            return text
-
-        scale = self.settings.get("scale", self.base_scale)
+        try:
+            scale = int(self.settings.get("scale", self.base_scale))
+        except Exception:
+            scale = int(self.base_scale)
         ratio = scale / float(self.base_scale)
         base_w = max(90, int(105 * ratio))
         max_w = max(280, int(560 * ratio))
@@ -3808,68 +4169,11 @@ class RiskVolumeApp(QMainWindow):
             except Exception:
                 pass
 
-        label_base_w = max(140, int(180 * ratio))
-        label_max_w = max(380, int(980 * ratio))
-        for name in (
-            "lbl_info",
-            "lbl_status",
-            "lbl_hint",
-            "lbl_pos_risk_cash",
-            "lbl_pos_adjust",
-        ):
-            label = getattr(self, name, None)
-            if not label:
-                continue
-            try:
-                text = _metric_text(label.text())
-                desired = label.fontMetrics().horizontalAdvance(text) + 22
-                desired_w = max(label_base_w, min(label_max_w, desired))
-                if grow_only:
-                    desired_w = max(int(label.minimumWidth()), desired_w)
-                label.setMinimumWidth(desired_w)
-            except Exception:
-                pass
-
-        pos_vol_hint = getattr(self, "lbl_pos_vol_hint", None)
-        if pos_vol_hint:
-            try:
-                text = _metric_text(pos_vol_hint.text())
-                desired = pos_vol_hint.fontMetrics().horizontalAdvance(text) + 10
-                desired_w = max(20, min(max(80, int(120 * ratio)), desired))
-                if grow_only:
-                    desired_w = max(int(pos_vol_hint.minimumWidth()), desired_w)
-                pos_vol_hint.setMinimumWidth(desired_w)
-            except Exception:
-                pass
-
-        # Автоподбор минимальной ширины окна: чтобы подсказки в блоке позиции
-        # гарантированно помещались по ширине и не "наезжали" визуально.
+        # Width baseline remains stable across UI mode toggles.
+        # Extra width appears only for long numeric values in editable fields.
         try:
-            row1_width = 0
-            for name in ("lbl_pos_vol_hint", "lbl_pos_risk_cash"):
-                label = getattr(self, name, None)
-                if label:
-                    row1_width += (
-                        label.fontMetrics().horizontalAdvance(
-                            _metric_text(label.text())
-                        )
-                        + 24
-                    )
-
-            row2_width = 0
-            label_adjust = getattr(self, "lbl_pos_adjust", None)
-            if label_adjust:
-                row2_width = (
-                    label_adjust.fontMetrics().horizontalAdvance(
-                        _metric_text(label_adjust.text())
-                    )
-                    + 24
-                )
-
-            hints_required = max(row1_width + int(18 * ratio), row2_width)
             base_min_window = max(620, int(620 * ratio))
-            target_min_window = max(base_min_window, hints_required + int(90 * ratio))
-            target_min_window = min(target_min_window, max(980, int(1450 * ratio)))
+            target_min_window = int(base_min_window)
 
             if smooth:
                 char_step_px = max(3, int(5 * ratio))
@@ -4021,11 +4325,15 @@ class RiskVolumeApp(QMainWindow):
     def apply_styles(self):
 
         scale = self.settings.get("scale", self.base_scale)
-        scale = max(80, min(170, int(scale)))
+        scale = max(60, min(120, int(scale)))
         ratio = scale / float(self.base_scale)
+        compact_mode = scale < 100
+        compact_60 = scale <= 60
         base_font = int(11 * (self.base_scale / 100.0))
         f_main = max(8, int(base_font * ratio))
         input_font = max(8, int(9 * ratio))
+        if compact_60:
+            input_font = max(input_font, 9)
         f_small = max(7, int(8.5 * ratio))
         # Compress padding growth for large scales to avoid oversized inner gaps.
         pad_ratio = 1.0 + max(0.0, ratio - 1.0) * 0.55
@@ -4084,7 +4392,16 @@ class RiskVolumeApp(QMainWindow):
             self.main_layout.setContentsMargins(
                 int(8 * ratio), int(8 * ratio), int(8 * ratio), int(8 * ratio)
             )
-            self.main_layout.setSpacing(int(4 * ratio))
+            self.main_layout.setSpacing(max(2, int(4 * ratio)))
+        if hasattr(self, "calc_layout"):
+            calc_margin = max(2, int(4 * ratio))
+            self.calc_layout.setContentsMargins(
+                calc_margin,
+                calc_margin,
+                calc_margin,
+                calc_margin,
+            )
+            self.calc_layout.setSpacing(max(2, int(4 * ratio)))
         if hasattr(self, "header_layout"):
             self.header_layout.setContentsMargins(
                 int(10 * ratio), int(5 * ratio), int(10 * ratio), int(5 * ratio)
@@ -4111,11 +4428,16 @@ class RiskVolumeApp(QMainWindow):
                 f"color: #38BE1D; font-weight: bold; font-style: italic; font-size: {max(8, int(11*ratio))}pt; border: none; background: transparent;"
             )
 
-        btn_size = max(18, int(22 * ratio))
+        btn_size = max(14 if compact_mode else 18, int(22 * ratio))
         for b in [self.btn_set, self.btn_min, self.btn_close]:
             b.setFixedSize(btn_size, btn_size)
 
-        input_height = max(int(28 * ratio), int(12 * ratio + 14))
+        if compact_mode:
+            input_height = max(int(26 * ratio), int(10 * ratio + 10))
+        else:
+            input_height = max(int(28 * ratio), int(12 * ratio + 14))
+        if compact_60:
+            input_height = max(input_height, 22)
         if hasattr(self, "inp_dep"):
             self.inp_dep.setFixedHeight(input_height)
             self.inp_dep.setStyleSheet(
@@ -4135,7 +4457,10 @@ class RiskVolumeApp(QMainWindow):
                 "QLineEdit:focus { border: 1px solid #FFFFFF; }"
             )
         if hasattr(self, "lbl_vol"):
-            self.lbl_vol.setFixedHeight(max(24, int(36 * ratio)))
+            vol_h = max(18 if compact_mode else 24, int(36 * ratio))
+            if compact_60:
+                vol_h = max(vol_h, 28)
+            self.lbl_vol.setFixedHeight(vol_h)
         self._apply_volume_title_style(
             dimmed=bool(self.settings.get("pos_mode_enabled", False))
         )
@@ -4147,8 +4472,8 @@ class RiskVolumeApp(QMainWindow):
                 """
             )
         if hasattr(self, "tabs"):
-            tab_pad_v = max(3, int(5 * ratio))
-            tab_pad_h = max(6, int(10 * ratio))
+            tab_pad_v = max(2 if compact_mode else 3, int(5 * ratio))
+            tab_pad_h = max(4 if compact_mode else 6, int(10 * ratio))
             self.tabs.setStyleSheet(
                 f"""
                 QTabWidget::pane {{ border: none; }}
@@ -4182,7 +4507,7 @@ class RiskVolumeApp(QMainWindow):
                     color: #A8A8A8;
                     background: #1A1A1A;
                     outline: none;
-                    font-size: {max(6, int(6*ratio))}pt;
+                    font-size: {max(5 if compact_mode else 6, int(6*ratio))}pt;
                 }}
                 QTableWidget::item:focus {{
                     border: none;
@@ -4202,7 +4527,7 @@ class RiskVolumeApp(QMainWindow):
                     border: 1px solid #333 !important;
                     border-radius: {max(4, int(4*ratio))}px;
                     padding: {table_edit_pad}px;
-                    font-size: {max(8, int(9*ratio))}pt;
+                    font-size: {max(6 if compact_mode else 8, int(9*ratio))}pt;
                     selection-background-color: rgba(90, 205, 80, 150);
                     selection-color: white;
                 }}
@@ -4210,13 +4535,9 @@ class RiskVolumeApp(QMainWindow):
             )
             self.update_cells_table_height()
 
-        btn_pad = max(4, int(7 * ratio))
+        btn_pad = max(2 if compact_mode else 4, int(7 * ratio))
         pos_toggle_pad_v = max(1, int(2 * ratio))
         pos_toggle_min_h = max(14, int(16 * ratio))
-        if hasattr(self, "btn_calib_calc"):
-            self.btn_calib_calc.setStyleSheet(
-                f"background: #333; color: white; padding: {btn_pad}px;"
-            )
         if hasattr(self, "btn_submit"):
             self.btn_submit.setStyleSheet(
                 f"background: #38BE1D; color: black; font-weight: bold; padding: {btn_pad}px;"
@@ -4236,7 +4557,7 @@ class RiskVolumeApp(QMainWindow):
         pos_lbl_pt = max(7, int(8 * ratio))
         pos_input_pt = max(7, int(8 * ratio))
         pos_hint_pt = max(7, int(8 * ratio))
-        pos_input_h = max(20, int(22 * ratio))
+        pos_input_h = max(16 if compact_mode else 20, int(22 * ratio))
 
         for name in (
             "lbl_pos_vol_title",
@@ -4295,7 +4616,15 @@ class RiskVolumeApp(QMainWindow):
         ):
             widget = getattr(self, name, None)
             if widget:
-                widget.setFixedSize(max(28, int(34 * ratio)), max(22, int(25 * ratio)))
+                widget.setFixedSize(
+                    max(22 if compact_mode else 28, int(34 * ratio)),
+                    max(18 if compact_mode else 22, int(25 * ratio)),
+                )
+
+        if hasattr(self, "w_cells_bottom_guard"):
+            self.w_cells_bottom_guard.setFixedHeight(
+                max(1 if compact_mode else 2, int((6 if compact_mode else 10) * ratio))
+            )
 
         if hasattr(self, "lbl_status"):
             self.lbl_status.setStyleSheet(f"color: #666; font-size: {self._scaled_pt(7)}pt;")
@@ -4311,6 +4640,30 @@ class RiskVolumeApp(QMainWindow):
         # Второй проход после применения стилей/DPI-метрик,
         # чтобы таблица калькулятора гарантированно не заходила под кнопку.
         self._schedule_cells_layout_reflow()
+
+    def _ensure_keyboard_module(self):
+        global keyboard
+        if keyboard is not None:
+            return True
+        try:
+            import keyboard as keyboard_module
+
+            keyboard = keyboard_module
+            return True
+        except Exception:
+            return False
+
+    def _ensure_pyautogui_module(self):
+        global pyautogui
+        if pyautogui is not None:
+            return True
+        try:
+            import pyautogui as pyautogui_module
+
+            pyautogui = pyautogui_module
+            return True
+        except Exception:
+            return False
 
     def _schedule_cells_layout_reflow(self):
         if self._cells_layout_reflow_pending:
@@ -4331,6 +4684,9 @@ class RiskVolumeApp(QMainWindow):
 
     # --- УПРАВЛЕНИЕ ГОРЯЧИМИ КЛАВИШАМИ (ИСПРАВЛЕНО) ---
     def _clear_registered_hotkeys(self):
+        if not self._ensure_keyboard_module():
+            self._hotkey_ids = {}
+            return
         for _, hotkey_id in list(self._hotkey_ids.items()):
             try:
                 keyboard.remove_hotkey(hotkey_id)
@@ -4352,6 +4708,9 @@ class RiskVolumeApp(QMainWindow):
         self.settings[key_name] = fallback
 
     def rebind_hotkeys(self):
+        if not self._ensure_keyboard_module():
+            return
+
         def normalize_hotkey(hotkey_value, fallback):
             value = str(hotkey_value or "").strip().lower()
             value = value.replace(" ", "")
@@ -4459,6 +4818,9 @@ class RiskVolumeApp(QMainWindow):
 
     def send_volume_to_terminal(self):
         """Отправляет объемы ячеек в терминал"""
+        if not self._ensure_pyautogui_module() or not self._ensure_keyboard_module():
+            return
+
         t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
         active_rows = sorted(self._get_active_rows_for_table())
         is_reversed = self.settings.get("cells_reversed", False)
@@ -4811,6 +5173,19 @@ class RiskVolumeApp(QMainWindow):
 
     def capture_coords(self):
         """Захватывает координаты ячеек (ровно столько, сколько нужно)"""
+        if not self._ensure_pyautogui_module():
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_status.setText(
+                t.get(
+                    "calc_capture_module_error",
+                    "Ошибка калибровки: не удалось загрузить модуль управления мышью",
+                )
+            )
+            self.lbl_status.setStyleSheet(
+                f"color: #FF6B6B; font-size: {self._scaled_pt(7)}pt;"
+            )
+            return
+
         if not getattr(self, "calc_calibration_active", False):
             configured = self._get_terminal_cells_count()
 
@@ -4843,7 +5218,20 @@ class RiskVolumeApp(QMainWindow):
 
         cells_count = self._get_terminal_cells_count()
 
-        x, y = pyautogui.position()
+        try:
+            x, y = pyautogui.position()
+        except Exception:
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self.lbl_status.setText(
+                t.get(
+                    "calc_capture_position_error",
+                    "Ошибка калибровки: не удалось получить позицию курсора",
+                )
+            )
+            self.lbl_status.setStyleSheet(
+                f"color: #FF6B6B; font-size: {self._scaled_pt(7)}pt;"
+            )
+            return
 
         if self._is_menu_terminal():
             requires_final_point = self._menu_terminal_requires_final_point()
@@ -5345,8 +5733,12 @@ class RiskVolumeApp(QMainWindow):
         # Fallback, если sizeHint еще не готов
         if row_height <= 0:
             scale = self.settings.get("scale", self.base_scale)
-            ratio = scale / self.base_scale if self.base_scale else 1.0
-            row_height = max(20, int(28 * ratio))
+            try:
+                ratio = int(scale) / float(self.base_scale) if self.base_scale else 1.0
+            except Exception:
+                ratio = 1.0
+            min_row_h = 16 if int(scale) < 100 else 20
+            row_height = max(min_row_h, int(28 * ratio))
 
         # Фиксируем высоту строк, чтобы 5 строк всегда были видны
         for i in range(self.cells_table.rowCount()):
@@ -5360,16 +5752,31 @@ class RiskVolumeApp(QMainWindow):
         rows_height = self.cells_table.verticalHeader().length()
 
         # Добавляем небольшой буфер, чтобы нижняя строка никогда не обрезалась.
+        scale = self.settings.get("scale", self.base_scale)
+        try:
+            ratio = int(scale) / float(self.base_scale) if self.base_scale else 1.0
+        except Exception:
+            ratio = 1.0
+        bottom_buffer = max(6, int(8 * ratio))
+
         table_height = (
             header_height
             + rows_height
             + (self.cells_table.frameWidth() * 2)
-            + 4
+            + bottom_buffer
         )
+
+        # Keep full table body visible even when style metrics are reported late.
+        min_rows_height = row_height * max(1, int(self.cells_table.rowCount()))
+        table_height = max(
+            table_height,
+            header_height + min_rows_height + (self.cells_table.frameWidth() * 2) + bottom_buffer,
+        )
+
         self.cells_table.setFixedHeight(table_height)
 
         if self.isVisible():
-            self._set_window_size_with_extra_height()
+            self._set_window_size_with_extra_height(grow_only=False)
 
     def on_table_item_clicked(self, item):
         """Обработчик клика по ячейке: toggle-мультивыбор в колонке 0, редактирование в колонке 2"""
@@ -5510,6 +5917,7 @@ class RiskVolumeApp(QMainWindow):
         self.update_cells_table_height()
         self._adapt_window_width_to_content()
         self._set_window_size_with_extra_height()
+        self._ensure_window_on_screen(margin=6, prefer_active=True)
         if self._startup_window_size is None:
             self._startup_window_size = (int(self.width()), int(self.height()))
         if not self._resize_len_baseline:
@@ -6144,7 +6552,13 @@ class RiskVolumeApp(QMainWindow):
     def closeEvent(self, event):
         """Сохраняет позицию окна при закрытии"""
         self._clear_pf_preview_frames()
+        self._ensure_window_on_screen(margin=6)
         self.settings["window_pos"] = [self.x(), self.y()]
+        self.settings["window_size"] = [int(self.width()), int(self.height())]
+        self.settings["window_size_scale"] = int(
+            self.settings.get("scale", self.base_scale) or self.base_scale
+        )
+        self.settings["window_size_v2"] = True
         self.settings["pos_table_volume_override"] = float(
             getattr(self, "table_volume_override", 0.0) or 0.0
         )
@@ -6162,7 +6576,13 @@ class RiskVolumeApp(QMainWindow):
             except Exception:
                 pass
             self._clear_pf_preview_frames()
+            self._ensure_window_on_screen(margin=6)
             self.settings["window_pos"] = [self.x(), self.y()]
+            self.settings["window_size"] = [int(self.width()), int(self.height())]
+            self.settings["window_size_scale"] = int(
+                self.settings.get("scale", self.base_scale) or self.base_scale
+            )
+            self.settings["window_size_v2"] = True
             self.settings["pos_table_volume_override"] = float(
                 getattr(self, "table_volume_override", 0.0) or 0.0
             )
@@ -6170,9 +6590,92 @@ class RiskVolumeApp(QMainWindow):
         except Exception:
             pass
 
+    def _reveal_startup_window(self):
+        if self._startup_reveal_done:
+            return
+        self._startup_reveal_done = True
+        try:
+            self.setWindowOpacity(1.0)
+        except Exception:
+            pass
+        self._start_startup_window_suppression()
+        if not self._hotkeys_initialized:
+            try:
+                self.rebind_hotkeys()
+                self._hotkeys_initialized = True
+            except Exception:
+                pass
+        try:
+            self._apply_auto_deposit_sync(force_now=True)
+        except Exception:
+            pass
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._startup_reveal_done:
+            QTimer.singleShot(0, self._reveal_startup_window)
+
+    def _start_startup_window_suppression(self):
+        if sys.platform != "win32":
+            return
+        self._startup_window_suppress_deadline = time.time() + 2.0
+        if self._startup_window_suppress_timer is None:
+            self._startup_window_suppress_timer = QTimer(self)
+            self._startup_window_suppress_timer.timeout.connect(
+                self._suppress_unexpected_startup_windows
+            )
+        self._startup_window_suppress_timer.start(25)
+
+    def _suppress_unexpected_startup_windows(self):
+        if sys.platform != "win32":
+            if self._startup_window_suppress_timer is not None:
+                self._startup_window_suppress_timer.stop()
+            return
+
+        if time.time() >= float(self._startup_window_suppress_deadline):
+            if self._startup_window_suppress_timer is not None:
+                self._startup_window_suppress_timer.stop()
+            return
+
+        try:
+            user32 = ctypes.windll.user32
+            current_pid = os.getpid()
+            main_hwnd = int(self.winId()) if self.winId() else 0
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            pid_buf = ctypes.c_ulong(0)
+
+            def _enum_proc(hwnd, lparam):
+                try:
+                    if not user32.IsWindowVisible(hwnd):
+                        return True
+                    if int(hwnd) == int(main_hwnd):
+                        return True
+
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_buf))
+                    if int(pid_buf.value) != int(current_pid):
+                        return True
+
+                    # Hide only framed top-level windows that are not the main app window.
+                    GWL_STYLE = -16
+                    WS_CAPTION = 0x00C00000
+                    style = int(user32.GetWindowLongW(hwnd, GWL_STYLE))
+                    if style & WS_CAPTION:
+                        user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                except Exception:
+                    pass
+                return True
+
+            user32.EnumWindows(WNDENUMPROC(_enum_proc), 0)
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
+    _relaunch_with_pythonw_if_needed()
+    _hide_console_window_on_windows()
+    _configure_windows_multiprocessing_executable()
     existing_qt_rules = os.environ.get("QT_LOGGING_RULES", "")
     dpi_noise_rule = "qt.qpa.window.warning=false"
     if dpi_noise_rule not in existing_qt_rules:
@@ -6196,5 +6699,9 @@ if __name__ == "__main__":
     app.setQuitOnLastWindowClosed(False)
     _force_consistent_qt_theme(app)
     win = RiskVolumeApp()
-    win.show()
+
+    def _show_main_window():
+        win.show()
+
+    QTimer.singleShot(0, _show_main_window)
     sys.exit(app.exec())

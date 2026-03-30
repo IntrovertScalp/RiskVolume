@@ -1039,12 +1039,11 @@ class CascadeTab(QWidget):
         ratio = scale / float(base_scale)
         sc = scale / 100.0
 
-        # Динамическая подстройка spacing при высоких масштабах для предотвращения наложения текста
-        # При 100% (130) - базовый spacing, при 170% (200) - увеличиваем в ~1.5 раза
+        # Uniform spacing scaling with current UI scale.
         base_h_spacing = 12
         base_v_spacing = 8
-        h_spacing = max(12, int(base_h_spacing * (scale / 130.0)))
-        v_spacing = max(8, int(base_v_spacing * (scale / 130.0)))
+        h_spacing = max(4, int(base_h_spacing * ratio))
+        v_spacing = max(3, int(base_v_spacing * ratio))
         self.grid_settings.setHorizontalSpacing(h_spacing)
         self.grid_settings.setVerticalSpacing(v_spacing)
 
@@ -1062,6 +1061,15 @@ class CascadeTab(QWidget):
         btn_h = max(9, int(9 * sc))
         input_w = max(26, compact_w - (btn_w * 2) - 6)
         field_h = max(14, int(14 * sc))
+
+        # At scale 100 these controls were too short and clipped digits.
+        # Keep other scales unchanged.
+        if int(scale) == 100:
+            field_h = max(field_h, 22)
+            btn_h = max(btn_h, 18)
+            btn_w = max(btn_w, 12)
+            input_w = max(26, compact_w - (btn_w * 2) - 6)
+
         for spin, left_btn, right_btn in (
             (self.sb_count, self.sb_count_left, self.sb_count_right),
             (self.sb_min, self.sb_min_left, self.sb_min_right),
@@ -1079,11 +1087,15 @@ class CascadeTab(QWidget):
         self.sb_dist_wrap.setFixedHeight(field_h)
         self.sb_range_wrap.setFixedHeight(field_h)
         self.sb_manual_k_wrap.setFixedHeight(field_h)
+
+        # Top custom value fields need a bit more vertical room than compact spin wrappers,
+        # otherwise digits can look clipped on some DPI/font combinations.
+        custom_line_h = max(field_h + 4, 26)
         if hasattr(self, "inp_custom_total"):
-            self.inp_custom_total.setFixedHeight(field_h)
+            self.inp_custom_total.setFixedHeight(custom_line_h)
             self.inp_custom_total.setMinimumWidth(max(80, int(90 * sc)))
         if hasattr(self, "inp_custom_percent"):
-            self.inp_custom_percent.setFixedHeight(field_h)
+            self.inp_custom_percent.setFixedHeight(custom_line_h)
             self.inp_custom_percent.setMinimumWidth(max(80, int(90 * sc)))
         if hasattr(self, "inp_max_limit"):
             self.inp_max_limit.setFixedHeight(field_h)

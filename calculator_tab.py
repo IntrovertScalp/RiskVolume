@@ -65,6 +65,7 @@ def init_calculator_tab(app):
     main_layout.setContentsMargins(4, 4, 4, 4)
     main_layout.setSpacing(4)
     app.calc_layout = main_layout
+
     v_reg = QRegularExpressionValidator(QRegularExpression(r"[0-9]*[.,]?[0-9]*"))
 
     t = TRANS.get(app.settings.get("lang", "ru"), TRANS["ru"])
@@ -377,7 +378,7 @@ def init_calculator_tab(app):
 
     pos_adjust_row = QHBoxLayout()
     pos_adjust_row.setContentsMargins(0, 0, 0, 0)
-    pos_adjust_row.setSpacing(0)
+    pos_adjust_row.setSpacing(8)
     pos_adjust_row.addWidget(app.lbl_pos_adjust, 0)
     pos_adjust_row.addWidget(
         app.lbl_pos_action_chip,
@@ -572,6 +573,16 @@ def init_calculator_tab(app):
     app.cells_table.itemClicked.connect(app.on_table_item_clicked)
     main_layout.addWidget(app.cells_table)
 
+    # Guard gap between table and action buttons: prevents visual collisions at high scales.
+    app.w_cells_bottom_guard = QWidget()
+    app.w_cells_bottom_guard.setObjectName("CellsBottomGuard")
+    app.w_cells_bottom_guard.setFixedHeight(2)
+    app.w_cells_bottom_guard.setSizePolicy(
+        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.Fixed,
+    )
+    main_layout.addWidget(app.w_cells_bottom_guard)
+
     # --- КНОПКА ВЫСТАВИТЬ ---
     apply_row = QHBoxLayout()
     apply_row.setContentsMargins(0, 0, 0, 0)
@@ -694,11 +705,20 @@ def init_calculator_tab(app):
     pf_targets_row.addWidget(app.btn_pf_targets_toggle_all)
 
     app.pf_targets_widget = QWidget()
+    app.pf_targets_widget.setSizePolicy(
+        QSizePolicy.Policy.Expanding,
+        QSizePolicy.Policy.Minimum,
+    )
+    app.pf_targets_widget.setMinimumHeight(22)
     app.pf_targets_layout = QGridLayout(app.pf_targets_widget)
     app.pf_targets_layout.setContentsMargins(0, 0, 0, 0)
     app.pf_targets_layout.setHorizontalSpacing(4)
     app.pf_targets_layout.setVerticalSpacing(2)
-    pf_targets_row.addWidget(app.pf_targets_widget, 1)
+    pf_targets_row.addWidget(
+        app.pf_targets_widget,
+        1,
+        Qt.AlignmentFlag.AlignVCenter,
+    )
 
     pf_controls_layout.addLayout(pf_targets_row)
 
