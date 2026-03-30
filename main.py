@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QStyleFactory,
     QMainWindow,
+    QDialog,
     QVBoxLayout,
     QWidget,
     QLineEdit,
@@ -305,6 +306,7 @@ class RiskVolumeApp(QMainWindow):
         self._status_neutral_token = 0
         self._pf_preview_frames = []
         self._pf_preview_token = 0
+        self._settings_dialog = None
 
         self.init_ui()
         self._calc_update_timer = QTimer(self)
@@ -421,6 +423,10 @@ class RiskVolumeApp(QMainWindow):
             "auto_dep_exchange": "binance",
             "auto_dep_market": "futures",
             "auto_dep_asset": "USDT",
+            "auto_dep_connected": False,
+            "auto_dep_connected_exchange": "",
+            "auto_dep_connected_market": "",
+            "auto_dep_allow_unverified": False,
             "auto_apply_terminal": "profit_forge",
             "calc_points_profit_forge": [],
             "calc_points_metascalp": [],
@@ -686,7 +692,7 @@ class RiskVolumeApp(QMainWindow):
         return result
 
     def _validate_binance_read_only_key(self, api_key, api_secret, market_type):
-        try:
+        def _signed_get_json(base_url, path, timeout_sec=5):
             timestamp_ms = int(time.time() * 1000)
             params = {"timestamp": timestamp_ms, "recvWindow": 5000}
             query = urlencode(params)
@@ -696,25 +702,42 @@ class RiskVolumeApp(QMainWindow):
                 hashlib.sha256,
             ).hexdigest()
             headers = {"X-MBX-APIKEY": str(api_key)}
+            url = f"{base_url}{path}?{query}&signature={signature}"
+            response = requests.get(url, headers=headers, timeout=timeout_sec)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict) and data.get("code") and data.get("msg"):
+                raise RuntimeError(f"{data.get('code')}: {data.get('msg')}")
+            return data
 
+        try:
+            # First verify credentials against the selected market endpoint.
             if market_type == "spot":
-                url = f"https://api.binance.com/api/v3/account?{query}&signature={signature}"
-                response = requests.get(url, headers=headers, timeout=5)
-                response.raise_for_status()
-                data = response.json()
-                if isinstance(data, dict) and data.get("code") and data.get("msg"):
-                    raise RuntimeError(f"{data.get('code')}: {data.get('msg')}")
-                can_trade = bool(data.get("canTrade", False))
+                _signed_get_json("https://api.binance.com", "/api/v3/account")
             else:
-                url = f"https://fapi.binance.com/fapi/v2/account?{query}&signature={signature}"
-                response = requests.get(url, headers=headers, timeout=5)
-                response.raise_for_status()
-                data = response.json()
-                if isinstance(data, dict) and data.get("code") and data.get("msg"):
-                    raise RuntimeError(f"{data.get('code')}: {data.get('msg')}")
-                can_trade = bool(data.get("canTrade", False))
+                _signed_get_json("https://fapi.binance.com", "/fapi/v2/account")
 
-            if can_trade:
+            # IMPORTANT: /account canTrade is account-level and may be true even for read-only API keys.
+            # Use apiRestrictions when available to determine key permissions.
+            restrictions = None
+            try:
+                restrictions = _signed_get_json(
+                    "https://api.binance.com", "/sapi/v1/account/apiRestrictions"
+                )
+            except Exception:
+                restrictions = None
+
+            has_trading_permission = False
+            if isinstance(restrictions, dict):
+                if market_type == "spot":
+                    has_trading_permission = bool(
+                        restrictions.get("enableSpotAndMarginTrading", False)
+                        or restrictions.get("enableMargin", False)
+                    )
+                else:
+                    has_trading_permission = bool(restrictions.get("enableFutures", False))
+
+            if has_trading_permission:
                 t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
                 return False, t.get(
                     "api_key_not_read_only",
@@ -741,7 +764,22 @@ class RiskVolumeApp(QMainWindow):
             self.showMinimized()
 
     def open_settings(self):
-        if SettingsDialog(self).exec():
+        if self._settings_dialog is not None and self._settings_dialog.isVisible():
+            self._settings_dialog.raise_()
+            self._settings_dialog.activateWindow()
+            return
+
+        dlg = SettingsDialog(self)
+        dlg.setModal(False)
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        dlg.finished.connect(self._on_settings_dialog_finished)
+        self._settings_dialog = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _on_settings_dialog_finished(self, result):
+        if result == QDialog.DialogCode.Accepted:
             # Настройки уже применяются внутри save_and_close() диалога.
             # Здесь только мягко синхронизируем расчеты/таблицу.
             self.schedule_update_calc()
@@ -749,22 +787,62 @@ class RiskVolumeApp(QMainWindow):
             if hasattr(self, "cells_table"):
                 self.update_cell_volumes()
 
+        self._settings_dialog = None
+
     def _apply_auto_deposit_sync(self, force_now=False):
         if not hasattr(self, "_auto_dep_timer"):
             return
 
         enabled = bool(self.settings.get("auto_dep_enabled", False))
+        connected = self._is_auto_dep_connection_ready()
         if hasattr(self, "btn_dep_refresh"):
-            self.btn_dep_refresh.setVisible(enabled)
-        if enabled:
+            self.btn_dep_refresh.setVisible(enabled and connected)
+        if enabled and connected:
             # Интервал до 1 минуты: достаточно оперативно и без лишней нагрузки.
             self._auto_dep_timer.start(45 * 1000)
             self._set_auto_dep_status("loading")
             if force_now:
                 QTimer.singleShot(100, self._sync_deposit_from_exchange)
+        elif enabled:
+            self._auto_dep_timer.stop()
+            t = TRANS.get(self.settings.get("lang", "ru"), TRANS["ru"])
+            self._set_auto_dep_status(
+                "error",
+                t.get(
+                    "auto_dep_connect_required",
+                    "Press Connect in settings before auto-fill can start.",
+                ),
+            )
         else:
             self._auto_dep_timer.stop()
             self._set_auto_dep_status("off")
+
+    def _is_auto_dep_connection_ready(self):
+        if not bool(self.settings.get("auto_dep_enabled", False)):
+            return False
+
+        if not bool(self.settings.get("auto_dep_connected", False)):
+            return False
+
+        selected_exchange = str(
+            self.settings.get("auto_dep_exchange", "binance") or "binance"
+        ).strip().lower()
+        selected_market = str(
+            self.settings.get("auto_dep_market", "futures") or "futures"
+        ).strip().lower()
+
+        connected_exchange = str(
+            self.settings.get("auto_dep_connected_exchange", "") or ""
+        ).strip().lower()
+        connected_market = str(
+            self.settings.get("auto_dep_connected_market", "") or ""
+        ).strip().lower()
+
+        if selected_exchange != connected_exchange or selected_market != connected_market:
+            return False
+
+        api_key, api_secret, _ = self._get_auto_dep_credentials(selected_exchange)
+        return bool(api_key and api_secret)
 
     def _set_auto_dep_status(self, state, message=None):
         if not hasattr(self, "lbl_dep_api_status"):
@@ -793,6 +871,9 @@ class RiskVolumeApp(QMainWindow):
 
     def manual_refresh_deposit(self):
         if not bool(self.settings.get("auto_dep_enabled", False)):
+            return
+        if not self._is_auto_dep_connection_ready():
+            self._apply_auto_deposit_sync(force_now=False)
             return
         self._sync_deposit_from_exchange(manual=True)
 
@@ -969,6 +1050,9 @@ class RiskVolumeApp(QMainWindow):
             return
         if not bool(self.settings.get("auto_dep_enabled", False)) and not manual:
             return
+        if not self._is_auto_dep_connection_ready():
+            self._apply_auto_deposit_sync(force_now=False)
+            return
         if not hasattr(self, "inp_dep") or self.inp_dep is None:
             return
         if self.inp_dep.hasFocus() and not manual:
@@ -987,17 +1071,19 @@ class RiskVolumeApp(QMainWindow):
             self._set_auto_dep_status("error", "Empty API key/secret")
             return
 
-        is_read_only, reason = self.validate_auto_dep_credentials_read_only(
-            exchange_id,
-            api_key,
-            api_secret,
-            market_type,
-            api_passphrase,
-            use_cache=True,
-        )
-        if not is_read_only:
-            self._set_auto_dep_status("error", reason)
-            return
+        allow_unverified = bool(self.settings.get("auto_dep_allow_unverified", False))
+        if not allow_unverified:
+            is_read_only, reason = self.validate_auto_dep_credentials_read_only(
+                exchange_id,
+                api_key,
+                api_secret,
+                market_type,
+                api_passphrase,
+                use_cache=True,
+            )
+            if not is_read_only:
+                self._set_auto_dep_status("error", reason)
+                return
 
         self._auto_dep_sync_busy = True
         self._set_auto_dep_status("loading")
@@ -3971,6 +4057,28 @@ class RiskVolumeApp(QMainWindow):
             QHeaderView::section {{ background: #252525; color: #888; border: 1px solid #333; }}
         """
         )
+
+        # Global context menu styling for right-click menus in line edits and other widgets.
+        app = QApplication.instance()
+        if app is not None:
+            menu_style = (
+                "\n/* RV_GLOBAL_QMENU_STYLE */\n"
+                "QMenu { background-color: #121212; border: 1px solid #333; padding: 4px; }\n"
+                "QMenu::item { color: #EAEAEA; background: transparent; padding: 6px 18px; }\n"
+                "QMenu::item:selected { background: #2A7F4A; color: #FFFFFF; }\n"
+                "QMenu::separator { height: 1px; background: #2F2F2F; margin: 4px 8px; }\n"
+                "/* RV_GLOBAL_QMENU_STYLE_END */\n"
+            )
+            current_style = app.styleSheet() or ""
+            marker_start = "/* RV_GLOBAL_QMENU_STYLE */"
+            marker_end = "/* RV_GLOBAL_QMENU_STYLE_END */"
+            if marker_start in current_style and marker_end in current_style:
+                start = current_style.find(marker_start)
+                end = current_style.find(marker_end)
+                if start != -1 and end != -1 and end >= start:
+                    end = end + len(marker_end)
+                    current_style = current_style[:start] + current_style[end:]
+            app.setStyleSheet((current_style.rstrip() + "\n" + menu_style).strip())
         # Масштабируем размеры элементов равномерно относительно базового масштаба
         if hasattr(self, "main_layout"):
             self.main_layout.setContentsMargins(
